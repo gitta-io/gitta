@@ -1,0 +1,90 @@
+<!-- title: Quick start | group: Get started | order: 3 | desc: Set up gitta with your test command, start two AI coding agents in parallel, and merge their work with plain git while gitta tests the combined code first. | seo: Quick start with two parallel AI agents -->
+<h1>Quick start</h1>
+<p class="lede">Set up gitta once in a repository, then work as usual. Your agents keep their tools and you keep <code>git merge</code>. The example below has two agents working in one Python repository at the same time.</p>
+
+<h2>1. Set up the repository</h2>
+<p>Go to your repository and run <code>gitta init</code>. Give it the command that runs your tests. gitta calls this command the gate.</p>
+<term>$ cd ~/src/gitta
+$ gitta init --gate "python3 -m unittest discover -s bench/aidev-replay -q"
+gitta is set up in gitta.
+
+It watches the 2 agent worktrees ci-level, ci99. Every worktree an agent tool creates from now on is picked up on its own.
+After every step an agent takes, gitta looks at what it changed. When one agent changes a function that another agent's new code calls, gitta tells that agent right away, so it can adapt before anything reaches main.
+Merging works as always, with git merge, git pull or git push. gitta hooks into those commands and runs `python3 -m unittest discover -s bench/aidev-replay -q` on the combined code first. If the tests fail, it stops the merge and says which test failed and why.
+Claude Code hooks added to ~/.claude/settings.json (backup next to it). They stay silent outside gitta repositories.
+When gitta tells an agent about a clash, the agent fixes its code itself and mentions it to you in one sentence in its chat.
+gitta never asks you anything. When a merge removes tests or weakens a security check, it says so in the merge output and in the log. The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block.
+To share the test command and rules with your team and the CI check, run `gitta init --team` and commit .gitta.toml.
+
+Start your agents the way you always do. `gitta watch` shows what gitta does as it happens, and `tail -f .gitta/gitta.log` follows the same story as plain lines.</term>
+<p>To share the test command and the rules with your team, run <code>gitta init --team</code> and commit the <code>.gitta.toml</code> it writes. A reviewed commit then changes them, and the CI check reads the same file. See <a href="commands.html#team-policy">Team policy</a>.</p>
+<term>$ gitta init --team
+$ git add .gitta.toml && git commit -m "gitta team policy"</term>
+<p>gitta protects the branch you are on, here <code>main</code>. Use <code>--onto BRANCH</code> to protect a different branch. Run <code>gitta init --help</code> for every option.</p>
+<div class="note"><b>What init changes</b>It writes its settings to <code>.gitta/</code> and hides that folder from Git. It adds git hooks for merge, pull and push, and keeps any hooks you already have, which still run first. It adds hooks for Claude Code, and MCP entries for Cursor and Codex if they are installed. It merges into existing settings files and keeps a backup next to each one. See <a href="agents.html">Agents</a> for the details.</div>
+
+<h2>2. Let the agents work</h2>
+<p>Start your agents the way you always do. Each agent works in its own Git worktree, and gitta finds every worktree by itself, whichever tool made it.</p>
+<p>The agent in <code>ci-level</code> makes <code>z</code> a keyword-only argument of <code>wilson</code> and adds a test for it. The agent in <code>ci99</code> writes a new function, <code>ci99</code>, that still passes <code>z</code> by position. Each agent's own tests pass. At its next step, the agent in <code>ci99</code> reads this in its session:</p>
+<term title="In the ci99 agent's session">Gitta: agent ci-level changed `wilson`, which your new code in bench/aidev-replay/analyze.py calls. Check that your code still fits. Their version: bench/aidev-replay/analyze.py:23: def wilson(k, n, *, z=1.96):
+
+Handle it yourself and tell the user in one sentence.</term>
+<p>The agent fixes its call and tells you in its chat what gitta caught.</p>
+
+<h2>3. Merge with git</h2>
+<p>Merge the way you always do. gitta tests the combined code when an agent commits on its branch, and again in the background when main moves, so the merge itself only looks up the result and holds main for a moment. When another agent merges at the same moment, git waits for it instead of failing on a lock. When the tests pass, gitta adds nothing to the git output.</p>
+<term>$ git merge --no-edit ci-level
+Updating e109176..270c946
+Fast-forward
+ bench/aidev-replay/analyze.py     | 2 +-
+ bench/aidev-replay/test_wilson.py | 9 +++++++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+ create mode 100644 bench/aidev-replay/test_wilson.py</term>
+<p>If you merge <code>ci99</code> before its agent has fixed the call, gitta stops the merge and says why:</p>
+<term>$ git merge --no-edit ci99
+Auto-merging bench/aidev-replay/analyze.py
+gitta: tests fail on main with ci99 (test_ci99.T.test_wider); main unchanged, merge cancelled (ignore git's note). Fix it and merge again.
+    TypeError: wilson() takes 2 positional arguments but 3 were given
+Now on main: bench/aidev-replay/analyze.py:23: def wilson(k, n, *, z=1.96):
+Not committing merge; use 'git commit' to complete the merge.</term>
+<p>There is nothing to clean up. gitta cancels the stopped attempt by itself. If you had other uncommitted changes, it leaves them alone and asks you to run <code>git merge --abort</code> instead.</p>
+<p>Once the fix is in, the same command goes through:</p>
+<term>$ git merge --no-edit ci99
+Auto-merging bench/aidev-replay/analyze.py
+Merge made by the 'ort' strategy.
+ bench/aidev-replay/analyze.py   | 5 +++++
+ bench/aidev-replay/test_ci99.py | 9 +++++++++
+ 2 files changed, 14 insertions(+)
+ create mode 100644 bench/aidev-replay/test_ci99.py</term>
+<p><code>git pull</code> and <code>git push</code> to main get the same check.</p>
+
+<h2>4. Watch gitta work</h2>
+<p><code>gitta watch</code> opens a live terminal view. It shows each agent and what it is doing, the latest events and today's counts. Press <kbd>q</kbd> to quit. <code>gitta watch --once</code> prints the same story once:</p>
+<term>$ gitta watch --once
+Today gitta checked 3 changes, caught 1 clash before main, and merged 2 pieces of work.
+16:43:57   gitta is set up. It checks every agent worktree in this repository against main.
+16:43:57   gitta found the agent worktree ci-level and checks its changes from now on.
+16:43:57   gitta found the agent worktree ci99 and checks its changes from now on.
+16:43:57   ci-level edited analyze.py, test_wilson.py. Nothing else is affected.
+16:43:58 ! ci99's new code in bench/aidev-replay/analyze.py calls wilson, which ci-level changed. gitta told ci99 before anything reached main.
+16:43:59 + Tests passed on main combined with ci-level's changes. ci-level was merged into main with git merge.
+16:44:00   gitta stopped the git merge: tests fail on main combined with ci99 (test_ci99.T.test_wider).
+16:44:00   gitta cancelled the stopped merge attempt, so main is as it was.
+16:44:00   ci99's new code in bench/aidev-replay/analyze.py calls wilson, which changed on main. The tests at merge time decide.
+16:44:00 + ci99 changed analyze.py to fit ci-level's change to wilson. That clash is solved.
+16:44:01 + Tests passed on main combined with ci99's changes. ci99 was merged into main with git merge.</term>
+<p>The same events go to <code>.gitta/gitta.log</code>, one line each. Follow it in any terminal:</p>
+<term>$ tail -f .gitta/gitta.log
+16:43:58 ci99's new code in bench/aidev-replay/analyze.py calls wilson, which ci-level changed. gitta told ci99 before anything reached main.
+16:43:59 Tests passed on main combined with ci-level's changes. ci-level was merged into main with git merge.
+16:44:00 gitta stopped the git merge: tests fail on main combined with ci99 (test_ci99.T.test_wider).
+16:44:00 gitta cancelled the stopped merge attempt, so main is as it was.</term>
+
+<h2>Next steps</h2>
+<ul>
+  <li><a href="how-it-works.html">How gitta works</a> explains the parts.</li>
+  <li><a href="warnings.html">Warnings and sync</a> lists every warning, including the security checks.</li>
+  <li><a href="landing.html">Merging</a> lists every check gitta runs when you merge.</li>
+  <li><a href="pull-requests.html">Pull requests and CI</a> covers cloud agents that open pull requests.</li>
+  <li>For COBOL and JCL with gitta Enterprise, read the <a href="https://gitta.io/docs/mainframe.html">Mainframe guide</a>.</li>
+</ul>

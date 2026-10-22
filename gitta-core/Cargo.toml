@@ -1,0 +1,33 @@
+[package]
+name = "gitta-core"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/gitta-io/gitta"
+homepage = "https://gitta.io"
+description = "gitta core: symbol extraction and cross-agent hazard analysis for Python, TypeScript, Go, Java, Rust, C# and Kotlin"
+
+[dependencies]
+tree-sitter = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-typescript = "0.23"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+tree-sitter-go = "0.25.0"
+tree-sitter-rust = "0.24.2"
+tree-sitter-java = "0.23.5"
+tree-sitter-c-sharp = "0.23.5"
+tree-sitter-kotlin-ng = "1.1.0"
+tree-sitter-c = "0.24.1"
+tree-sitter-cpp = "0.23.4"
+memchr = "2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = "symbols"
+panic = "unwind"   # the MCP server catches tool panics with catch_unwind; "abort" would kill the session
+incremental = false
+overflow-checks = false

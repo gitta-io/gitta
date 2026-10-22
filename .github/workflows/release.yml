@@ -1,0 +1,135 @@
+# Release: build gitta for Linux, macOS and Windows on GitHub's runners, package, checksum, and publish a GitHub release
+# with an install script and a Homebrew formula for this release. Trigger: push a tag v*.
+# https://gitta.io/install.sh, /dl and /latest serve the files of the newest GitHub release.
+name: Release
+on:
+  push: { tags: ["v*"] }
+  workflow_dispatch: { inputs: { version: { description: "Version label for a test build", default: "0.0.0-test" } } }
+permissions: { contents: write }
+env:
+  SRC: "."
+jobs:
+  test:
+    strategy: { matrix: { os: [ubuntu-latest, macos-latest] } }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests (core, CLI end to end)
+        shell: bash
+        run: |
+          git config --global user.name ci && git config --global user.email ci@localhost
+          cargo test --release --quiet --manifest-path "$SRC/gitta-core/Cargo.toml" --lib
+          cargo test --release --quiet --manifest-path "$SRC/gitta-cli/Cargo.toml"
+  build:
+    needs: test
+    timeout-minutes: 40
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl,  os: ubuntu-latest,    linux: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, linux: true }
+          - { target: aarch64-apple-darwin,       os: macos-latest,     linux: false }
+          - { target: x86_64-apple-darwin,        os: macos-latest,     linux: false }
+          - { target: x86_64-pc-windows-msvc,    os: windows-latest,   linux: false, windows: true }
+          - { target: aarch64-pc-windows-msvc,   os: windows-latest,   linux: false, windows: true, nocheck: true }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        shell: bash
+        run: |
+          rustup target add ${{ matrix.target }}
+          if [ "${{ matrix.linux }}" = true ]; then sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools; fi
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"; [ "${{ github.event_name }}" = workflow_dispatch ] && v="${{ inputs.version }}"
+          export GITTA_RELEASE_VERSION="$v"
+          crates="gitta-cli"; [ "${{ matrix.linux }}" = true ] && crates="gitta-cli gitta-fs gitta-sandbox"
+          if [ "${{ matrix.linux }}" = true ]; then sudo apt-get install -y -qq libfuse3-dev pkg-config >/dev/null || true; fi
+          mkdir -p out
+          for c in $crates; do
+            cargo build --release --locked --quiet --target ${{ matrix.target }} --manifest-path "$SRC/$c/Cargo.toml" || cargo build --release --quiet --target ${{ matrix.target }} --manifest-path "$SRC/$c/Cargo.toml"
+          done
+          exe=""; [ "${{ matrix.windows }}" = true ] && exe=".exe"
+          cp "$SRC/gitta-cli/target/${{ matrix.target }}/release/gitta$exe" out/
+          if [ "${{ matrix.linux }}" = true ]; then
+            cp "$SRC/gitta-fs/target/${{ matrix.target }}/release/gitta-fs" out/ || echo "gitta-fs not built for ${{ matrix.target }}"
+            cp "$SRC/gitta-sandbox/target/${{ matrix.target }}/release/gitta-sandbox" out/
+          fi
+          if [ "${{ matrix.nocheck }}" = true ]; then echo "cross-built, start check skipped"; else ./out/gitta$exe --version; fi   # the binary starts on its own platform
+          file out/* || true
+      - name: Package
+        shell: bash
+        run: |
+          v="${GITHUB_REF_NAME#v}"; [ "${{ github.event_name }}" = workflow_dispatch ] && v="${{ inputs.version }}"
+          name="gitta-$v-${{ matrix.target }}"
+          mkdir "$name" && cp out/* "$name/"
+          if [ "${{ matrix.windows }}" = true ]; then
+            7z a -tzip -bso0 "$name.zip" "$name" && sha256sum "$name.zip" > "$name.zip.sha256"
+          else
+            tar -czf "$name.tar.gz" "$name" && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ matrix.target }}"
+          path: |
+            gitta-*.tar.gz*
+            gitta-*.zip*
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist-out, merge-multiple: true }
+      - name: Install script and Homebrew formula for this release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"; [ "${{ github.event_name }}" = workflow_dispatch ] && tag="v${{ inputs.version }}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
+          sed "s#@RELEASES@#${url}#; s#@VERSION@#${tag#v}#" "$SRC/dist/install.sh" > dist-out/install.sh
+          sed "s#@RELEASES@#${url}#; s#@VERSION@#${tag#v}#" "$SRC/dist/install.ps1" > dist-out/install.ps1
+          bash "$SRC/dist/make-formula.sh" "${tag#v}" "$url" dist-out > dist-out/gitta.rb
+          cp "$SRC/gitta-ci/gitta-mr-check.sh" "$SRC/gitta-ci/gitlab/gitta.gitlab-ci.yml" "$SRC/gitta-ci/azure/gitta-pr-check.yml" dist-out/
+      - name: SBOM (CycloneDX 1.6 and SPDX) and CBOM for each binary
+        shell: bash
+        env: { SYFT_VERSION: "1.55.0", CYCLONEDX_VERSION: "0.33.1" }
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"; [ "${{ github.event_name }}" = workflow_dispatch ] && tag="v${{ inputs.version }}"
+          mkdir -p tools
+          curl -fsSL -o syft.tgz "https://github.com/anchore/syft/releases/download/v$SYFT_VERSION/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL "https://github.com/anchore/syft/releases/download/v$SYFT_VERSION/syft_${SYFT_VERSION}_checksums.txt" | grep " syft_${SYFT_VERSION}_linux_amd64.tar.gz$" | sed 's/syft_.*/syft.tgz/' | sha256sum -c
+          tar -xzf syft.tgz -C tools syft
+          curl -fsSL -o tools/cyclonedx "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v$CYCLONEDX_VERSION/cyclonedx-linux-x64" && chmod +x tools/cyclonedx
+          SYFT=tools/syft CYCLONEDX=tools/cyclonedx bash "$SRC/sbom/generate.sh" "${tag#v}" dist-out
+          (cd dist-out && sha256sum *.cdx.json *.spdx.json > sbom.sha256)
+          ls -la dist-out
+      - uses: actions/upload-artifact@v4
+        with: { name: release, path: dist-out }
+      - name: Publish release
+        if: github.event_name == 'push'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release create "$GITHUB_REF_NAME" dist-out/* --title "gitta $GITHUB_REF_NAME" --notes "Install with curl -fsSL https://gitta.io/install.sh | sh, on Windows with irm https://gitta.io/install.ps1 | iex, or brew install gitta-io/tap/gitta. Update with gitta update or brew upgrade gitta. SBOMs (CycloneDX 1.6, SPDX) and the CBOM are attached."
+      # Homebrew tap: write this release's formula into gitta-io/homebrew-tap (Formula/gitta.rb), so
+      # `brew install gitta-io/tap/gitta` and `brew upgrade gitta` find it. Needs the repository secret
+      # HOMEBREW_TAP_TOKEN: a fine-grained token with Contents read and write on gitta-io/homebrew-tap only.
+      # Brew can only download the assets when this repository and its releases are public.
+      - name: Update the Homebrew tap
+        if: github.event_name == 'push' && !contains(github.ref_name, '-')
+        env: { TAP_TOKEN: "${{ secrets.HOMEBREW_TAP_TOKEN }}" }
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$TAP_TOKEN" ]; then echo "HOMEBREW_TAP_TOKEN is not set; the tap is not updated"; exit 0; fi
+          git clone -q --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/gitta-io/homebrew-tap.git" tap
+          mkdir -p tap/Formula && cp dist-out/gitta.rb tap/Formula/gitta.rb
+          cd tap
+          git config user.name "github-actions[bot]" && git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/gitta.rb
+          if git diff --cached --quiet; then echo "formula unchanged"; exit 0; fi
+          git commit -q -m "gitta ${GITHUB_REF_NAME#v}"
+          git push -q origin HEAD

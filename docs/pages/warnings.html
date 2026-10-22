@@ -1,0 +1,144 @@
+<!-- title: Warnings and sync | group: Using gitta | order: 3 | desc: What an AI coding agent sees when work it relies on changes, what each gitta warning means, and how sync brings other work into an agent's copy. | seo: When another agent changes your code -->
+<h1>Warnings and sync</h1>
+<p class="lede">A warning tells an agent that its work and another agent's work affect each other, so the agent can adapt while that is still cheap. Sync brings other work into an agent's copy when you ask for it.</p>
+
+<h2>When a warning arrives</h2>
+<p>An agent gets the warning at its next step, and the check takes about 0.2 seconds. This is also true when a person or a tool without gitta edits the other workspace. A new file that nobody has added yet shows up in <code>gitta status</code> at once, and at an agent's step within five minutes.</p>
+
+<h2>Kinds of warning</h2>
+<table>
+  <tr><th>Warning</th><th>Meaning</th><th>What to do</th></tr>
+  <tr><td>Changed by another agent</td><td>Another agent changed a function, method, constant or field that your new code calls. gitta shows the other agent's new definition line. This is information for the agent. It never stops a merge whose tests pass. When the changed function and the code that uses it are both the same agent's work, gitta says nothing. An agent gets one such warning for each other agent and file, naming up to three functions, and no repeat when more functions in that file change.</td><td>Check that the code still fits. The tests at merge time decide.</td></tr>
+  <tr><td>Also editing</td><td>Two agents changed the same function or the same lines.</td><td>Nothing. gitta writes it to <code>.gitta/gitta.log</code> and <code>gitta watch</code>, merges both changes by structure, and the tests at merge time decide. The agent is not told.</td></tr>
+  <tr><td>Changed on main</td><td>Work already on main changed something your new code uses.</td><td>gitta notes it in <code>.gitta/gitta.log</code> and checks it at merge time. If the tests then fail, the merge output shows the failing test, its first error line and the new definition on main.</td></tr>
+  <tr><td>Claimed</td><td>Another agent announced that it is about to change a symbol you use.</td><td>Wait for it to be merged, or coordinate.</td></tr>
+  <tr><td>Security</td><td>Another agent removed or switched off a security control, such as a login check, a permission check, a CSRF check, a rate limit, input validation or a certificate check, and your new code calls the code that it protected. Severity is always high.</td><td>Do not rely on the protection. Add the check to your own code. The merge output and the log report it.</td></tr>
+  <tr><td>Security note</td><td>Your own new code has a known risk, such as SQL built from text and variables or certificate checks turned off. Severity is medium or high.</td><td>Use the safer pattern that the note names. A high-severity note counts as a weakened check at merge time.</td></tr>
+  <tr><td>Weakened checks</td><td>You deleted or skipped tests, removed assertions or relaxed CI.</td><td>Fix the code instead. The merge reports it, and stops when <code>weakened_checks</code> is <code>block</code>.</td></tr>
+  <tr><td>Credential</td><td>A file contains what looks like a secret.</td><td>Remove it and read it from configuration.</td></tr>
+  <tr><td>Agent instructions</td><td>You changed <code>AGENTS.md</code>, <code>CLAUDE.md</code> or a similar file.</td><td>Change them only when a person asked for it.</td></tr>
+</table>
+
+<h2>Security controls</h2>
+<p>gitta knows the common security controls of each language. When one agent removes or switches off a control, and another agent's new code calls the code that the control protected, both agents get a security warning at their next step. The output below comes from <a href="https://github.com/miguelgrinberg/microblog">microblog</a>, the Flask app of Miguel Grinberg's Flask Mega-Tutorial. One agent makes profile pages public and removes <code>@login_required</code> from the <code>user</code> view. Another agent adds a short <code>/u/&lt;username&gt;</code> link whose view calls <code>user</code>, and relies on its login check. The agent whose code calls it sees this:</p>
+<term title="In the short-links agent's session">Gitta: SECURITY (high severity). Agent public-profiles, working in parallel, removed the login check (`@login_required`) from `app.main.routes.user`, which your new code in app/main/routes.py calls. Your code may now run without a logged-in user. Do not rely on that protection: add the check to your own code, or tell the user. Tell the user in one sentence. gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge.</term>
+<p>The agent that removed the control sees this:</p>
+<term title="In the public-profiles agent's session">Gitta: SECURITY (high severity). You removed the login check (`@login_required`) from `app.main.routes.user`, and agent short-links has new code in app/main/routes.py that calls it. Their code may now run without a logged-in user. Restore the check unless the user asked for this, and tell the user.
+
+Gitta: SECURITY. You weakened a security control in app/main/routes.py: removed the login check (`@login_required`) from `app.main.routes.user`. Code that calls it may now run without a logged-in user. Do not remove or switch off security checks unless the user asked for it. If it must change, explain why to the user in the chat. gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge.</term>
+<p><code>gitta status</code> shows both:</p>
+<term>$ gitta status
+main is the branch gitta merges finished work into.
+  public-profiles 1 file changed, removes tests or weakens a security check; reported when merged, and .gitta.toml decides whether that stops the merge
+       removed the login check (`@login_required`) from `app.main.routes.user`. Code that calls it may now run without a logged-in user.
+  short-links 1 file changed, ready to merge
+  SECURITY potentially affected: public-profiles removed the login check (`@login_required`) from `app.main.routes.user`, which short-links' new code in app/main/routes.py calls. That code may now run without a logged-in user.
+  SECURITY: app/main/routes.py by public-profiles: removed the login check (`@login_required`) from `app.main.routes.user`. Code that calls it may now run without a logged-in user. Reported when merged; .gitta.toml decides whether it stops the merge.</term>
+
+<h3>What gitta treats as a security control</h3>
+<p>gitta knows the common security controls of Python, TypeScript and JavaScript, Java and Kotlin, C#, Go, Rust, C and C++, and COBOL with gitta Enterprise. They are login and permission checks, CSRF protection, rate limits, input validation, HTML escaping and certificate checks, written as decorators, attributes, annotations, guards or middleware. Functions whose names say that they check, authorise, verify, validate, sanitise or escape count too. JCL, REXX, COBOL and assembler also have their own rules for one agent&rsquo;s changes, see <a href="https://gitta.io/docs/mainframe-security.html">Security checks on mainframe code</a>.</p>
+
+<h3>What counts as weakened</h3>
+<ul>
+  <li>The check is removed or renamed.</li>
+  <li>A control is removed from a function, method or class, or is changed to a comment.</li>
+  <li>An opening is added, such as a CSRF exemption, access for anyone, HTML escaping turned off or certificate checks turned off.</li>
+  <li>A check function gets an early way through, or it loses a refusal.</li>
+  <li>A parameter that sets how strict a check is now defaults to off.</li>
+</ul>
+<p>Other changes to a check, for example new parameters, stay normal warnings about a changed function. gitta adds that the symbol is a security check. A stricter check, a new check or an unrelated edit in an auth module gives no security warning.</p>
+
+<h3 id="mark-your-own-security-checks">Mark your own security checks</h3>
+<p>Put the symbols and paths that gitta must treat as security checks in a file <code>.gitta-security</code> at the top of the repository, one on each line. Commit it, so the whole team and CI use it.</p>
+<term># .gitta-security
+app.main.routes.edit_profile
+app.auth.*
+app/api/auth.py</term>
+<p>A line with <code>/</code> or a file name is a path. Other lines are symbols, as gitta names them in warnings. <code>*</code> matches any text. You can also add patterns to one checkout only with <code>gitta init --security PATTERN</code>. An agent that removes a line from <code>.gitta-security</code> is reported as a weakened check.</p>
+
+<h2 id="security-notes">Risky code in an agent's own change</h2>
+<p>gitta also checks the lines that an agent adds for well-known security risks. It looks only at the agent's own changed files, and only at lines that are new. Code that was already there is never reported, and a line that only moved is not new. The check takes a few milliseconds, so the agent hears about a risk at the next step, while it still has the code in front of it.</p>
+<table>
+  <tr><th>Risk</th><th>Severity</th></tr>
+  <tr><td>SQL built from text and variables</td><td>Medium</td></tr>
+  <tr><td>A shell command built from text and variables</td><td>High</td></tr>
+  <tr><td>Code run from a string built at run time</td><td>Medium</td></tr>
+  <tr><td>Objects loaded with a loader that can run code from the data</td><td>High</td></tr>
+  <tr><td>Certificate checks turned off</td><td>High</td></tr>
+  <tr><td>Any website allowed to send requests with the user's cookies</td><td>Medium</td></tr>
+  <tr><td>CSRF protection turned off</td><td>Medium</td></tr>
+  <tr><td>Passwords hashed with a fast hash</td><td>Medium</td></tr>
+  <tr><td>Secrets in the code, beyond the credentials that are always refused</td><td>Medium</td></tr>
+  <tr><td>Secrets written to a log or the console</td><td>Medium</td></tr>
+  <tr><td>C and C++: a copy into a buffer with no size limit, or <code>memcpy</code> with a length nobody checked</td><td>Medium</td></tr>
+  <tr><td>C and C++: a variable used as the format of <code>printf</code> and similar calls</td><td>Medium</td></tr>
+</table>
+<p>The rules cover Python, TypeScript and JavaScript, Go, Java, Kotlin, C#, Rust, C and C++. In C and C++, shell commands include <code>system</code>, <code>popen</code> and the <code>exec</code> calls, and certificate checks include OpenSSL, mbed TLS and curl settings. Mainframe code has <a href="https://gitta.io/docs/mainframe-security.html">its own rules</a> in gitta Enterprise. In test code every note is medium. The agent sees each note once, in its session. In this microblog run, one agent adds a <code>flask translate check</code> command that runs <code>pybabel</code> through <code>os.system</code> with the language code in the string. Another adds a user search that puts the query text into SQL:</p>
+<term title="In the agents' sessions">gitta: security note (high): app/cli.py:47 runs a shell command built from text and variables. Pass the program and its arguments as a list, without a shell. gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge.
+gitta: security note (medium): app/main/routes.py:93 builds SQL from text and variables. Use a parameterised query.</term>
+<p><code>gitta status</code> shows the open notes with the rule and the agent:</p>
+<term>$ gitta status
+main is the branch gitta merges finished work into.
+  translate-stats 1 file changed, removes tests or weakens a security check; reported when merged, and .gitta.toml decides whether that stops the merge
+       line 47 runs a shell command built from text and variables. Pass the program and its arguments as a list, without a shell. [shell-text].
+  user-search 1 file changed, ready to merge
+  security note (high): app/cli.py:47 runs a shell command built from text and variables. Pass the program and its arguments as a list, without a shell. [shell-text, by translate-stats]
+  security note (medium): app/main/routes.py:93 builds SQL from text and variables. Use a parameterised query. [sql-text, by user-search]</term>
+<p><code>gitta status --json</code> lists them under <code>security_notes</code>, and <code>gitta pr-check</code> adds a Security line for each one. Medium notes are shown at merge time and recorded. High notes count as weakened checks, see <a href="landing.html#security-notes">Merging</a>. You choose the level with <code>--security-block</code>.</p>
+
+<h3 id="allow-a-reviewed-line">Allow a reviewed line</h3>
+<p>When a person has checked a line and it is fine, mark it with a comment on the same line. Give the rule and a reason:</p>
+<term title="app/main/routes.py">row = db.session.execute(sa.text(f"SELECT username FROM user WHERE id = {int(id)}")).first()  # gitta: allow sql-text id is cast to int</term>
+<p>gitta then reports the allow instead of the note:</p>
+<term>$ gitta land user-count
+gitta: allowed sql-text at app/main/routes.py:92 (id is cast to int)
+gitta: landed user-count as 86711c470c</term>
+<p>To allow a rule for whole paths, add a section to the committed <code>.gitta-security</code> file. Each line names the rule, a path pattern and the reason:</p>
+<term># .gitta-security
+[allow]
+shell-text app/cli.py the language code comes from the developer running the command</term>
+<p>Every allow that is used is recorded in the audit trail as <code>security_allowed</code>, with the reason. An allow that the agent adds in its own change silences the note, and gitta still reports that the agent added it.</p>
+
+<h2>Where warnings appear</h2>
+<ul>
+  <li>In the agent's own session. Claude Code gets them through hooks, Cursor and Codex through <code>gitta_status</code>.</li>
+  <li>In the terminal with <code>gitta status</code>. Add <code>--json</code> for scripts.</li>
+  <li>In the output of <code>git merge</code>, <code>git pull</code> and <code>git push</code> to the protected branch, and in the CI log. A fast-forward is checked before the branch moves, so the output comes before git finishes.</li>
+  <li>Live in the terminal with <code>gitta watch</code>, and as plain lines in <code>.gitta/gitta.log</code>.</li>
+</ul>
+<p>An agent sees each warning once. gitta does not repeat it at every step, and the repair note after a failed merge comes once per attempt.</p>
+
+<h2>Sync</h2>
+<p>Sync from main brings in work that was merged since the agent started:</p>
+<term>$ gitta sync ci99
+gitta: merged 2 file(s) from main into ci99: bench/aidev-replay/analyze.py, bench/aidev-replay/test_wilson.py
+gitta: note: ci-level was merged into main and changed `wilson`, which ci99's new code in bench/aidev-replay/analyze.py calls. ci99 now has the new version. Check that bench/aidev-replay/analyze.py still works with it. The tests on the combined code decide when it is merged.</term>
+<p>Sync is all or nothing. If one file cannot be merged, no file changes, and gitta names the file. The agent's own changes are always kept.</p>
+
+<h3>Automatic sync</h3>
+<p>gitta syncs the workspaces it made itself, with <code>gitta run</code> or <code>gitta up</code>, from main at each agent step, when the work merges cleanly and nothing their new code uses changed meaning. A worktree made by Claude Code, Cursor, Codex or <code>git worktree add</code> keeps exactly what its agent wrote. git brings main in when the agent merges, and the tests at merge time decide. To turn automatic sync off, set <code>"auto_sync": false</code> in <code>.gitta/config.json</code>.</p>
+
+<h2>Test a combination</h2>
+<p><code>gitta check</code> runs your gate on an agent's work combined with each other agent's work. It does not change any worktree. You run it when you want to. gitta never runs it for agents, because the merge runs the tests.</p>
+<term>$ gitta check ci99
+gitta: ci99 + ci-level: BREAKS
+      File "/Users/you/src/gitta/.gitta/wt/check-0/bench/aidev-replay/test_ci99.py", line 7, in test_wider
+        lo, hi = ci99(50, 100)
+                 ~~~~^^^^^^^^^
+      File "/Users/you/src/gitta/.gitta/wt/check-0/bench/aidev-replay/analyze.py", line 35, in ci99
+        p, lo, hi = wilson(k, n, 2.576)
+                    ~~~~~~^^^^^^^^^^^^^
+    TypeError: wilson() takes 2 positional arguments but 3 were given
+    
+    ----------------------------------------------------------------------
+    Ran 2 tests in 0.001s
+    
+    FAILED (errors=1)</term>
+<p>Add <code>--with AGENT</code> to test against one agent only, and <code>--json</code> for scripts. Results are <code>PASSES</code>, <code>BREAKS</code>, <code>DOES_NOT_MERGE</code> or <code>CANNOT_RUN</code>. <code>CANNOT_RUN</code> means a tool that the gate needs was not found, so the tests did not run. That is a setup problem for you to fix, and agents are not told that their work breaks. Checks run in parallel. Use <code>gitta init --parallel N</code> to limit how many run at once.</p>
+
+<h2>Claims</h2>
+<p>Before a large change, an agent can claim the symbol or path. Others are warned before they build on it.</p>
+<term>$ gitta claim ci-level bench.aidev-replay.analyze.wilson "making z keyword-only"
+gitta: ci-level claimed bench.aidev-replay.analyze.wilson
+$ gitta release ci-level bench.aidev-replay.analyze.wilson
+gitta: ci-level released bench.aidev-replay.analyze.wilson</term>

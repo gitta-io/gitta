@@ -1,0 +1,25 @@
+[package]
+name = "gitta-fs"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/gitta-io/gitta"
+homepage = "https://gitta.io"
+description = "Copy-on-write FUSE workspace for coding agents: shared read-only base, per-agent upper dir, write policy, live event stream"
+
+[dependencies]
+fuser = { version = "0.18", default-features = false }
+libc = "0.2"
+globset = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = "symbols"
+panic = "unwind"   # the MCP server catches tool panics with catch_unwind; "abort" would kill the session
+incremental = false
+overflow-checks = false

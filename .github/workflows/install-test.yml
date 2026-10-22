@@ -1,0 +1,85 @@
+# Install test on Windows: download two published releases, install the older one with its install.ps1, run the real
+# flow (gate, two worktrees with overlapping changes, merges through the git hooks), then `gitta update` to the newer one.
+name: Install test
+on:
+  workflow_dispatch:
+    inputs:
+      from: { description: "Release tag to install first", required: true }
+      to: { description: "Release tag that gitta update moves to", required: true }
+permissions: { contents: read }
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix: { os: [windows-latest, windows-11-arm] }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env: { GH_TOKEN: "${{ github.token }}", FROM: "${{ inputs.from }}", TO: "${{ inputs.to }}", GITTA_INSTALL_STRICT: "1" }
+    defaults: { run: { shell: pwsh } }
+    steps:
+      - name: Download both releases
+        run: |
+          $h = @{ Authorization = "Bearer $env:GH_TOKEN"; 'X-GitHub-Api-Version' = '2022-11-28' }
+          foreach ($tag in $env:FROM, $env:TO) {
+            $dir = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\rel\$tag"
+            $r = Invoke-RestMethod -Headers $h "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$tag"
+            foreach ($a in $r.assets | Where-Object { $_.name -like '*windows*' -or $_.name -eq 'install.ps1' }) {
+              Invoke-WebRequest -UseBasicParsing -Headers ($h + @{ Accept = 'application/octet-stream' }) $a.url -OutFile (Join-Path $dir $a.name)
+            }
+            Get-ChildItem $dir | Format-Table Name, Length
+          }
+          '{"tag_name":"' + $env:TO + '"}' | Set-Content -NoNewline "$env:RUNNER_TEMP\rel\latest.json"
+      - name: Install, run the flow, update
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Check($ok, $what) { if (-not $ok) { throw "FAILED: $what" }; Write-Host "ok: $what" }
+          $rel = ("$env:RUNNER_TEMP\rel" -replace '\\', '/')
+          $from = $env:FROM.TrimStart('v'); $to = $env:TO.TrimStart('v')
+          git config --global user.name ci; git config --global user.email ci@localhost; git config --global init.defaultBranch main
+
+          # The release's own install.ps1, as irm | iex runs it; private releases come from the downloaded files.
+          $env:GITTA_RELEASES = "file:///$rel/$env:FROM"
+          Get-Content -Raw "$env:RUNNER_TEMP\rel\$env:FROM\install.ps1" | Invoke-Expression
+          $bin = Join-Path $env:LOCALAPPDATA 'gitta\bin'
+          Check (Test-Path "$bin\gitta.exe") 'gitta.exe is in %LOCALAPPDATA%\gitta\bin'
+          $userPath = (Get-Item HKCU:\Environment).GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+          Check (($userPath -split ';') -contains $bin) 'the user PATH has the bin folder'
+          Check ((Get-Command gitta).Source -eq "$bin\gitta.exe") 'gitta on PATH in this window'
+          $v = gitta --version; Write-Host $v
+          Check ($v -eq "gitta $from") "version is $from from the tag"
+          Get-Content -Raw "$env:RUNNER_TEMP\rel\$env:FROM\install.ps1" | Invoke-Expression   # reinstall over itself
+          Check ((gitta --version) -eq "gitta $from") 'reinstall works'
+
+          # Real flow: a gate that fails when a file named broken exists.
+          $repo = "$env:RUNNER_TEMP\repo"; New-Item -ItemType Directory $repo | Out-Null; Set-Location $repo
+          git init -q
+          "process.exit(require('fs').existsSync('broken') ? 1 : 0)" | Set-Content check.js
+          1..5 | ForEach-Object { "line $_" } | Set-Content shared.txt
+          git add -A; git commit -qm base
+          gitta init --gate "node check.js"
+          Check ($LASTEXITCODE -eq 0) 'gitta init --gate'
+          Check (Test-Path .git\hooks\pre-merge-commit) 'gitta installed the git hooks'
+          git worktree add -q ..\wa -b a; git worktree add -q ..\wb -b b
+          Set-Location ..\wa; (Get-Content shared.txt) -replace 'line 1', 'line 1 from a' | Set-Content shared.txt; git commit -qam 'a edits shared'
+          Set-Location ..\wb; (Get-Content shared.txt) -replace 'line 5', 'line 5 from b' | Set-Content shared.txt; 'x' | Set-Content broken; git add -A; git commit -qm 'b edits shared, breaks the gate'
+          Set-Location $repo
+          $st = gitta status 2>&1 | Out-String; Write-Host $st
+          Check ($st -match 'shared\.txt') 'gitta status names the overlapping file'
+          git merge --no-ff -q a -m 'merge a'
+          Check ($LASTEXITCODE -eq 0) 'merge of a passes the gate'
+          $head = git rev-parse HEAD
+          $out = git merge --no-ff b -m 'merge b' 2>&1 | Out-String; Write-Host $out
+          Check ($LASTEXITCODE -ne 0 -and (git rev-parse HEAD) -eq $head -and -not (Test-Path broken)) 'the hook stops the merge of b that fails the gate'
+          git merge --abort 2>$null; $global:LASTEXITCODE = 0
+
+          # Update from the running gitta.exe.
+          $env:GITTA_UPDATE_API = "file:///$rel/latest.json"; $env:GITTA_UPDATE_DOWNLOAD = "file:///$rel"
+          gitta update
+          Check ($LASTEXITCODE -eq 0) 'gitta update'
+          Check ((gitta --version) -eq "gitta $to") "updated to $to"
+          gitta update; Check ($LASTEXITCODE -eq 0) 'second gitta update says latest'
+          Check (-not (Get-ChildItem -Force $bin -Filter '.*.old-*')) 'the old binary moved aside was removed'
+          Get-ChildItem -Force $bin | Format-Table Name, Length
+          git checkout -q -b c a; 'more' | Add-Content shared.txt; git commit -qam c; git checkout -q main
+          git merge --no-ff -q c -m 'merge c'
+          Check ($LASTEXITCODE -eq 0) 'hooks still work after the update'

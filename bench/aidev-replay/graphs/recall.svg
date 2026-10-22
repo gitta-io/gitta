@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="670.872pt" height="125.28pt" viewBox="0 0 670.872 125.28" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 125.28 
+L 670.872 125.28 
+L 670.872 0 
+L 0 0 
+z
+" style="fill: #f7f7f2"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 161.472 118.08 
+L 663.672 118.08 
+L 663.672 7.2 
+L 161.472 7.2 
+z
+" style="fill: #f7f7f2"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 161.472 50.04 
+L 496.272 50.04 
+L 496.272 12.24 
+L 161.472 12.24 
+z
+" clip-path="url(#pab8021ddf2)" style="fill: #4e8a57"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 496.272 50.04 
+L 496.272 50.04 
+L 496.272 12.24 
+L 496.272 12.24 
+z
+" clip-path="url(#pab8021ddf2)" style="fill: #d9dbd3"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 161.472 113.04 
+L 496.272 113.04 
+L 496.272 75.24 
+L 161.472 75.24 
+z
+" clip-path="url(#pab8021ddf2)" style="fill: #4e8a57"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 496.272 113.04 
+L 496.272 113.04 
+L 496.272 75.24 
+L 496.272 75.24 
+z
+" clip-path="url(#pab8021ddf2)" style="fill: #d9dbd3"/>
+   </g>
+   <g id="matplotlib.axis_1"/>
+   <g id="matplotlib.axis_2"/>
+   <g id="text_1">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="156.45" y="35.232" transform="rotate(-0 156.45 35.232)">gitta live warnings, no gate</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="501.294" y="35.232" transform="rotate(-0 501.294 35.232)">1 flagged, 0 missed</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="156.45" y="98.232" transform="rotate(-0 156.45 98.232)">gitta with the test gate</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="501.294" y="98.232" transform="rotate(-0 501.294 98.232)">1 flagged, 0 missed</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pab8021ddf2">
+   <rect x="161.472" y="7.2" width="502.2" height="110.88"/>
+  </clipPath>
+ </defs>
+</svg>

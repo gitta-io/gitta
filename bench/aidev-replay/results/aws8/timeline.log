@@ -1,0 +1,13 @@
+2026-10-20T20:40:22Z [aws8] terraform apply
+2026-10-20T20:40:54Z [aws8] vm up: {"image":"ami-0fd9576cca965bd19","type":"m6i.2xlarge","zone":"eu-north-1b"}
+2026-10-20T20:41:06Z [aws8] ssh ok
+2026-10-20T20:41:09Z [aws8] setup start
+2026-10-20T20:42:55Z [aws8] setup done
+2026-10-20T20:42:57Z [aws8] runner start 
+2026-10-20T21:28:02Z [aws8] runner restarted from scratch with fixed runner.py 68639118 (first attempt aborted: harness yarn/python install gaps)
+2026-10-21T07:36:32Z [aws8] runner done
+2026-10-21T07:36:36Z [aws8] pulled      747 results
+2026-10-21T07:36:40Z [aws8] terraform destroy
+2026-10-21T07:37:24Z [aws8] destroyed
+2026-10-21T16:55:04Z [aws8] terraform destroy
+2026-10-21T16:55:07Z [aws8] destroyed

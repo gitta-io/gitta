@@ -1,0 +1,33 @@
+[package]
+name = "gitta"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/gitta-io/gitta"
+homepage = "https://gitta.io"
+description = "gitta: concurrency control for AI coding agents (workspaces, live cross-agent warnings, sync, safe landing)"
+
+[lib]
+name = "gitta"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gitta"
+path = "src/main.rs"
+
+[dependencies]
+gitta-core = { path = "../gitta-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+globset = "0.4"
+ring = "0.17"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = "symbols"
+panic = "unwind"   # the MCP server catches tool panics with catch_unwind; "abort" would kill the session
+incremental = false
+overflow-checks = false

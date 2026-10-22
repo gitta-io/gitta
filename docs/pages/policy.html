@@ -1,0 +1,57 @@
+<!-- title: Rules for agents | group: Using gitta | order: 7.6 | desc: Write rules for AI coding agents in .gitta.toml. Choose which paths agents may change, which checks block a merge and who gets warned when code moves. | seo: Rules for AI coding agents in .gitta.toml -->
+<h1>Rules for agents</h1>
+<p class="lede">Write your team's rules for agents in the <code>[policy]</code> section of the committed <code>.gitta.toml</code>. gitta checks them in its git hooks and in the pull request check. When work breaks a rule, the check fails with one plain line, like a failing test. gitta never asks a question.</p>
+
+<h2>Write the rules</h2>
+<term>
+# .gitta.toml
+gate = "pytest -q"
+weakened_checks = "block"
+
+[policy]
+agents_push_to_main = "block"
+agents_never_change = ["infra/**", ".github/workflows/*.yml"]
+needs_approval = ["db/migrations/**", "src/auth/**"]
+</term>
+<table>
+  <tr><th>Rule</th><th>Effect</th></tr>
+  <tr><td><code>agents_push_to_main = "block"</code></td><td>An agent cannot push to main. It pushes a branch and opens a pull request. The default is <code>"allow"</code>.</td></tr>
+  <tr><td><code>agents_never_change = [globs]</code></td><td>Agent work that changes a matching path does not merge, does not push and fails the pull request check. Approval does not change this.</td></tr>
+  <tr><td><code>needs_approval = [globs]</code></td><td>Agent work that changes a matching path merges only with a person's approval.</td></tr>
+</table>
+<p>Globs use <code>*</code> inside one folder and <code>**</code> across folders. A plain folder name such as <code>"src/auth"</code> covers everything in it.</p>
+<p>Commit the file. gitta reads the rules from the committed file on main, so only a reviewed commit to main changes them. A broken <code>[policy]</code> section fails the check with the line number, so a typo never turns the rules off.</p>
+
+<h2>What a person's approval is</h2>
+<table>
+  <tr><th>Where</th><th>Approval</th></tr>
+  <tr><td>A merge on a laptop</td><td>A person runs the merge, outside an agent session. An agent that runs the merge itself gets the refusal.</td></tr>
+  <tr><td><code>gitta land</code></td><td>A person runs <code>gitta land</code>. When an agent runs it, a person runs <code>gitta approve &lt;agent&gt; &lt;reason&gt;</code> first.</td></tr>
+  <tr><td>The pull request check</td><td>An approving review on the pull request.</td></tr>
+</table>
+
+<h2>What an agent sees</h2>
+<p>The agent gets the reason in the output of its git command and can change its work.</p>
+<term>$ git push origin main
+gitta: add-search may not push to main directly; the rule is in the [policy] section of .gitta.toml. Push a branch and open a pull request.
+error: failed to push some refs
+
+$ git merge add-search
+gitta: add-search changed infra/prod/main.tf, and agents never change infra/**; the rule is in the [policy] section of .gitta.toml.</term>
+<p>Each refusal is in the audit trail as a <code>blocked</code> event, and it counts as a stopped merge in <a href="report.html">the usage report</a>.</p>
+
+<h2>Which work is agent work</h2>
+<p>On a machine with gitta, the work of every agent worktree gitta knows, and every git command an agent runs, is agent work. In the pull request check, a pull request is agent work when one of its commits has a co-author trailer of an AI tool, such as Claude, Codex, Copilot or Cursor.</p>
+
+<h2>Team rules from the server <span class="tag">Enterprise</span></h2>
+<p>A team server can add rules for every repository. Put a <code>[policy]</code> section in a file and give the server its path in <code>GITTA_POLICY_FILE</code>.</p>
+<term>
+# team-policy.toml on the server
+[policy]
+agents_push_to_main = "block"
+agents_never_change = ["**/secrets/**", "deploy/prod/**"]
+</term>
+<p>The server also shows its rules at <code>GET /v1/policy</code>. It sends them with each answer to an agent report, and gitta keeps them in <code>.gitta/server-policy.toml</code>. The hooks read that copy, so a check never waits for the server. The pull request check fetches the rules when <code>GITTA_SERVER</code> and <code>GITTA_SERVER_TOKEN</code> are set.</p>
+<p>Server rules add to the rules of the repository. A repository cannot remove them or set them to <code>"allow"</code>. The message names the server as the source of the rule.</p>
+<term>gitta: add-search may not push to main directly; the rule is in the team policy on the gitta server. Push a branch and open a pull request.</term>
+<p>For the related setting for removed tests and weakened checks, see <a href="warnings.html">Warnings</a>.</p>

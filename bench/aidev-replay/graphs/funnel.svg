@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="784.946625pt" height="219.528pt" viewBox="0 0 784.946625 219.528" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 219.528 
+L 784.946625 219.528 
+L 784.946625 0 
+L 0 0 
+z
+" style="fill: #f7f7f2"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 219.746625 212.328 
+L 777.746625 212.328 
+L 777.746625 7.2 
+L 219.746625 7.2 
+z
+" style="fill: #f7f7f2"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 219.746625 40.847478 
+L 513.430836 40.847478 
+L 513.430836 16.524 
+L 219.746625 16.524 
+z
+" clip-path="url(#pa88f4635d2)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 219.746625 81.386609 
+L 507.926714 81.386609 
+L 507.926714 57.06313 
+L 219.746625 57.06313 
+z
+" clip-path="url(#pa88f4635d2)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 219.746625 121.925739 
+L 437.552586 121.925739 
+L 437.552586 97.602261 
+L 219.746625 97.602261 
+z
+" clip-path="url(#pa88f4635d2)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 219.746625 162.46487 
+L 236.652142 162.46487 
+L 236.652142 138.141391 
+L 219.746625 138.141391 
+z
+" clip-path="url(#pa88f4635d2)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 219.746625 203.004 
+L 220.139777 203.004 
+L 220.139777 178.680522 
+L 219.746625 178.680522 
+z
+" clip-path="url(#pa88f4635d2)" style="fill: #e8492d"/>
+   </g>
+   <g id="matplotlib.axis_1"/>
+   <g id="matplotlib.axis_2"/>
+   <g id="text_1">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="213.050625" y="32.777739" transform="rotate(-0 213.050625 32.777739)">Pairs sampled, one per repository</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="520.126836" y="32.777739" transform="rotate(-0 520.126836 32.777739)">747</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="213.050625" y="73.31687" transform="rotate(-0 213.050625 73.31687)">Replayed with git merge-tree</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="514.622714" y="73.31687" transform="rotate(-0 514.622714 73.31687)">733    out: 12 repo unavailable, 2 pr ref missing</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="213.050625" y="113.856" transform="rotate(-0 213.050625 113.856)">Git merges them cleanly</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="444.248586" y="113.856" transform="rotate(-0 444.248586 113.856)">554    out: 179 textual conflicts</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="213.050625" y="154.39513" transform="rotate(-0 213.050625 154.39513)">Tests run on both PRs and the merge</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="243.348142" y="154.39513" transform="rotate(-0 243.348142 154.39513)">43    out: 285 no runnable tests, 6 unsupported bun, 220 a PR fails its own tests</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="213.050625" y="194.934261" transform="rotate(-0 213.050625 194.934261)">Clean merge, merged code breaks</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="226.835777" y="194.934261" transform="rotate(-0 226.835777 194.934261)">1</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pa88f4635d2">
+   <rect x="219.746625" y="7.2" width="558" height="205.128"/>
+  </clipPath>
+ </defs>
+</svg>

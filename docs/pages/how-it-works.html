@@ -1,0 +1,56 @@
+<!-- title: How gitta works | group: Using gitta | order: 1 | desc: Why worktrees alone miss changes in meaning, and what gitta adds with warnings across worktrees, security checks, sync and the check inside git merge. | seo: How gitta coordinates parallel AI agents -->
+<h1>How gitta works</h1>
+<p class="lede">gitta sits between your agents and Git. It reads what each agent changes, tells the agents that are affected, and checks combined work before it reaches main.</p>
+
+<figure class="figure">
+<svg viewBox="0 0 760 360" role="img" aria-labelledby="hw-t"><title id="hw-t">Three agents in their own worktrees report to gitta. gitta sends warnings back and checks the combined code when you merge into main.</title>
+<defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--ink)"/></marker><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--signal)"/></marker><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--fg-9aa39c)"/></marker></defs>
+<g font-family="DM Sans,sans-serif" font-size="13" fill="var(--ink)">
+<text x="20" y="24" font-weight="600" fill="var(--muted)" font-size="13">Agents, each in its own worktree</text>
+<g><rect x="20" y="40" width="190" height="62" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="36" y="66" font-weight="600">Claude Code</text><text x="36" y="86" fill="var(--muted)">../detect-language</text></g>
+<g><rect x="20" y="120" width="190" height="62" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="36" y="146" font-weight="600">Cursor</text><text x="36" y="166" fill="var(--muted)">../translate-api</text></g>
+<g><rect x="20" y="200" width="190" height="62" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="36" y="226" font-weight="600">Codex</text><text x="36" y="246" fill="var(--muted)">../feed</text></g>
+<rect x="290" y="40" width="230" height="222" rx="16" fill="var(--ink)"/>
+<text x="312" y="72" fill="var(--paper)" font-family="Bricolage Grotesque,sans-serif" font-size="22" font-weight="600">gitta</text>
+<g fill="var(--line-strong)"><text x="312" y="104">Reads each change as code</text><text x="312" y="132">Warns agents that are affected</text><text x="312" y="160">Syncs on request</text><text x="312" y="188">Tests work in combination</text><text x="312" y="216">Checks every merge</text></g>
+<text x="312" y="244" fill="var(--signal)" font-size="12">No AI. Your own tests.</text>
+<path d="M212 71 L286 110" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#a1)"/><path d="M212 151 L286 151" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#a1)"/><path d="M212 231 L286 192" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#a1)"/>
+<path d="M288 162 C260 178 240 172 214 166" stroke="var(--signal)" stroke-width="1.6" fill="none" marker-end="url(#a2)"/>
+<text x="222" y="196" fill="var(--signal)" font-size="12">warning</text>
+<text x="226" y="120" fill="var(--muted)" font-size="12">changes</text>
+<rect x="575" y="110" width="175" height="82" rx="14" fill="var(--sage)"/><text x="593" y="140" font-weight="600">Git</text><text x="593" y="162" fill="var(--moss-text)">main</text><text x="593" y="180" fill="var(--muted)" font-size="12">checked on every merge</text>
+<path d="M522 151 L571 151" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#a1)"/><text x="530" y="142" fill="var(--muted)" font-size="12">merge</text>
+<path d="M115 266 C115 330 660 330 660 196" stroke="var(--bd-9aa39c)" stroke-width="1.4" stroke-dasharray="5 5" fill="none" marker-end="url(#a3)"/>
+<text x="250" y="318" fill="var(--muted)" font-size="12">a push or merged pull request is tested at the next merge with gitta</text>
+</g></svg>
+</figure>
+
+<h2>Workspaces</h2>
+<p>Each agent works in its own Git worktree. An agent does not see the half-done work of the others, so it cannot break their tests while it works. gitta finds new worktrees automatically. It does not matter which tool made them, for example Claude Code, Cursor, Conductor or <code>git worktree add</code>.</p>
+<p>On Linux, gitta can make Claude Code worktrees share one checkout on disk. See <a href="linux.html">Linux workspaces</a>.</p>
+
+<h2>Warnings</h2>
+<p>gitta parses each changed file with Tree-sitter. gitta Enterprise reads COBOL and JCL with its own reader. It finds the functions, methods, classes, constants and fields that an agent changed. It also finds the symbols that the agent's new code uses. It follows imports and calls up to three steps away.</p>
+<p>When one agent changes a symbol that another agent's new code uses, gitta warns the second agent. The warning reaches the agent inside its own session, at its next step. No person has to run a command. See <a href="warnings.html">Warnings and sync</a>.</p>
+
+<h2>Security checks</h2>
+<p>gitta has three layers of security checks. None of them uses AI, and each one runs at the agent's next step.</p>
+<table>
+  <tr><th>Layer</th><th>What it looks at</th><th>What happens</th></tr>
+  <tr><td>Risky code in an agent's own change</td><td>Only the lines the agent added, for well-known risks such as SQL or shell commands built from variables, or certificate checks turned off</td><td>A security note in the agent's session. High notes count as weakened checks at merge time. See <a href="warnings.html#security-notes">Security notes</a>.</td></tr>
+  <tr><td>Weakened security controls between agents</td><td>Login, permission, CSRF, rate limit, validation, escaping and certificate checks that one agent removes or switches off, while another agent's new code calls the code they protected</td><td>A security warning to both agents. The merge output and the audit trail report it. See <a href="warnings.html#security-controls">Security controls</a>.</td></tr>
+  <tr><td>Mainframe code, with gitta Enterprise</td><td>JCL, REXX, CLIST, COBOL and assembler changes that give code more authority</td><td>Reported at merge time and in the audit trail. See <a href="mainframe-security.html">Security checks on mainframe code</a>.</td></tr>
+</table>
+<p>Besides these, every merge to main reports what looks like credentials in code and tests or CI checks that were weakened. You can mark your own security checks, allow reviewed lines and choose which notes count. All of it goes into the <a href="audit.html">audit trail</a>.</p>
+
+<h2>Sync</h2>
+<p>Sync brings other work into an agent's worktree. It merges file by file. When lines clash, it merges by structure, for example by function, statement, import, JSON key or config entry. You run it with <code>gitta sync</code>. gitta syncs the workspaces it made itself, with <code>gitta run</code> or <code>gitta up</code>, on its own when the work merges cleanly and nothing their new code uses changed meaning. A worktree made by your agent tool keeps exactly what its agent wrote, and git brings main in when the agent merges. That merge uses the same structural merge: <code>gitta init</code> sets gitta as the git merge driver for code files, so two agents who add or change different functions in one file get both changes, not conflict markers. When the same lines really clash, the agent sees git's normal conflict.</p>
+
+<h2>Merging</h2>
+<p>You merge with <code>git merge</code>, <code>git pull</code> or <code>git push</code>, as always. gitta hooks into those commands. It checks for weakened tests, weakened security controls, risky new code and credentials, and runs your gate on the combined code. When the tests fail, the merge stops before main moves. See <a href="landing.html">Merging</a>.</p>
+<p>A merged pull request works too, through the pull request check. To make the checks mandatory, see <a href="routes.html">What gitta watches and what it blocks</a>.</p>
+
+<h2>Many worktrees</h2>
+<p>Each hook scans only its own agent's worktree and reuses the last scan of the others, so adding agents adds little work for gitta. A worktree that gitta cannot read, for example because its folder is gone, is skipped with one line that names the fix. The other agents keep working. See <a href="troubleshooting.html#gitta-skipped-lt-agent-gt">Troubleshooting</a>.</p>
+
+

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="460.8pt" height="272.082115pt" viewBox="0 0 460.8 272.082115" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 272.082115 
+L 460.8 272.082115 
+L 460.8 0 
+L 0 0 
+z
+" style="fill: #f7f7f2"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 7.2 223.696 
+L 453.6 223.696 
+L 453.6 24.112 
+L 7.2 24.112 
+z
+" style="fill: #f7f7f2"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 39.085714 223.696 
+L 102.857143 223.696 
+L 102.857143 105.147061 
+L 39.085714 105.147061 
+z
+" clip-path="url(#pd049c2fc75)" style="fill: #626b64"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 118.8 223.696 
+L 182.571429 223.696 
+L 182.571429 100.61915 
+L 118.8 100.61915 
+z
+" clip-path="url(#pd049c2fc75)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 278.228571 223.696 
+L 342 223.696 
+L 342 167.458402 
+L 278.228571 167.458402 
+z
+" clip-path="url(#pd049c2fc75)" style="fill: #626b64"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 357.942857 223.696 
+L 421.714286 223.696 
+L 421.714286 164.852632 
+L 357.942857 164.852632 
+z
+" clip-path="url(#pd049c2fc75)" style="fill: #242b28"/>
+   </g>
+   <g id="matplotlib.axis_1"/>
+   <g id="matplotlib.axis_2"/>
+   <g id="line2d_1">
+    <path d="M 70.971429 129.581808 
+L 70.971429 79.195426 
+" clip-path="url(#pd049c2fc75)" style="fill: none; stroke: #e7ab4a; stroke-width: 1.5; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_2">
+    <path d="M 150.685714 124.82734 
+L 150.685714 75.23623 
+" clip-path="url(#pd049c2fc75)" style="fill: none; stroke: #e7ab4a; stroke-width: 1.5; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_3">
+    <path d="M 310.114286 175.950166 
+L 310.114286 157.877064 
+" clip-path="url(#pd049c2fc75)" style="fill: none; stroke: #e7ab4a; stroke-width: 1.5; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_4">
+    <path d="M 389.828571 173.43355 
+L 389.828571 155.235793 
+" clip-path="url(#pd049c2fc75)" style="fill: none; stroke: #e7ab4a; stroke-width: 1.5; stroke-linecap: square"/>
+   </g>
+   <g id="text_1">
+    <text style="font-size: 11px; font-family: 'DM Sans'; fill: #242b28" transform="translate(57.242913 57.203074)">41.7%</text>
+    <text style="font-size: 11px; font-family: 'DM Sans'; fill: #242b28" transform="translate(48.948225 71.525074)">48 of 115</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 10px; font-family: 'DM Sans'; text-anchor: middle; fill: #626b64" x="70.971429" y="240.716587" transform="rotate(-0 70.971429 240.716587)">Xu et al. 2026</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 11px; font-family: 'DM Sans'; fill: #242b28" transform="translate(135.148214 53.243877)">43.3%</text>
+    <text style="font-size: 11px; font-family: 'DM Sans'; fill: #242b28" transform="translate(127.304699 67.565877)">52 of 120</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 10px; font-family: 'DM Sans'; text-anchor: middle; fill: #626b64" x="150.685714" y="240.716587" transform="rotate(-0 150.685714 240.716587)">This replay</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: middle; fill: #242b28" x="110.828571" y="261.162115" transform="rotate(-0 110.828571 261.162115)">Cross-agent pairs</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 11px; font-family: 'DM Sans'; fill: #242b28" transform="translate(295.967254 135.884711)">19.8%</text>
+    <text style="font-size: 11px; font-family: 'DM Sans'; fill: #242b28" transform="translate(285.769911 150.206711)">119 of 601</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 10px; font-family: 'DM Sans'; text-anchor: middle; fill: #626b64" x="310.114286" y="240.716587" transform="rotate(-0 310.114286 240.716587)">Xu et al. 2026</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 11px; font-family: 'DM Sans'; fill: #242b28" transform="translate(374.786071 133.243441)">20.7%</text>
+    <text style="font-size: 11px; font-family: 'DM Sans'; fill: #242b28" transform="translate(365.01154 147.565441)">127 of 613</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 10px; font-family: 'DM Sans'; text-anchor: middle; fill: #626b64" x="389.828571" y="240.716587" transform="rotate(-0 389.828571 240.716587)">This replay</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: middle; fill: #242b28" x="349.971429" y="261.162115" transform="rotate(-0 349.971429 261.162115)">Intra-agent pairs</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 11px; font-family: 'DM Sans'; text-anchor: start; fill: #626b64" x="7.2" y="18.112" transform="rotate(-0 7.2 18.112)">Textual conflict rate, line shows the 95% interval</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pd049c2fc75">
+   <rect x="7.2" y="24.112" width="446.4" height="199.584"/>
+  </clipPath>
+ </defs>
+</svg>

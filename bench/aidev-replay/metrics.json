@@ -1,0 +1,1264 @@
+{
+ "primary": "gcp8",
+ "metrics": {
+  "counts": {
+   "repo_unavailable": 12,
+   "no_runnable_tests": 285,
+   "side_fails": 220,
+   "fine": 42,
+   "conflict": 179,
+   "pr_ref_missing": 2,
+   "unsupported_bun": 6,
+   "break": 1
+  },
+  "n": 747,
+  "textual": 733,
+  "conf_intra": [
+   127,
+   613
+  ],
+  "conf_cross": [
+   52,
+   120
+  ],
+  "conf_all": [
+   179,
+   733
+  ],
+  "evaluated": 43,
+  "breaks": 1,
+  "fine": 42,
+  "flaky": 0,
+  "live_recall": [
+   1,
+   1
+  ],
+  "live_fa": [
+   12,
+   42
+  ],
+  "gate_recall": [
+   1,
+   1
+  ],
+  "gate_fa": [
+   1,
+   42
+  ],
+  "gitta_conflict_agree": [
+   148,
+   168
+  ],
+  "gitta_clean_says_nomerge": [
+   0,
+   542
+  ],
+  "gitta_clean_warns": [
+   122,
+   542
+  ],
+  "gitta_timeouts": [
+   16,
+   35,
+   76,
+   93,
+   187,
+   244,
+   282,
+   299,
+   314,
+   324,
+   352,
+   386,
+   472,
+   473,
+   486,
+   523,
+   530,
+   577,
+   598,
+   604,
+   610,
+   649,
+   726
+  ],
+  "gitta_timeouts_evaluated": [],
+  "live_fa_noncode_only": 5,
+  "eco": {
+   "node:npm": 13,
+   "node:yarn": 5,
+   "go:go": 12,
+   "node:pnpm": 6,
+   "python:pip": 7
+  },
+  "break_ids": [
+   628
+  ],
+  "fa_ids": [
+   9,
+   69,
+   125,
+   129,
+   137,
+   147,
+   331,
+   354,
+   567,
+   627,
+   717,
+   721
+  ],
+  "timing_sum_h": {
+   "fetch": 0.44,
+   "total": 36.78,
+   "merge_tree": 0.06,
+   "gitta_live": 11.26,
+   "tests_sides": 21.61,
+   "tests_merge": 1.26,
+   "gitta_gate": 1.26
+  }
+ },
+ "runs": {
+  "gcp8": {
+   "counts": {
+    "repo_unavailable": 12,
+    "no_runnable_tests": 285,
+    "side_fails": 220,
+    "fine": 42,
+    "conflict": 179,
+    "pr_ref_missing": 2,
+    "unsupported_bun": 6,
+    "break": 1
+   },
+   "n": 747,
+   "textual": 733,
+   "conf_intra": [
+    127,
+    613
+   ],
+   "conf_cross": [
+    52,
+    120
+   ],
+   "conf_all": [
+    179,
+    733
+   ],
+   "evaluated": 43,
+   "breaks": 1,
+   "fine": 42,
+   "flaky": 0,
+   "live_recall": [
+    1,
+    1
+   ],
+   "live_fa": [
+    12,
+    42
+   ],
+   "gate_recall": [
+    1,
+    1
+   ],
+   "gate_fa": [
+    1,
+    42
+   ],
+   "gitta_conflict_agree": [
+    148,
+    168
+   ],
+   "gitta_clean_says_nomerge": [
+    0,
+    542
+   ],
+   "gitta_clean_warns": [
+    122,
+    542
+   ],
+   "gitta_timeouts": [
+    16,
+    35,
+    76,
+    93,
+    187,
+    244,
+    282,
+    299,
+    314,
+    324,
+    352,
+    386,
+    472,
+    473,
+    486,
+    523,
+    530,
+    577,
+    598,
+    604,
+    610,
+    649,
+    726
+   ],
+   "gitta_timeouts_evaluated": [],
+   "live_fa_noncode_only": 5,
+   "eco": {
+    "node:npm": 13,
+    "node:yarn": 5,
+    "go:go": 12,
+    "node:pnpm": 6,
+    "python:pip": 7
+   },
+   "break_ids": [
+    628
+   ],
+   "fa_ids": [
+    9,
+    69,
+    125,
+    129,
+    137,
+    147,
+    331,
+    354,
+    567,
+    627,
+    717,
+    721
+   ],
+   "timing_sum_h": {
+    "fetch": 0.44,
+    "total": 36.78,
+    "merge_tree": 0.06,
+    "gitta_live": 11.26,
+    "tests_sides": 21.61,
+    "tests_merge": 1.26,
+    "gitta_gate": 1.26
+   }
+  },
+  "aws8": {
+   "counts": {
+    "repo_unavailable": 12,
+    "no_runnable_tests": 286,
+    "side_fails": 218,
+    "fine": 43,
+    "conflict": 179,
+    "pr_ref_missing": 2,
+    "unsupported_bun": 6,
+    "break": 1
+   },
+   "n": 747,
+   "textual": 733,
+   "conf_intra": [
+    127,
+    613
+   ],
+   "conf_cross": [
+    52,
+    120
+   ],
+   "conf_all": [
+    179,
+    733
+   ],
+   "evaluated": 44,
+   "breaks": 1,
+   "fine": 43,
+   "flaky": 0,
+   "live_recall": [
+    1,
+    1
+   ],
+   "live_fa": [
+    13,
+    43
+   ],
+   "gate_recall": [
+    1,
+    1
+   ],
+   "gate_fa": [
+    0,
+    43
+   ],
+   "gitta_conflict_agree": [
+    150,
+    170
+   ],
+   "gitta_clean_says_nomerge": [
+    0,
+    545
+   ],
+   "gitta_clean_warns": [
+    125,
+    545
+   ],
+   "gitta_timeouts": [
+    16,
+    76,
+    93,
+    124,
+    244,
+    282,
+    299,
+    386,
+    472,
+    473,
+    486,
+    523,
+    530,
+    577,
+    610,
+    649,
+    672,
+    726
+   ],
+   "gitta_timeouts_evaluated": [],
+   "live_fa_noncode_only": 5,
+   "eco": {
+    "node:npm": 14,
+    "node:yarn": 5,
+    "go:go": 11,
+    "node:pnpm": 7,
+    "python:pip": 7
+   },
+   "break_ids": [
+    628
+   ],
+   "fa_ids": [
+    9,
+    69,
+    125,
+    129,
+    137,
+    147,
+    331,
+    354,
+    401,
+    567,
+    627,
+    717,
+    721
+   ],
+   "timing_sum_h": {
+    "fetch": 0.33,
+    "total": 29.92,
+    "merge_tree": 0.04,
+    "gitta_live": 9.63,
+    "tests_sides": 17.47,
+    "tests_merge": 0.77,
+    "gitta_gate": 0.96
+   }
+  },
+  "gcp4": {
+   "counts": {
+    "repo_unavailable": 12,
+    "no_runnable_tests": 286,
+    "side_fails": 220,
+    "fine": 41,
+    "conflict": 179,
+    "pr_ref_missing": 2,
+    "unsupported_bun": 6,
+    "break": 1
+   },
+   "n": 747,
+   "textual": 733,
+   "conf_intra": [
+    127,
+    613
+   ],
+   "conf_cross": [
+    52,
+    120
+   ],
+   "conf_all": [
+    179,
+    733
+   ],
+   "evaluated": 42,
+   "breaks": 1,
+   "fine": 41,
+   "flaky": 0,
+   "live_recall": [
+    1,
+    1
+   ],
+   "live_fa": [
+    10,
+    41
+   ],
+   "gate_recall": [
+    1,
+    1
+   ],
+   "gate_fa": [
+    1,
+    41
+   ],
+   "gitta_conflict_agree": [
+    147,
+    167
+   ],
+   "gitta_clean_says_nomerge": [
+    0,
+    541
+   ],
+   "gitta_clean_warns": [
+    121,
+    541
+   ],
+   "gitta_timeouts": [
+    16,
+    35,
+    76,
+    93,
+    187,
+    244,
+    269,
+    282,
+    299,
+    314,
+    324,
+    352,
+    386,
+    423,
+    472,
+    473,
+    486,
+    523,
+    530,
+    577,
+    592,
+    598,
+    610,
+    649,
+    726
+   ],
+   "gitta_timeouts_evaluated": [],
+   "live_fa_noncode_only": 4,
+   "eco": {
+    "node:npm": 14,
+    "node:yarn": 5,
+    "go:go": 12,
+    "node:pnpm": 5,
+    "python:pip": 6
+   },
+   "break_ids": [
+    628
+   ],
+   "fa_ids": [
+    9,
+    69,
+    125,
+    137,
+    147,
+    331,
+    354,
+    627,
+    717,
+    721
+   ],
+   "timing_sum_h": {
+    "fetch": 0.46,
+    "total": 38.19,
+    "merge_tree": 0.06,
+    "gitta_live": 11.26,
+    "tests_sides": 23.02,
+    "tests_merge": 1.29,
+    "gitta_gate": 1.22
+   }
+  },
+  "aws4": {
+   "counts": {
+    "repo_unavailable": 12,
+    "no_runnable_tests": 285,
+    "side_fails": 219,
+    "fine": 43,
+    "conflict": 179,
+    "pr_ref_missing": 2,
+    "unsupported_bun": 6,
+    "break": 1
+   },
+   "n": 747,
+   "textual": 733,
+   "conf_intra": [
+    127,
+    613
+   ],
+   "conf_cross": [
+    52,
+    120
+   ],
+   "conf_all": [
+    179,
+    733
+   ],
+   "evaluated": 44,
+   "breaks": 1,
+   "fine": 43,
+   "flaky": 0,
+   "live_recall": [
+    1,
+    1
+   ],
+   "live_fa": [
+    13,
+    43
+   ],
+   "gate_recall": [
+    1,
+    1
+   ],
+   "gate_fa": [
+    0,
+    43
+   ],
+   "gitta_conflict_agree": [
+    152,
+    172
+   ],
+   "gitta_clean_says_nomerge": [
+    0,
+    546
+   ],
+   "gitta_clean_warns": [
+    126,
+    546
+   ],
+   "gitta_timeouts": [
+    16,
+    76,
+    93,
+    244,
+    282,
+    299,
+    386,
+    472,
+    473,
+    523,
+    530,
+    577,
+    610,
+    649,
+    726
+   ],
+   "gitta_timeouts_evaluated": [],
+   "live_fa_noncode_only": 5,
+   "eco": {
+    "node:npm": 14,
+    "node:yarn": 5,
+    "go:go": 11,
+    "node:pnpm": 7,
+    "python:pip": 7
+   },
+   "break_ids": [
+    628
+   ],
+   "fa_ids": [
+    9,
+    69,
+    125,
+    129,
+    137,
+    147,
+    331,
+    354,
+    401,
+    567,
+    627,
+    717,
+    721
+   ],
+   "timing_sum_h": {
+    "fetch": 0.35,
+    "total": 29.27,
+    "merge_tree": 0.04,
+    "gitta_live": 9.34,
+    "tests_sides": 17.1,
+    "tests_merge": 0.89,
+    "gitta_gate": 0.76
+   }
+  },
+  "azure4": {
+   "counts": {
+    "repo_unavailable": 12,
+    "no_runnable_tests": 284,
+    "side_fails": 219,
+    "fine": 44,
+    "conflict": 179,
+    "pr_ref_missing": 2,
+    "unsupported_bun": 6,
+    "break": 1
+   },
+   "n": 747,
+   "textual": 733,
+   "conf_intra": [
+    127,
+    613
+   ],
+   "conf_cross": [
+    52,
+    120
+   ],
+   "conf_all": [
+    179,
+    733
+   ],
+   "evaluated": 45,
+   "breaks": 1,
+   "fine": 44,
+   "flaky": 0,
+   "live_recall": [
+    1,
+    1
+   ],
+   "live_fa": [
+    13,
+    44
+   ],
+   "gate_recall": [
+    1,
+    1
+   ],
+   "gate_fa": [
+    0,
+    44
+   ],
+   "gitta_conflict_agree": [
+    151,
+    171
+   ],
+   "gitta_clean_says_nomerge": [
+    0,
+    544
+   ],
+   "gitta_clean_warns": [
+    125,
+    544
+   ],
+   "gitta_timeouts": [
+    16,
+    76,
+    93,
+    244,
+    282,
+    299,
+    386,
+    413,
+    472,
+    473,
+    486,
+    523,
+    530,
+    577,
+    598,
+    610,
+    649,
+    726
+   ],
+   "gitta_timeouts_evaluated": [],
+   "live_fa_noncode_only": 5,
+   "eco": {
+    "node:npm": 14,
+    "node:yarn": 5,
+    "go:go": 12,
+    "node:pnpm": 7,
+    "python:pip": 7
+   },
+   "break_ids": [
+    628
+   ],
+   "fa_ids": [
+    9,
+    69,
+    125,
+    129,
+    137,
+    147,
+    331,
+    354,
+    401,
+    567,
+    627,
+    717,
+    721
+   ],
+   "timing_sum_h": {
+    "fetch": 0.35,
+    "total": 31.83,
+    "merge_tree": 0.05,
+    "gitta_live": 9.91,
+    "tests_sides": 18.91,
+    "tests_merge": 0.94,
+    "gitta_gate": 0.93
+   }
+  }
+ },
+ "meta": [
+  {
+   "run": "gcp8",
+   "machine": {
+    "image": "https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261016",
+    "type": "e2-standard-8",
+    "zone": "europe-north1-a"
+   },
+   "env": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "kernel": "7.0.0-1014-gcp",
+    "git": "git version 2.43.0",
+    "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2",
+    "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+    "python": "Python 3.12.3",
+    "gitta_commit": "e2dbbb0f51b455b3833ef842fbcd1511ef43bc18",
+    "gitta_sha256": "7f29da48b9984203841730182880491474c632a7943e781341de139a50f6b600",
+    "cpu": "8 x Intel(R) Xeon(R) CPU @ 2.20GHz",
+    "mem": "31 GB",
+    "pairs_sha256": "3f222f066c5b4b608670bf33f6136daf576e6884e75e21528ee9747192dcdb70",
+    "images": {
+     "python": "python:3.12-bookworm@sha256:5560e9ab8709f459489e5b8aa696eda8a07ef821e14bb122be62d91234bfa98b",
+     "node": "node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8",
+     "go": "golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db"
+    }
+   },
+   "runner_h": 12.375277777777777,
+   "setup_min": 3.1666666666666665,
+   "billed_h": 13.218055555555555,
+   "type": "e2-standard-8",
+   "price_h": 0.29511023999999997,
+   "disk_h": 0.05123287671232876,
+   "cost": 4.5779825579878235,
+   "verify": "terraform state: 0 resources\ninstances: 0\ndisks: 0\nfirewall rules: 0\nstatic addresses: 0"
+  },
+  {
+   "run": "aws8",
+   "machine": {
+    "image": "ami-0fd9576cca965bd19",
+    "type": "m6i.2xlarge",
+    "zone": "eu-north-1b"
+   },
+   "env": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "kernel": "7.0.0-1014-aws",
+    "git": "git version 2.43.0",
+    "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2",
+    "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+    "python": "Python 3.12.3",
+    "gitta_commit": "e2dbbb0f51b455b3833ef842fbcd1511ef43bc18",
+    "gitta_sha256": "cc1f9b754ec8b5b3576c3973ec42e68e1ef5d65101289432c4c700e0e89fe366",
+    "cpu": "8 x Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz",
+    "mem": "30 GB",
+    "pairs_sha256": "3f222f066c5b4b608670bf33f6136daf576e6884e75e21528ee9747192dcdb70",
+    "images": {
+     "python": "python:3.12-bookworm@sha256:5560e9ab8709f459489e5b8aa696eda8a07ef821e14bb122be62d91234bfa98b",
+     "node": "node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8",
+     "go": "golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db"
+    }
+   },
+   "runner_h": 10.088888888888889,
+   "setup_min": 1.7666666666666666,
+   "billed_h": 10.950555555555555,
+   "type": "m6i.2xlarge",
+   "price_h": 0.408,
+   "disk_h": 0.022904109589041096,
+   "cost": 4.718639391171993,
+   "verify": "terraform state: 0 resources\ninstances (not terminated): 1\nvolumes available/in-use (all): 1\nsecurity group gitta-bench-ssh: 1\nkey pair gitta-bench: 1\nelastic IPs: 0"
+  },
+  {
+   "run": "gcp4",
+   "machine": {
+    "image": "https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261016",
+    "type": "e2-standard-4",
+    "zone": "europe-north1-a"
+   },
+   "env": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "kernel": "7.0.0-1014-gcp",
+    "git": "git version 2.43.0",
+    "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2",
+    "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+    "python": "Python 3.12.3",
+    "gitta_commit": "e2dbbb0f51b455b3833ef842fbcd1511ef43bc18",
+    "gitta_sha256": "7f29da48b9984203841730182880491474c632a7943e781341de139a50f6b600",
+    "cpu": "4 x Intel(R) Xeon(R) CPU @ 2.20GHz",
+    "mem": "15 GB",
+    "pairs_sha256": "3f222f066c5b4b608670bf33f6136daf576e6884e75e21528ee9747192dcdb70",
+    "images": {
+     "python": "python:3.12-bookworm@sha256:5560e9ab8709f459489e5b8aa696eda8a07ef821e14bb122be62d91234bfa98b",
+     "node": "node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8",
+     "go": "golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db"
+    }
+   },
+   "runner_h": 19.208333333333332,
+   "setup_min": 3.4,
+   "billed_h": 19.308055555555555,
+   "type": "e2-standard-4",
+   "price_h": 0.14755511999999998,
+   "disk_h": 0.05123287671232876,
+   "cost": 3.8382096842992386,
+   "verify": "terraform state: 0 resources\ninstances: 0\ndisks: 0\nfirewall rules: 0\nstatic addresses: 0"
+  },
+  {
+   "run": "aws4",
+   "machine": {
+    "image": "ami-0fd9576cca965bd19",
+    "type": "m6i.xlarge",
+    "zone": "eu-north-1b"
+   },
+   "env": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "kernel": "7.0.0-1014-aws",
+    "git": "git version 2.43.0",
+    "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2",
+    "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+    "python": "Python 3.12.3",
+    "gitta_commit": "e2dbbb0f51b455b3833ef842fbcd1511ef43bc18",
+    "gitta_sha256": "cc1f9b754ec8b5b3576c3973ec42e68e1ef5d65101289432c4c700e0e89fe366",
+    "cpu": "4 x Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz",
+    "mem": "15 GB",
+    "pairs_sha256": "3f222f066c5b4b608670bf33f6136daf576e6884e75e21528ee9747192dcdb70",
+    "images": {
+     "python": "python:3.12-bookworm@sha256:5560e9ab8709f459489e5b8aa696eda8a07ef821e14bb122be62d91234bfa98b",
+     "node": "node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8",
+     "go": "golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db"
+    }
+   },
+   "runner_h": 14.716944444444444,
+   "setup_min": 1.95,
+   "billed_h": 14.778055555555556,
+   "type": "m6i.xlarge",
+   "price_h": 0.204,
+   "disk_h": 0.022904109589041096,
+   "cost": 3.3532015372907154,
+   "verify": "terraform state: 0 resources\ninstances (not terminated): 0\nvolumes available/in-use (all): 0\nsecurity group gitta-bench-ssh: 0\nkey pair gitta-bench: 0\nelastic IPs: 0"
+  },
+  {
+   "run": "azure4",
+   "machine": {
+    "image": "Canonical:ubuntu-24_04-lts:server:latest",
+    "type": "Standard_D4s_v5",
+    "zone": "swedencentral"
+   },
+   "env": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "kernel": "7.0.0-1017-azure",
+    "git": "git version 2.43.0",
+    "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2",
+    "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+    "python": "Python 3.12.3",
+    "gitta_commit": "e2dbbb0f51b455b3833ef842fbcd1511ef43bc18",
+    "gitta_sha256": "7f29da48b9984203841730182880491474c632a7943e781341de139a50f6b600",
+    "cpu": "4 x INTEL(R) XEON(R) PLATINUM 8573C",
+    "mem": "15 GB",
+    "pairs_sha256": "3f222f066c5b4b608670bf33f6136daf576e6884e75e21528ee9747192dcdb70",
+    "images": {
+     "python": "python:3.12-bookworm@sha256:5560e9ab8709f459489e5b8aa696eda8a07ef821e14bb122be62d91234bfa98b",
+     "node": "node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8",
+     "go": "golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db"
+    }
+   },
+   "runner_h": 16.719722222222224,
+   "setup_min": 2.35,
+   "billed_h": 17.578333333333333,
+   "type": "Standard_D4s_v5",
+   "price_h": 0.204,
+   "disk_h": 0.057275928767123285,
+   "cost": 4.592795367844748,
+   "verify": "terraform state: 0 resources\nresource group gitta-bench exists: false\nresources tagged/named gitta-bench: 0"
+  }
+ ],
+ "diffs": [
+  {
+   "run": "aws8",
+   "idx": 35,
+   "repo": "https://github.com/mautic/mautic",
+   "gcp8": "conflict",
+   "aws8": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 124,
+   "repo": "https://github.com/dotnet/macios",
+   "gcp8": "no_runnable_tests +gitta",
+   "aws8": "no_runnable_tests",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 161,
+   "repo": "https://github.com/primer/react",
+   "gcp8": "side_fails",
+   "aws8": "fine",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 179,
+   "repo": "https://github.com/microsoft/azurelinux",
+   "gcp8": "side_fails",
+   "aws8": "no_runnable_tests",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 187,
+   "repo": "https://github.com/sakaiproject/sakai",
+   "gcp8": "no_runnable_tests",
+   "aws8": "no_runnable_tests +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 253,
+   "repo": "https://github.com/pterm/pterm",
+   "gcp8": "fine",
+   "aws8": "side_fails",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 314,
+   "repo": "https://github.com/microsoft/vscode",
+   "gcp8": "side_fails",
+   "aws8": "side_fails +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 324,
+   "repo": "https://github.com/dreadl0ck/netcap",
+   "gcp8": "conflict",
+   "aws8": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 352,
+   "repo": "https://github.com/oven-sh/bun",
+   "gcp8": "unsupported_bun",
+   "aws8": "unsupported_bun +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 401,
+   "repo": "https://github.com/tinacms/tinacms",
+   "gcp8": "side_fails +gitta",
+   "aws8": "fine +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 598,
+   "repo": "https://github.com/ray-project/ray",
+   "gcp8": "side_fails",
+   "aws8": "side_fails +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 604,
+   "repo": "https://github.com/vllm-project/vllm",
+   "gcp8": "conflict",
+   "aws8": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws8",
+   "idx": 672,
+   "repo": "https://github.com/sst/opencode",
+   "gcp8": "conflict +gitta",
+   "aws8": "conflict",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 129,
+   "repo": "https://github.com/mvisonneau/gitlab-ci-pipelines-exporter",
+   "gcp8": "fine +gitta",
+   "gcp4": "side_fails +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 161,
+   "repo": "https://github.com/primer/react",
+   "gcp8": "side_fails",
+   "gcp4": "fine",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 179,
+   "repo": "https://github.com/microsoft/azurelinux",
+   "gcp8": "side_fails",
+   "gcp4": "no_runnable_tests",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 269,
+   "repo": "https://github.com/dotCMS/core",
+   "gcp8": "conflict +gitta",
+   "gcp4": "conflict",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 338,
+   "repo": "https://github.com/carverauto/serviceradar",
+   "gcp8": "side_fails",
+   "gcp4": "fine",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 423,
+   "repo": "https://github.com/rsyslog/rsyslog",
+   "gcp8": "conflict +gitta",
+   "gcp4": "conflict",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 567,
+   "repo": "https://github.com/AgentOps-AI/agentops",
+   "gcp8": "fine +gitta",
+   "gcp4": "side_fails +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 592,
+   "repo": "https://github.com/MetaMask/metamask-extension",
+   "gcp8": "side_fails +gitta",
+   "gcp4": "side_fails",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 604,
+   "repo": "https://github.com/vllm-project/vllm",
+   "gcp8": "conflict",
+   "gcp4": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "gcp4",
+   "idx": 665,
+   "repo": "https://github.com/assistant-ui/assistant-ui",
+   "gcp8": "fine",
+   "gcp4": "side_fails",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 35,
+   "repo": "https://github.com/mautic/mautic",
+   "gcp8": "conflict",
+   "aws4": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 161,
+   "repo": "https://github.com/primer/react",
+   "gcp8": "side_fails",
+   "aws4": "fine",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 179,
+   "repo": "https://github.com/microsoft/azurelinux",
+   "gcp8": "side_fails",
+   "aws4": "no_runnable_tests",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 187,
+   "repo": "https://github.com/sakaiproject/sakai",
+   "gcp8": "no_runnable_tests",
+   "aws4": "no_runnable_tests +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 253,
+   "repo": "https://github.com/pterm/pterm",
+   "gcp8": "fine",
+   "aws4": "side_fails",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 314,
+   "repo": "https://github.com/microsoft/vscode",
+   "gcp8": "side_fails",
+   "aws4": "side_fails +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 324,
+   "repo": "https://github.com/dreadl0ck/netcap",
+   "gcp8": "conflict",
+   "aws4": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 352,
+   "repo": "https://github.com/oven-sh/bun",
+   "gcp8": "unsupported_bun",
+   "aws4": "unsupported_bun +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 401,
+   "repo": "https://github.com/tinacms/tinacms",
+   "gcp8": "side_fails +gitta",
+   "aws4": "fine +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 486,
+   "repo": "https://github.com/promptfoo/promptfoo",
+   "gcp8": "conflict",
+   "aws4": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 522,
+   "repo": "https://github.com/JuliaLang/julia",
+   "gcp8": "no_runnable_tests",
+   "aws4": "side_fails",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 598,
+   "repo": "https://github.com/ray-project/ray",
+   "gcp8": "side_fails",
+   "aws4": "side_fails +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "aws4",
+   "idx": 604,
+   "repo": "https://github.com/vllm-project/vllm",
+   "gcp8": "conflict",
+   "aws4": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 35,
+   "repo": "https://github.com/mautic/mautic",
+   "gcp8": "conflict",
+   "azure4": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 161,
+   "repo": "https://github.com/primer/react",
+   "gcp8": "side_fails",
+   "azure4": "fine",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 179,
+   "repo": "https://github.com/microsoft/azurelinux",
+   "gcp8": "side_fails",
+   "azure4": "no_runnable_tests",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 187,
+   "repo": "https://github.com/sakaiproject/sakai",
+   "gcp8": "no_runnable_tests",
+   "azure4": "no_runnable_tests +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 253,
+   "repo": "https://github.com/pterm/pterm",
+   "gcp8": "fine",
+   "azure4": "side_fails",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 314,
+   "repo": "https://github.com/microsoft/vscode",
+   "gcp8": "side_fails",
+   "azure4": "side_fails +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 324,
+   "repo": "https://github.com/dreadl0ck/netcap",
+   "gcp8": "conflict",
+   "azure4": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 338,
+   "repo": "https://github.com/carverauto/serviceradar",
+   "gcp8": "side_fails",
+   "azure4": "fine",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 352,
+   "repo": "https://github.com/oven-sh/bun",
+   "gcp8": "unsupported_bun",
+   "azure4": "unsupported_bun +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 401,
+   "repo": "https://github.com/tinacms/tinacms",
+   "gcp8": "side_fails +gitta",
+   "azure4": "fine +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 405,
+   "repo": "https://github.com/microsoft/sbom-tool",
+   "gcp8": "no_runnable_tests",
+   "azure4": "side_fails",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 604,
+   "repo": "https://github.com/vllm-project/vllm",
+   "gcp8": "conflict",
+   "azure4": "conflict +gitta",
+   "same_shas": true
+  },
+  {
+   "run": "azure4",
+   "idx": 634,
+   "repo": "https://github.com/DaveSkender/Stock.Indicators",
+   "gcp8": "no_runnable_tests +gitta",
+   "azure4": "side_fails +gitta",
+   "same_shas": true
+  }
+ ]
+}

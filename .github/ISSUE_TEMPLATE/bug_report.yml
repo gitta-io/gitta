@@ -1,0 +1,26 @@
+name: Bug report
+description: gitta did something wrong or unexpected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Report security problems privately to support@gitta.io, not here.
+  - type: input
+    id: version
+    attributes: { label: gitta version, description: The output of `gitta --version` }
+    validations: { required: true }
+  - type: input
+    id: system
+    attributes: { label: Operating system and CPU, placeholder: macOS 15 on Apple silicon }
+    validations: { required: true }
+  - type: input
+    id: agents
+    attributes: { label: Agents you run, placeholder: Claude Code, Codex }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: The commands you ran and what gitta printed }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: What you expected }
+    validations: { required: true }

@@ -1,0 +1,22 @@
+<!-- title: Uninstall | group: Help | order: 2 | desc: Remove gitta from one repository or from your whole machine. You keep a plain Git repository, and your branches, commits and worktrees stay. | seo: Uninstall gitta from a repository or machine -->
+<h1>Uninstall</h1>
+<p class="lede">Removing gitta leaves a plain Git repository. Your branches, commits and worktrees stay.</p>
+
+<h2>From one repository</h2>
+<term>$ gitta uninstall
+gitta: removed 0 gitta workspace(s); adopted worktrees untouched
+gitta: removed from ~/src/microblog; it is a plain Git repository again
+gitta: agent hooks and MCP entries stay installed for your other repositories (remove them with `gitta uninstall --everywhere`)</term>
+<p>This removes <code>.gitta/</code>, the git hooks and the merge driver setting that gitta added and any workspaces that gitta made itself. Worktrees that you or your agents made stay, with their work. On Linux, shared-checkout worktrees become ordinary worktrees again, with their changes.</p>
+<p>Git notes under <code>refs/notes/gitta</code> stay. Delete them with <code>git update-ref -d refs/notes/gitta</code> if you want.</p>
+
+<h2>From your machine</h2>
+<term>$ gitta uninstall --everywhere</term>
+<p>This also removes the Claude Code hooks and the Cursor and Codex MCP entries that gitta added. Your other settings stay. The last line of the output gives the command that deletes the program, for example:</p>
+<term>$ rm ~/.local/bin/gitta</term>
+<p>If you installed with Homebrew, run <code>brew uninstall gitta</code> instead.</p>
+
+<h2>gitta Enterprise</h2>
+<p>Run <code>helm uninstall gitta</code>, or delete the VMs, images and buckets that <code>deploy.sh</code> made. The servers' data folders hold the team's audit copies. Export them first if you must keep them, with <code>gitta audit --team --json</code>.</p>
+
+<p>If something did not work as you expected, read <a href="troubleshooting.html">Troubleshooting</a> or write to <a href="support.html">Support</a>.</p>

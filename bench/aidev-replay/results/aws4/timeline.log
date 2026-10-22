@@ -1,0 +1,10 @@
+2026-10-21T07:37:40Z [aws4] terraform apply
+2026-10-21T07:38:10Z [aws4] vm up: {"image":"ami-0fd9576cca965bd19","type":"m6i.xlarge","zone":"eu-north-1b"}
+2026-10-21T07:38:22Z [aws4] ssh ok
+2026-10-21T07:38:25Z [aws4] setup start
+2026-10-21T07:40:22Z [aws4] setup done
+2026-10-21T07:40:24Z [aws4] runner start 
+2026-10-21T22:23:29Z [aws4] runner done
+2026-10-21T22:23:32Z [aws4] pulled      747 results
+2026-10-21T22:23:33Z [aws4] terraform destroy
+2026-10-21T22:24:21Z [aws4] destroyed

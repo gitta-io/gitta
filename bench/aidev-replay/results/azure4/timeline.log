@@ -1,0 +1,12 @@
+2026-10-20T20:40:42Z [azure4] terraform apply
+2026-10-20T20:42:34Z [azure4] vm up: {"image":"Canonical:ubuntu-24_04-lts:server:latest","type":"Standard_D4s_v5","zone":"swedencentral"}
+2026-10-20T20:42:38Z [azure4] ssh ok
+2026-10-20T20:42:41Z [azure4] setup start
+2026-10-20T20:45:02Z [azure4] setup done
+2026-10-20T20:45:05Z [azure4] runner start 
+2026-10-20T21:28:05Z [azure4] runner restarted from scratch with fixed runner.py 68639118 (first attempt aborted: harness yarn/python install gaps)
+2026-10-20T22:41:08Z [azure4] runner resumed with 2 workers (1 worker projected >20 h)
+2026-10-21T14:13:09Z [azure4] runner done
+2026-10-21T14:13:15Z [azure4] pulled      747 results
+2026-10-21T14:13:17Z [azure4] terraform destroy
+2026-10-21T14:15:24Z [azure4] destroyed

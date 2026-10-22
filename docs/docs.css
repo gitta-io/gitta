@@ -1,0 +1,88 @@
+/* Documentation layout, on top of styles.css */
+.docs{display:grid;grid-template-columns:250px minmax(0,1fr);gap:56px;padding-top:28px;padding-bottom:96px}
+.docs-nav{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto;font-size:14px;padding-right:8px}
+.docs-nav h4{font:600 14px/1.4 var(--body);color:var(--muted);margin:26px 0 8px}
+.docs-nav h4:first-child{margin-top:0}
+.docs-nav a{display:block;text-decoration:none;padding:5px 10px;border-radius:7px;color:var(--ink)}
+.docs-nav a:hover{background:var(--sage)}
+.docs-nav a[aria-current=page]{background:var(--ink);color:var(--paper)}
+.doc{max-width:780px;min-width:0}
+.doc h1{font-size:clamp(40px,4.4vw,58px);letter-spacing:-.05em;line-height:1.05}
+.doc .lede{font-size:19px;color:#505A52;margin-top:18px;max-width:64ch}
+.doc h2{font-size:30px;letter-spacing:-.03em;margin:52px 0 14px}
+.doc h3{font-size:21px;margin:34px 0 10px}
+.doc p{margin:12px 0;max-width:70ch}
+.doc ul,.doc ol{padding-left:22px;max-width:70ch}
+.doc li{margin:6px 0}
+.doc a{color:var(--signal-dark)}
+.doc code{background:#E9EDE2;padding:1px 6px;border-radius:5px}
+.doc table{border-collapse:collapse;width:100%;margin:18px 0;font-size:15px}
+.doc th,.doc td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.doc th{font-weight:600;color:var(--muted);font-size:13px}
+.doc td code{white-space:nowrap}
+.term{background:#1F2622;color:#E7ECE3;border-radius:14px;margin:18px 0;overflow:hidden;font:13.5px/1.6 var(--code)}
+.term .bar{display:flex;gap:7px;align-items:center;padding:10px 14px;background:#2A332E;color:#97A39A;font-size:12px}
+.term .bar i{width:10px;height:10px;border-radius:50%;background:#FF5F57;display:inline-block}.term .bar i:nth-child(2){background:#FEBC2E}.term .bar i:nth-child(3){background:#28C840}
+.term pre{margin:0;padding:16px 18px;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.term .p{color:#E8A08F}.term .c{color:#97A39A}.term .ok{color:#9CC59F}.term .bad{color:#F08A75}.term .warn{color:#E7C27A}
+.term code{background:none;padding:0;font-size:inherit;color:inherit}
+pre.code{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 18px;overflow-x:auto;font:13.5px/1.6 var(--code);margin:16px 0}
+pre.code code{background:none;padding:0}
+.note,.warning{border-radius:12px;padding:14px 18px;margin:20px 0;font-size:15px}
+.note{background:var(--sky)}
+.warning{background:var(--signal-soft)}
+.note b,.warning b{display:block;font-family:var(--display);font-size:15px;margin-bottom:2px}
+.figure{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px;margin:24px 0}
+.figure svg{width:100%;height:auto}
+.figure figcaption,.figure .cap{font-size:13px;color:var(--muted);margin-top:10px}
+.cards-doc{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:22px 0}
+.cards-doc a{display:block;text-decoration:none;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px}
+.cards-doc a:hover{border-color:var(--ink)}
+.cards-doc b{display:block;font-family:var(--display);font-size:18px;margin-bottom:6px}
+.cards-doc span{font-size:14px;color:var(--muted)}
+.tag{display:inline-block;font:600 12px/1 var(--body);background:var(--gold);color:var(--ink);border-radius:5px;padding:4px 7px;vertical-align:middle;margin-left:8px}
+.pager{display:flex;justify-content:space-between;gap:20px;margin-top:64px;border-top:1px solid var(--line);padding-top:22px;font-size:15px}
+.pager a{text-decoration:none;color:var(--ink)}
+.pager a span{display:block;font-size:12px;color:var(--muted)}
+.steps{counter-reset:s;list-style:none;padding:0}
+.steps>li{counter-increment:s;position:relative;padding-left:40px;margin:14px 0}
+.steps>li::before{content:counter(s);position:absolute;left:0;top:0;width:26px;height:26px;border-radius:50%;background:var(--ink);color:var(--paper);font:600 13px/26px var(--body);text-align:center}
+.docs-toc{display:none}
+@media (max-width:900px){
+  .docs{grid-template-columns:minmax(0,1fr);gap:0;padding-top:8px}
+  .doc p,.doc li{overflow-wrap:anywhere}
+  .docs-nav{display:none}
+  .docs-toc{display:block;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:28px;font-size:15px}
+  .docs-toc summary{font-weight:600;cursor:pointer}
+  .docs-toc .docs-nav{display:block;position:static;max-height:none;margin-top:10px}
+  .doc table{display:block;overflow-x:auto}
+  .doc h1{font-size:38px}
+  .figure{padding:14px}
+}
+
+/* Syntax colours, from the site palette */
+pre.code .tc{color:#8A928B;font-style:italic}
+pre.code .ts{color:#2F7D45}
+pre.code .tk{color:#1F5F8B}
+pre.code .tw{color:#B7412E;font-weight:500}
+pre.code .tn{color:#9A6A00}
+pre.code .tf{color:#6B3FA0}
+pre.code .da,pre.code .dr{display:inline-block;min-width:100%}
+pre.code .da{box-shadow:-18px 0 0 #EAF4E8,18px 0 0 #EAF4E8}pre.code .dr{box-shadow:-18px 0 0 #FBEAE7,18px 0 0 #FBEAE7}
+pre.code .da{background:#EAF4E8}
+pre.code .dr{background:#FBEAE7}
+pre.code .da .tc,pre.code .dr .tc{font-style:normal}
+
+/* A Gitta comment on a pull request */
+.pr-comment{background:#fff;border:1px solid var(--line);border-radius:12px;margin:20px 0;overflow:hidden}
+.pr-head{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:#FAFAF7;font-size:14px}
+.pr-head svg{width:18px;height:18px}.pr-head span{color:var(--muted)}
+.pr-row{display:grid;grid-template-columns:220px 1fr;gap:18px;align-items:baseline;padding:14px 18px;border-top:1px solid var(--line)}
+.pr-row:first-of-type{border-top:0}
+.pr-row p{margin:0;font-size:15px;color:#3B443F}
+.pr-badge{justify-self:start;font:600 13px/1 var(--body);padding:6px 10px;border-radius:6px;white-space:nowrap}
+.pr-badge.bad{background:#FDEBEC;color:#9F2F2D}.pr-badge.warn{background:#FBF3DB;color:#956400}
+@media(max-width:640px){.pr-row{grid-template-columns:1fr;gap:8px}}
+
+/* Terminal output colours, oh-my-zsh style */
+.term .y{color:#E5C07B}.term .r{color:#F28B82}.term .g{color:#8FD694}.term .b{color:#7FB8E6}

@@ -1,0 +1,118 @@
+<!-- title: Pull requests and CI | group: Using gitta | order: 6 | desc: Add the gitta check to AI agent pull requests on GitHub, with GitLab and Azure Repos next. It tests combined work and finds conflicts before anyone merges. | seo: Pull request check for AI agent changes -->
+<h1>Pull requests and CI</h1>
+<p class="lede">Cloud agents such as Codex cloud, Copilot, Jules and Devin work on their own servers and open pull requests. The gitta check compares each open pull request with the others, before anyone merges.</p>
+
+<h2>What the check reports</h2>
+<p>The check posts one comment on each pull request and keeps it up to date.</p>
+<div class="pr-comment">
+  <div class="pr-head"><svg viewBox="0 0 36 36" aria-hidden="true"><g fill="none" stroke="var(--signal)" stroke-width="4.5" stroke-linecap="round"><path d="M6 7v7c0 8 12 4 12 13v3M18 7v23M30 7v7c0 8-12 4-12 13"/></g></svg><b>gitta check</b><span>comment on pull request #124</span></div>
+  <div class="pr-row"><span class="pr-badge bad">Breaks together with #123</span><p>With a gate set, gitta merged both pull requests on top of the base branch, and your tests failed on the combination.</p></div>
+  <div class="pr-row"><span class="pr-badge bad">Does not merge with #123</span><p>The two pull requests change the same code in ways that cannot be combined.</p></div>
+  <div class="pr-row"><span class="pr-badge warn">Potentially affected</span><p>One pull request changed a symbol that the other pull request's new code uses.</p></div>
+</div>
+<p>Each pull request passes its own tests alone. These problems only appear when they are combined, so a normal CI run does not find them.</p>
+
+<h2>GitHub</h2>
+<p>Add this workflow to your repository.</p>
+<pre class="code"><code># .github/workflows/gitta.yml
+name: Gitta
+on:
+  pull_request: { types: [opened, synchronize, reopened] }
+  push: { branches: [main] }          # check all open pull requests again when main moves
+permissions: { contents: read, pull-requests: write }
+concurrency: { group: gitta-pr-check, cancel-in-progress: false }
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: {{ACTION}}
+        with:
+          version: {{VERSION}}
+          gate: "npm ci &amp;&amp; npm test"
+          mode: ${{ github.event_name == 'push' &amp;&amp; 'all' || 'current' }}</code></pre>
+<table>
+  <tr><th>Input</th><th>Use</th></tr>
+  <tr><td><code>version</code></td><td>The gitta release to download. The checksum is verified. Leave it empty to build from source, which takes a few minutes the first time.</td></tr>
+  <tr><td><code>gate</code></td><td>Your test command for each combination. Leave it empty for warnings and merge checks only.</td></tr>
+  <tr><td><code>mode</code></td><td><code>current</code> checks the pull request that started the run. <code>all</code> checks every open pull request.</td></tr>
+  <tr><td><code>fail-on</code></td><td><code>breaks</code> (default) fails the check when a combination breaks or does not merge. <code>never</code> only comments.</td></tr>
+</table>
+<p>To block merges that break, make the check required in branch protection. See <a href="routes.html">What gitta watches and what it blocks</a>.</p>
+
+<h2>Which pull request goes first</h2>
+<p>When two open pull requests break together, only the newer one (the higher number) fails the check. The older one passes, and its comment names the clash. After the older one merges, the newer one is checked again against the new base, and its own agent adapts it. So two incompatible pull requests never block each other.</p>
+<table>
+  <tr><th>To</th><th>Do</th></tr>
+  <tr><td>Let a newer pull request go first</td><td>Mark the older one as draft, or label it <code>gitta-skip</code>. It is still compared and commented on, but it never makes another pull request fail.</td></tr>
+  <tr><td>Take an abandoned pull request out of the way</td><td>Close it, mark it as draft, or label it <code>gitta-skip</code>.</td></tr>
+  <tr><td>Merge despite a clash</td><td>Use your Git host's normal override for required checks. gitta records the merge as <code>reached_main</code> in the audit trail.</td></tr>
+</table>
+<p>GitLab and Azure Repos, coming next, use the same rule. The older merge request goes first.</p>
+
+<h2>Merge conflicts in agent pull requests</h2>
+<p>Agents that work in parallel open many pull requests against the same base. Each one passes its own CI. Trouble starts when two of them meet. Git reports a conflict only when both change the same lines, and that shows up after the first one merges. A change in meaning across files gives no conflict at all. One pull request changes a function, the other adds a call to its old form, and both merge cleanly into code that fails.</p>
+<p>The gitta check finds both cases while the pull requests are still open.</p>
+<ul>
+  <li><b>Does not merge with</b> means the two pull requests edit the same code in ways Git cannot combine. The newer one fails, so its agent rebases after the older one merges.</li>
+  <li><b>Potentially affected</b> means one pull request changed a symbol that the other one's new code uses. Git merges them without a conflict, so this is the case a normal review misses.</li>
+  <li><b>Breaks together with</b> means your gate failed on the two pull requests merged on top of the base branch. The comment shows the test output.</li>
+</ul>
+<p>When main moves, run the check in <code>all</code> mode, as in the workflow above. Every open pull request is then compared with the new base again, so a pull request that fit yesterday is checked against what merged today.</p>
+
+<h2>Background and cloud agents</h2>
+<p>Background agents and cloud agents work away from your machine and come back with a pull request. Claude Code background sessions, Codex cloud, GitHub Copilot coding agent, Jules and Devin all work this way. Their pull requests often arrive together, all made from the same commit.</p>
+<p>The check treats each of them like any other pull request. It compares it with the other open pull requests and with the base, and it posts one comment that it keeps up to date. You don't have to set anything up for each agent. The check runs on the pull request events of your Git host.</p>
+<p>To warn cloud agents while they still work, before they open a pull request, give the runners they use a team server token. See <a href="ci-cd.html#agents-in-ci">Agents in CI</a>.</p>
+
+<h2>GitLab <span class="tag">Coming next</span></h2>
+<pre class="code"><code># .gitlab-ci.yml
+include:
+  - remote: "{{RELEASES}}/latest/download/gitta.gitlab-ci.yml"
+variables:
+  GATE: "npm ci &amp;&amp; npm test"          # optional</code></pre>
+<p>Add a masked CI/CD variable <code>GITTA_TOKEN</code>. It is a project or group access token with the <code>api</code> scope, so the check can comment. The check runs on merge request pipelines and on the default branch.</p>
+
+<p>On GitLab the check runs as a merge request pipeline. It compares the merge request with the other open merge requests into the same target branch, and it posts and updates one note on the merge request. To block merges that break, turn on <b>Pipelines must succeed</b> in the project's merge request settings.</p>
+
+<h2>Azure Repos <span class="tag">Coming next</span></h2>
+<pre class="code"><code># azure-pipelines.yml, run as a build validation policy on the target branch
+steps:
+  - template: gitta-pr-check.yml      # copied from the release into your repository
+    parameters:
+      gate: "npm ci &amp;&amp; npm test"      # optional</code></pre>
+<p>Give the project's build service the permission "Contribute to pull requests" on the repository, so it can comment.</p>
+
+<p>On Azure Repos the template runs as a build validation policy. It compares the pull request with the other active pull requests into the same target branch and comments on it. Make the policy required to block merges that break.</p>
+
+<h2>Run the check by hand</h2>
+<term>$ gitta pr-check --pr origin/feature-a --other origin/feature-b --other origin/feature-c</term>
+
+<h2>Warnings and info</h2>
+<p>When both pull requests edit the same function, object or file, the check says so. It is a warning when the two edits can clash in code, for example when both add a key to the same object. Some overlaps merge cleanly and cannot change what other code does. The check lists these as info, and info never fails the check.</p>
+<ul>
+  <li>a file that is not code, such as a README, a changelog, a docs page, <code>package.json</code> or a CI workflow</li>
+  <li>a function in a test file</li>
+  <li>an import line that the merged file has only once</li>
+</ul>
+<p>With <code>--json</code>, each result has an <code>info</code> field next to <code>warnings</code>.</p>
+<p>The check runs in a blob-less clone (<code>git clone --filter=blob:none</code>) too. It fetches the files it needs in one request, so its time follows the size of the change, not the size of the repository.</p>
+
+<h2>Security line</h2>
+<p>When the other branch removes or switches off a security control that the new code of this pull request calls, the comment has a <b>Security</b> line. With <code>--json</code>, each result has a <code>security</code> field with the same text.</p>
+<term>$ gitta pr-check --pr short-links --other public-profiles --base main
+### Gitta: short-links against 1 other open pull request(s)
+
+- **Security** with public-profiles: public-profiles removed the login check (`@login_required`) from `app.main.routes.user`, which short-links' new code in app/main/routes.py calls. That code may now run without a logged-in user.</term>
+<p>The check reads the committed <code>.gitta-security</code> file, so your own security checks count in CI too.</p>
+
+<h2>Review agent pull requests</h2>
+<p>A person still reviews each pull request. The gitta comment tells the reviewer what changed around the pull request, so the review can focus on the code itself.</p>
+<ol class="steps">
+  <li>Read the gitta comment first. It names the other open pull requests that touch the same code, and whether the combination merges and passes your gate.</li>
+  <li>Look at every <b>Security</b> line. It names a security control that another pull request removed while this one calls the code it protected.</li>
+  <li>Check changes to tests and CI. When the work is merged, gitta reports weakened checks in the merge output and the CI log, and records them in the <a href="audit.html">audit trail</a>.</li>
+  <li>Check changes to <code>AGENTS.md</code>, <code>CLAUDE.md</code> and similar files. They change how every agent works.</li>
+</ol>
+<p>For a full review checklist, see the guide <a href="../guides/review-ai-generated-pull-requests.html">How to review AI-generated pull requests</a>.</p>

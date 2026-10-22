@@ -1,0 +1,96 @@
+<!-- title: Merging | group: Using gitta | order: 4 | desc: What gitta checks when you run git merge, git pull or git push to the protected branch, what it prints, and what to do when it stops a merge. | seo: Merge agent work without breaking main -->
+<h1>Merging</h1>
+<p class="lede">You merge agent work with plain git, as always. gitta runs inside <code>git merge</code>, <code>git pull</code> and <code>git push</code> to the protected branch, checks the combined code and, when it stops a merge, says why in the output.</p>
+
+<figure class="figure">
+<svg viewBox="0 0 760 150" role="img" aria-labelledby="ld-t"><title id="ld-t">A git merge to main runs the weakened checks and your tests on the combined code. A failed test stops the merge.</title>
+<g font-family="DM Sans,sans-serif" font-size="13" fill="var(--ink)">
+<g><rect x="4" y="30" width="150" height="62" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="16" y="56" font-weight="600">git merge</text><text x="16" y="76" fill="var(--muted)">pull or push</text></g>
+<g><rect x="178" y="30" width="150" height="62" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="190" y="56" font-weight="600">Weakened</text><text x="190" y="76" font-weight="600">checks</text></g>
+<g><rect x="352" y="30" width="150" height="62" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="364" y="56" font-weight="600">Gate</text><text x="364" y="76" fill="var(--muted)">your tests</text></g>
+<g><rect x="526" y="30" width="150" height="62" rx="12" fill="var(--sage)"/><text x="538" y="56" font-weight="600">main</text><text x="538" y="76" fill="var(--moss-text)">merged</text></g>
+<g stroke="var(--ink)" stroke-width="1.4"><path d="M154 61h24M328 61h24M502 61h24"/></g>
+<text x="4" y="124" fill="var(--signal)" font-size="12">Tests fail on the combined code and the merge stops before main moves.</text>
+</g></svg>
+</figure>
+
+<h2>What runs when you merge</h2>
+<p>Every way the protected branch changes is checked. <code>gitta init</code> adds four git hooks.</p>
+<ul>
+  <li><code>pre-merge-commit</code> checks <code>git merge</code> and <code>git pull</code> before the merge commit is made.</li>
+  <li><code>reference-transaction</code> checks a fast-forward from <code>git merge</code> or <code>git pull</code>, <code>git pull --rebase</code>, a cherry-pick, a rebase, <code>git merge --squash</code> with its commit, <code>git am</code>, a reset and <code>git update-ref</code>, before the branch moves. When the combined tests fail, the branch stays where it was. This hook comes with git 2.28 and later.</li>
+  <li><code>post-merge</code> records the result. With git older than 2.28, it checks a fast-forward and moves the branch back when the tests fail, gitta checks a rebase afterwards, and <code>gitta init</code> says so.</li>
+  <li><code>pre-push</code> checks what you push to the protected branch.</li>
+</ul>
+<p>The tests never run in the protected branch's own checkout, where a second merge could change the files under them. They run in a checkout of gitta's own. <code>post-commit</code> tests what an agent's merge would give as soon as the agent commits on its branch, and after every merge into the protected branch gitta tests the other agents' committed work against the new state in the background. The merge then reuses the result for the same code and test command, so git holds the branch lock for a moment only. gitta also sets <code>core.filesRefLockTimeout</code> to 30 seconds in the repository, unless you set it, so a second merge at the same moment waits for the lock instead of failing.</p>
+<p>gitta follows <code>core.hooksPath</code> and keeps hooks you already have, which still run first. Your own commits on the protected branch run no tests. A commit there takes about 50 ms longer, and work on other branches is not slowed.</p>
+<ol class="steps">
+  <li><b>Weakened checks.</b> gitta compares the incoming changes with their starting point. It looks for deleted test files, fewer assertions, new skip or <code>.only</code> markers, CI told to ignore failures, lower coverage thresholds and new suppression comments. It also looks for security controls removed from existing code, such as a login, permission or CSRF check, a CSRF exemption added, or a certificate check switched off. See <a href="#security">Security controls</a> and <a href="#security-notes">Security notes</a>.</li>
+  <li><b>Credentials.</b> If the agent adds a line that looks like an API key, token, private key or a password set in the code, gitta reports it with the file and the line, as for a weakened check. Lines that were already in the file before the agent started do not count, and a setting name inside a text or a template is not a credential.</li>
+  <li><b>Gate.</b> Your test command runs on the combined code in a separate checkout. gitta links the installed dependencies from your main checkout into it (<code>node_modules</code>, <code>.venv</code>, <code>venv</code> and <code>target</code>), so the gate uses the same tools as your own test run. Folders that you name with <code>--link</code> are linked too. A fast-forward of your checked out branch is tested right in your checkout, because git has already written the combined files there. A tree that already passed is not tested again.</li>
+</ol>
+<p>When the tests pass, git finishes the merge and gitta adds nothing to the output:</p>
+<term>$ git merge --no-edit ci-level
+Updating e109176..270c946
+Fast-forward
+ bench/aidev-replay/analyze.py     | 2 +-
+ bench/aidev-replay/test_wilson.py | 9 +++++++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+ create mode 100644 bench/aidev-replay/test_wilson.py</term>
+
+<h2 id="stopped">When gitta stops a merge</h2>
+<p>When the tests fail on the combined code, gitta stops the merge. It names the failing test, prints the first error line and, when a function the code calls changed on main, its new definition line.</p>
+<term>$ git merge --no-edit ci99
+Auto-merging bench/aidev-replay/analyze.py
+gitta: tests fail on main with ci99 (test_ci99.T.test_wider); main unchanged, merge cancelled (ignore git's note). Fix it and merge again.
+    TypeError: wilson() takes 2 positional arguments but 3 were given
+Now on main: bench/aidev-replay/analyze.py:23: def wilson(k, n, *, z=1.96):
+Not committing merge; use 'git commit' to complete the merge.</term>
+<p>There is nothing to clean up. gitta cancels the stopped attempt as soon as git finishes, but only when nothing else is uncommitted in that checkout. If you had other uncommitted changes, it leaves them alone and asks you to run <code>git merge --abort</code> yourself. Once the agent has fixed its code, merge again.</p>
+<p>A fast-forward that fails is stopped before the branch moves. gitta puts the files back as they were and keeps your other uncommitted changes:</p>
+<term>$ git merge ff-break
+Updating 7214229..2fa3ee7
+Fast-forward
+gitta: tests fail on main with ff-break (2 tests: tests.test_data.TestData.test_valid, tests.test_numbers.T.test_hex); main did not move. Fix it and merge again.
+    ValueError: invalid literal for int() with base 10: '0xDEADBEEF'
+fatal: ref updates aborted by hook</term>
+<p>A push that fails the check sends nothing.</p>
+<p>The stop is recorded as <code>merge_stopped</code> in the <a href="audit.html">audit trail</a>, and each checked merge as <code>merge_checked</code>.</p>
+
+<h2>When another agent changed something your code calls</h2>
+<p>gitta tells the agent about such a change while it works, see <a href="warnings.html">Warnings and sync</a>. At merge time it writes a note to <code>.gitta/gitta.log</code> and lets the tests on the combined code decide. A changed meaning never stops a merge by itself.</p>
+
+<h2>When the gate cannot run</h2>
+<p>Sometimes the gate stops because a tool is missing, for example <code>node_modules/.bin/tsc: not found</code>. That is a setup problem, not a fault in the agent's work. gitta says which tool it did not find and records <code>gate_environment</code> in the audit trail. Install the project's dependencies in the main checkout, or link the folder with <code>--link</code>, then merge again. <code>gitta check</code> reports the same case as <code>CANNOT_RUN</code>.</p>
+
+<h2 id="weakened">Removed tests and weakened checks</h2>
+<p>gitta reports removed tests and weakened checks. It never asks. Each finding is printed in the merge output, the CI log, <code>.gitta/gitta.log</code> and the audit trail. The setting <code>weakened_checks</code> decides what happens next. With <code>warn</code>, the default for local hooks, the merge goes ahead:</p>
+<term>$ git merge --no-edit quickfix
+Updating 5453f99..053ebba
+Fast-forward
+gitta: quickfix 1 new skip/ignore/only marker(s) in tests/test_data.py.
+gitta: merged anyway, because weakened_checks is warn. It is in the audit trail.
+ tests/test_data.py | 1 +
+ 1 file changed, 1 insertion(+)</term>
+<p>That is what a person at a terminal sees. Inside an AI agent's tool call, gitta prints nothing for a warning, because it does not change the agent's next step. The finding goes to <code>.gitta/gitta.log</code> and the audit trail. gitta knows it runs inside an agent from <code>CLAUDECODE</code>, which Claude Code sets, or from <code>GITTA_AGENT=1</code> or <code>CODEX_SANDBOX</code>. A block is always printed.</p>
+<p>With <code>block</code>, the default in CI and in the pull request check, the merge stops:</p>
+<term>$ git merge --no-edit drop-test
+gitta: drop-test test file removed in tests/test_numbers.py.
+gitta: drop-test was not merged: .gitta.toml sets weakened_checks to block; main unchanged, merge cancelled (ignore git's note). Restore what it removed.
+Not committing merge; use 'git commit' to complete the merge.</term>
+<p>The setting lives in the committed <code>.gitta.toml</code>, so the team changes it with a reviewed commit. See <a href="commands.html#team-policy">Team policy</a>. The audit trail records each case as <code>warned</code> or <code>blocked</code>, with the findings and who ran the merge.</p>
+
+<h2 id="security">Security controls</h2>
+<p>An agent that removes a security control from existing code is reported in the same way as a removed test. gitta names the control, the function that lost it and the new code that calls that function. See <a href="warnings.html">Warnings</a> for the controls that gitta knows.</p>
+
+<h2 id="security-notes">Security notes</h2>
+<p>gitta checks the lines each agent added for well-known security risks, see <a href="warnings.html#security-notes">Risky code in an agent's own change</a>. Medium notes are shown and recorded. High notes count as weakened checks, so <code>weakened_checks</code> decides whether the merge goes ahead. Choose the level with <code>gitta init --security-block LEVEL</code>. With <code>high</code>, the default, high notes count. With <code>medium</code>, every note counts. With <code>none</code>, notes are only reported.</p>
+
+<h2>Skipping the checks</h2>
+<p><code>git merge --no-verify</code> skips gitta, as it skips any git hook. For a cherry-pick, rebase or reset, set <code>GITTA_SKIP=1</code> for that one command. gitta records each skip as <code>checks_skipped</code> in the audit trail and writes a line to <code>.gitta/gitta.log</code>.</p>
+
+<h2>Optional commands</h2>
+<p><code>gitta land &lt;agent&gt;</code> runs the same checks, merges and moves main forward by one commit in one command. <code>gitta land --all</code> lands every agent in dependency order, and <code>gitta land &lt;agent&gt; --pr</code> pushes the checked result to <code>gitta/pr/&lt;agent&gt;</code> and opens a pull request. In a repository that sets <code>weakened_checks</code> to <code>block</code>, a person can record an override with <code>gitta approve &lt;agent&gt; &lt;reason&gt;</code>. It covers only the current findings, runs only at a person's terminal, outside agent sessions, and the reason goes into the audit trail. Where an override must be enforced, use the <a href="routes.html">pull request route</a> with branch protection and a review by a person.</p>
+
+<h2>Change the gate</h2>
+<p>Set or change the gate with <code>gitta init --gate "COMMAND"</code>. The command runs with <code>sh</code> in the root of the combined checkout. Exit code 0 means pass. Use the same command your CI uses, for example <code>npm ci &amp;&amp; npm test</code>.</p>

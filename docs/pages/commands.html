@@ -1,0 +1,187 @@
+<!-- title: Command reference | group: Using gitta | order: 9 | desc: Every gitta command and its options for setup, everyday work, merging, agent tools, audit and Enterprise, with the settings and environment variables. | seo: gitta command reference and options -->
+<h1>Command reference</h1>
+<p class="lede">Run commands from inside the repository or any of its worktrees. <code>&lt;agent&gt;</code> is the agent's name in <code>gitta status</code>, usually its branch name.</p>
+<p><code>gitta --help</code> lists every command on one screen. Every command also takes <code>--help</code> or <code>-h</code>. It prints the command's usage and options, exits with 0 and changes nothing. A command given an option it does not know stops before it does anything, names the option and exits with 2. Notes and reasons, as in <code>gitta claim</code>, are free text and may contain anything.</p>
+
+<h2>Setup</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta init</code></td><td>Watch this repository and add git hooks for merge, pull and push. Run it once.</td></tr>
+  <tr><td><code>--gate "CMD"</code></td><td>The test command that decides if combined work is good. gitta runs it on the combined code when you merge, pull or push to the protected branch. Without a gate, gitta still tells agents about clashes, but runs no tests.</td></tr>
+  <tr><td><code>--onto BRANCH</code></td><td>The branch to protect. The default is the current branch.</td></tr>
+  <tr><td><code>--weakened-checks warn|block</code></td><td>What a merge does when it removes tests or weakens a security check. <code>warn</code> reports it and merges, <code>block</code> stops the merge. Local hooks use <code>warn</code> by default, CI and the pull request check use <code>block</code>. Written to <code>.gitta.toml</code>, which takes effect once committed. See <a href="#team-policy">Team policy</a>.</td></tr>
+  <tr><td><code>--team</code></td><td>Write the team policy to <code>.gitta.toml</code>, so you can commit it and share the test command and rules with your team and the CI check. See <a href="#team-policy">Team policy</a>.</td></tr>
+  <tr><td><code>--notify on|off</code></td><td>Desktop notifications when something needs a person. Off by default.</td></tr>
+  <tr><td><code>--no-claude</code></td><td>Do not add Claude Code hooks.</td></tr>
+  <tr><td><code>--no-cow</code></td><td>On Linux, use ordinary worktrees instead of a shared checkout.</td></tr>
+  <tr><td><code>--security PATTERN</code></td><td>Treat this symbol or path as a security check in this checkout. Repeat for more. For the whole team, use a committed <code>.gitta-security</code> file. See <a href="warnings.html#mark-your-own-security-checks">Mark your own security checks</a>.</td></tr>
+  <tr><td><code>--security-block high|medium|none</code></td><td>The security notes that count as weakened checks. The default is <code>high</code>. Saved as <code>"security_block"</code> in <code>.gitta/config.json</code>. See <a href="landing.html#security-notes">Security notes</a>.</td></tr>
+  <tr><td><code>--parallel N</code></td><td>Run at most N combination checks at the same time.</td></tr>
+  <tr><td><code>--server URL[,URL]</code>, <code>--token T</code></td><td>Report to Gitta Enterprise team servers.</td></tr>
+  <tr><td><code>gitta adopt [PATH...] [--all]</code></td><td>Coordinate worktrees that another tool made, without automatic watching. <code>--onto BRANCH</code> and <code>--gate CMD</code> work as for <code>init</code>. Not needed after <code>gitta init</code>, which finds worktrees by itself.</td></tr>
+  <tr><td><code>gitta adopt --reset &lt;agent&gt;</code></td><td>Restart an agent whose start commit is no longer in the repository. Its changes are then counted from where its work meets the protected branch. See <a href="troubleshooting.html">Troubleshooting</a>.</td></tr>
+</table>
+
+<h2>Everyday</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta status [--json]</code></td><td>Agents, their changed files and all warnings. A worktree Gitta cannot read is skipped with one line that says why and how to fix it; the others are shown as usual. <code>--json</code> lists them under <code>skipped</code>.</td></tr>
+  <tr><td><code>gitta watch [--once]</code></td><td>A live terminal view. See <a href="#watching-gitta-work">Watching gitta work</a>.</td></tr>
+  <tr><td><code>gitta sync &lt;agent&gt; [--from main|&lt;agent&gt;]</code></td><td>Merge work from main, or another agent's current work, into this agent's copy.</td></tr>
+  <tr><td><code>gitta check &lt;agent&gt; [--with &lt;agent&gt;] [--json]</code></td><td>Run the gate on this agent's work combined with each other agent's work, or with one. Results are <code>PASSES</code>, <code>BREAKS</code> or <code>DOES_NOT_MERGE</code>.</td></tr>
+  <tr><td><code>gitta claim &lt;agent&gt; &lt;symbol or path&gt; [note]</code></td><td>Announce a change before it is made.</td></tr>
+  <tr><td><code>gitta release &lt;agent&gt; &lt;symbol or path&gt;</code></td><td>End a claim.</td></tr>
+</table>
+
+<h2 id="watching-gitta-work">Watching gitta work</h2>
+<p><code>gitta watch</code> fills the terminal and updates as events arrive.</p>
+<ul>
+  <li>Each agent, with what it is doing now.</li>
+  <li>The latest events, one plain line each.</li>
+  <li>Today's counts of changes checked, clashes caught and merges.</li>
+  <li>Anything a person must act on, with the exact command to run. When nothing waits, it says "Nothing needs you".</li>
+</ul>
+<p>Press <kbd>q</kbd> to quit. The view follows the terminal size and has no colour when <code>NO_COLOR</code> is set. Without a terminal, for example in a pipe, it prints plain lines. <code>gitta watch --once</code> prints today's counts and the recent events, then exits.</p>
+<p>The same events go to <code>.gitta/gitta.log</code>, one line each with the time and a plain sentence. Follow it with <code>tail -f .gitta/gitta.log</code>.</p>
+
+<h2>Merging</h2>
+<p>You merge with <code>git merge</code>, <code>git pull</code> or <code>git push</code>. The hooks that <code>gitta init</code> adds run the checks. See <a href="landing.html">Merging</a>. The commands below are optional.</p>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta land &lt;agent&gt;</code></td><td>Optional. Check, merge, run the gate, and move main forward by one commit, in one command.</td></tr>
+  <tr><td><code>gitta land --all</code></td><td>Optional. Land every agent, in dependency order.</td></tr>
+  <tr><td><code>gitta land &lt;agent&gt; --pr [--remote origin]</code></td><td>Push the checked result to <code>gitta/pr/&lt;agent&gt;</code> and open a pull request.</td></tr>
+  <tr><td><code>gitta approve &lt;agent&gt; &lt;reason&gt;</code></td><td>Optional. A recorded override for a repository that sets <code>weakened_checks</code> to <code>block</code>. A person accepts this agent's current weakened checks, security findings and code page findings, and the reason goes into the audit trail. It runs only at a person's terminal, outside agent sessions and workspaces, and covers only these exact findings.</td></tr>
+  <tr><td><code>gitta pr-check --pr REF --other REF[=NAME]...</code></td><td>Compare one branch with others, as the CI check does. <code>--name N</code> names this pull request, <code>--base REF</code> sets the target branch, <code>--gate CMD</code> runs your tests on each pair, <code>--json</code> prints the results for scripts. It also lists removed tests and weakened checks in the branch, and exits with 3 when <code>weakened_checks</code> is <code>block</code>. See <a href="pull-requests.html">Pull requests and CI</a>.</td></tr>
+  <tr><td><code>gitta encoding</code></td><td>With gitta Enterprise, show the code pages of the mainframe files, from <code>.gitattributes</code> and <code>.gitta-encoding</code>, and the code page risks gitta sees. This command is in the Enterprise build, not in the free <code>gitta</code>. See <a href="https://gitta.io/docs/mainframe.html#code-pages">Set the code page for each folder</a>.</td></tr>
+  <tr><td><code>gitta scan [DIR...]</code></td><td>Search dependency folders (<code>node_modules</code>, <code>.venv</code>, <code>venv</code>, <code>vendor</code>, or the folders you name) for agent instruction files that a package planted, and for prompt injection phrases in them.</td></tr>
+</table>
+
+<h2 id="agents-in-batches">Agents in batches</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta run --task T [--task T...]</code></td><td>Make one worktree per task and start one agent in each.</td></tr>
+  <tr><td><code>--agent claude|codex</code>, <code>--cmd 'TEMPLATE {task}'</code></td><td>Which agent to start.</td></tr>
+  <tr><td><code>--gate CMD</code>, <code>--link DIR</code></td><td>The gate, and folders to link into each workspace, for example a dependency folder.</td></tr>
+  <tr><td><code>--tasks FILE</code></td><td>Read tasks from a file, one per line.</td></tr>
+  <tr><td><code>--land</code></td><td>Optional. Land every agent when all are done.</td></tr>
+  <tr><td><code>--sandbox</code></td><td>On Linux, start each agent in the <a href="linux.html">sandbox</a>. Add <code>--net-port P</code> to allow outgoing TCP to that port only.</td></tr>
+  <tr><td><code>gitta up -n N [--gate CMD] [--link DIR]</code></td><td>Make N agent workspaces, each on its own branch <code>gitta/aN</code>. After <code>gitta init</code> they branch off your main branch and join the existing setup.</td></tr>
+  <tr><td><code>--backend worktree|overlay|fuse</code>, <code>--deny-read PATTERN</code></td><td>On Linux, make copy-on-write workspaces over one shared checkout instead of worktrees, and leave files that match the pattern out of them. See <a href="linux.html">Linux workspaces</a>.</td></tr>
+  <tr><td><code>gitta down</code></td><td>Remove the workspaces that Gitta made.</td></tr>
+</table>
+
+<h2>Agent tools</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta install claude|cursor|codex</code></td><td>Connect one agent tool in every workspace.</td></tr>
+  <tr><td><code>gitta hook claude|claude-stop</code></td><td>Run by Claude Code after each step and when it stops. It reads the event on stdin. You do not run it yourself.</td></tr>
+  <tr><td><code>gitta hook worktree-create|worktree-remove|worktree-setup</code></td><td>Run by the coding tools when they make or remove a worktree, so it can share one checkout on Linux.</td></tr>
+  <tr><td><code>gitta mcp</code></td><td>The MCP server for Cursor and Codex, on stdin and stdout. It gives the tools <code>gitta_status</code>, <code>gitta_sync</code>, <code>gitta_check</code>, <code>gitta_claim</code> and <code>gitta_release</code>.</td></tr>
+</table>
+
+<h2>Audit</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta audit</code></td><td>Show the audit trail as a table. See <a href="audit.html">Audit trail</a>.</td></tr>
+  <tr><td><code>--since DATE</code>, <code>--agent A</code>, <code>--event E</code></td><td>Filter.</td></tr>
+  <tr><td><code>--csv</code>, <code>--json</code></td><td>Export.</td></tr>
+  <tr><td><code>--team</code></td><td>With Enterprise, read the whole team's trail from the team servers.</td></tr>
+  <tr><td><code>gitta audit verify [--team]</code></td><td>Check that no event was changed, removed or reordered.</td></tr>
+  <tr><td><code>gitta report [--period day|week|month|all] [--by agent|person|repo] [--csv|--json] [--team]</code></td><td>Agents run, changes, clashes found, merges stopped and broken mains prevented. See <a href="report.html">Usage report</a>.</td></tr>
+</table>
+
+<h2>Gitta Enterprise</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta login [--server URL[,URL]]</code></td><td>Sign in with your company account and get your own token.</td></tr>
+  <tr><td><code>gitta team whoami</code></td><td>Show who the team servers think you are.</td></tr>
+  <tr><td><code>gitta team token create --name N [--email E] [--runner] [--days D]</code></td><td>Make a personal token for a person or a CI runner. Needs an admin token.</td></tr>
+  <tr><td><code>gitta team token list</code></td><td>List tokens and their state. Needs an admin token.</td></tr>
+  <tr><td><code>gitta team token revoke &lt;id&gt;</code></td><td>Revoke a token on every server. Needs an admin token.</td></tr>
+  <tr><td><code>gitta server</code></td><td>Run a team server. This command is in the Enterprise server build, not in the free <code>gitta</code>. See <a href="https://gitta.io/docs/team-server.html">Team server</a>.</td></tr>
+</table>
+
+<h2>Update</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta update</code></td><td>Install the latest release over this <code>gitta</code>. Gitta verifies the checksum first and then renames the new files over the old ones. If Homebrew or cargo installed Gitta, it prints the command to use instead. See <a href="install.html#update">Update</a>.</td></tr>
+  <tr><td><code>gitta update --check</code></td><td>Show if a newer release exists. Changes nothing.</td></tr>
+</table>
+
+<h2>Remove</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>gitta uninstall</code></td><td>Remove Gitta from this repository.</td></tr>
+  <tr><td><code>gitta uninstall --everywhere</code></td><td>Also remove the hooks and MCP entries from your user settings.</td></tr>
+</table>
+
+<h2 id="team-policy">Team policy in .gitta.toml</h2>
+<p><code>gitta init --team</code> writes a <code>.gitta.toml</code> at the root of the repository. <code>--weakened-checks</code> writes it too. Commit it. gitta reads it from the protected branch, so only a reviewed commit changes the policy, and the CI check reads the same file. A copy you edit but do not commit changes nothing.</p>
+<term>$ gitta init --team --weakened-checks block
+$ cat .gitta.toml
+# gitta team policy. Commit this file: merges, pushes and the CI check read it from main.
+# The test command gitta runs on the combined code before a merge.
+gate = "PYTHONPATH=src python3 -m unittest -q"
+# Removed tests or weakened security checks: "warn" lets the merge go ahead and records it, "block" stops it.
+# Without this line, local merges warn and the CI check blocks.
+# weakened_checks = "warn"
+weakened_checks = "block"</term>
+<table>
+  <tr><th>Key</th><th>Use</th></tr>
+  <tr><td><code>gate</code></td><td>The test command for the combined code. A local <code>--gate</code> setting comes first on that machine. CI runners use this one when they get no <code>GATE</code>.</td></tr>
+  <tr><td><code>weakened_checks</code></td><td><code>warn</code> or <code>block</code>. Without it, local merges warn and the CI check blocks. The <code>GITTA_WEAKENED_CHECKS</code> environment variable comes first.</td></tr>
+</table>
+
+<h2>Files in the repository</h2>
+<table>
+  <tr><th>File</th><th>Use</th></tr>
+  <tr><td><code>.gitta/</code></td><td>Settings (<code>config.json</code>), the audit trail (<code>audit.jsonl</code>), caches and check checkouts. Hidden from Git, per checkout.</td></tr>
+  <tr><td><code>.gitta.toml</code></td><td>Committed. The team policy. See <a href="#team-policy">Team policy</a>.</td></tr>
+  <tr><td><code>.gitta-security</code></td><td>Committed. Your own security checks, the <code>[allow]</code> section and the mainframe sections. See <a href="warnings.html#mark-your-own-security-checks">Warnings</a> and <a href="https://gitta.io/docs/mainframe-security.html">Security checks on mainframe code</a>.</td></tr>
+  <tr><td><code>.gitta-copybooks</code></td><td>Committed, for gitta Enterprise. Directories whose files are COBOL copybooks. See <a href="https://gitta.io/docs/mainframe.html#copybook-directories">Copybook directories</a>.</td></tr>
+  <tr><td><code>.gitta-include</code></td><td>Committed. C and C++ include directories, how to read <code>.h</code> files, and macros that open a namespace. See <a href="c-cpp.html#include-directories">C and C++</a>.</td></tr>
+</table>
+
+<h2>What gitta keeps in .gitta/</h2>
+<p>Everything stays in the repository's own <code>.gitta/</code> folder. Git ignores it, and nothing in it leaves the machine.</p>
+<table>
+  <tr><th>Path</th><th>Contents</th></tr>
+  <tr><td><code>config.json</code></td><td>The settings below.</td></tr>
+  <tr><td><code>audit.jsonl</code>, <code>audit-main</code></td><td>The hash-chained audit trail, and the last main commit it recorded. See <a href="audit.html">Audit trail</a>.</td></tr>
+  <tr><td><code>gitta.log</code></td><td>One readable line per event, with the time and a plain sentence. Follow it with <code>tail -f .gitta/gitta.log</code>. It is rotated at 1 MB.</td></tr>
+  <tr><td><code>activity.jsonl</code></td><td>The same account of what gitta did and why, as JSON.</td></tr>
+  <tr><td><code>agents/</code></td><td>The workspaces of agents started in a batch. See <a href="#agents-in-batches">Agents in batches</a>.</td></tr>
+  <tr><td><code>events/</code>, <code>logs/</code></td><td>Recent events for <code>gitta watch</code>, and the output of each agent that <code>gitta run</code> started.</td></tr>
+  <tr><td><code>approvals.json</code>, <code>claims.json</code></td><td>Overrides people recorded with <code>gitta approve</code>, and changes agents announced with <code>gitta claim</code>.</td></tr>
+  <tr><td><code>base/</code>, <code>cache/parse/</code></td><td>The base each agent started from, and parsed files, so warnings stay fast.</td></tr>
+  <tr><td><code>shared/</code>, <code>cow/</code></td><td>Shared and copy-on-write workspaces on Linux. See <a href="linux.html">Linux workspaces</a>.</td></tr>
+</table>
+<p>To remove gitta, use <a href="uninstall.html">gitta uninstall</a>. It keeps the work in every agent workspace.</p>
+
+<h2>Settings in .gitta/config.json</h2>
+<table>
+  <tr><th>Key</th><th>Use</th></tr>
+  <tr><td><code>"gate"</code></td><td>The gate command, set with <code>--gate</code></td></tr>
+  <tr><td><code>"auto_sync"</code></td><td><code>false</code> turns automatic sync of the workspaces that gitta made off</td></tr>
+  <tr><td><code>"parallel"</code></td><td>How many combination checks run at once, set with <code>--parallel</code></td></tr>
+  <tr><td><code>"security"</code></td><td>Patterns from <code>--security</code></td></tr>
+  <tr><td><code>"security_block"</code></td><td><code>high</code>, <code>medium</code> or <code>none</code>, set with <code>--security-block</code></td></tr>
+  <tr><td><code>"notify"</code></td><td><code>true</code> turns desktop notifications on, set with <code>--notify on</code></td></tr>
+</table>
+
+<h2>Environment variables</h2>
+<table>
+  <tr><th>Variable</th><th>Use</th></tr>
+  <tr><td><code>GITTA_SERVER</code>, <code>GITTA_SERVER_TOKEN</code></td><td>Team servers and token, for CI runners and cloud agents. Overrides the repository setting.</td></tr>
+  <tr><td><code>GITTA_SERVER_CA</code></td><td>A PEM file with your own certificate authority, for team servers with private certificates.</td></tr>
+  <tr><td><code>GITTA_ADMIN_TOKEN</code></td><td>An admin token for <code>gitta team</code> commands.</td></tr>
+  <tr><td><code>GITTA_NO_UPDATE_CHECK</code></td><td><code>1</code> turns the daily update notice off. The daily check sends only the gitta version, the operating system and the processor type to gitta.io. The notice is also off when <code>CI</code> is set. To turn it off for good, put <code>{"update_check": false}</code> in <code>~/.config/gitta/config.json</code>.</td></tr>
+  <tr><td><code>GITTA_MACHINE</code></td><td>The machine name shown to others. The default is the host name.</td></tr>
+  <tr><td><code>GITTA_AGENT</code></td><td>Set it in the environment of an agent tool that gitta doesn't recognise. gitta then treats that process as an agent, so it can't run <code>gitta approve</code>. Claude Code, Cursor and Codex are recognised on their own.</td></tr>
+  <tr><td><code>GITTA_WEAKENED_CHECKS</code></td><td><code>warn</code> or <code>block</code>. Comes before <code>.gitta.toml</code>, for one run or one CI job.</td></tr>
+  <tr><td><code>GITTA_SKIP</code></td><td><code>1</code> skips gitta's check for one cherry-pick, rebase, reset or update-ref of the protected branch. The skip is recorded in the audit trail.</td></tr>
+  <tr><td><code>GITTA_NO_NOTIFY</code></td><td>Set it to keep desktop notifications off for one process.</td></tr>
+  <tr><td><code>GITTA_SANDBOX</code>, <code>GITTA_FS</code></td><td>Paths to the <code>gitta-sandbox</code> and <code>gitta-fs</code> programs on Linux, when they aren't on the <code>PATH</code>. See <a href="linux.html">Linux workspaces</a>.</td></tr>
+  <tr><td><code>GITTA_PROFILE</code></td><td><code>1</code> prints the time of each step to standard error, for measuring performance.</td></tr>
+</table>

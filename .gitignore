@@ -1,0 +1,13 @@
+target/
+docs/_site/
+__pycache__/
+.DS_Store
+infra/bench/.terraform/
+infra/bench/terraform.tfstate*
+infra/bench/terraform.tfstate.d/
+bench/aidev-replay/results/*/*
+!bench/aidev-replay/results/*/env.json
+!bench/aidev-replay/results/*/machine.json
+!bench/aidev-replay/results/*/verify.txt
+!bench/aidev-replay/results/*/timeline.log
+!bench/aidev-replay/results/*/t_*

@@ -1,0 +1,6 @@
+terraform state: 0 resources
+instances (not terminated): 0
+volumes available/in-use (all): 0
+security group gitta-bench-ssh: 0
+key pair gitta-bench: 0
+elastic IPs: 0

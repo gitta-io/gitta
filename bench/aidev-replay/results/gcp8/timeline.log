@@ -1,0 +1,10 @@
+2026-10-20T20:40:02Z [gcp8] terraform apply
+2026-10-20T20:40:49Z [gcp8] vm up: {"image":"https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261016","type":"e2-standard-8","zone":"europe-north1-a"}
+2026-10-20T20:41:19Z [gcp8] ssh ok
+2026-10-20T20:41:23Z [gcp8] setup start
+2026-10-20T20:44:33Z [gcp8] setup done
+2026-10-20T20:44:36Z [gcp8] runner start 
+2026-10-20T21:27:57Z [gcp8] runner restarted from scratch with fixed runner.py 68639118 (first attempt aborted: harness yarn/python install gaps)
+2026-10-21T09:51:52Z [gcp8] pulled      747 results
+2026-10-21T09:51:52Z [gcp8] terraform destroy
+2026-10-21T09:53:07Z [gcp8] destroyed

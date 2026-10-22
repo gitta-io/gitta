@@ -1,0 +1,54 @@
+<!-- title: Linux workspaces | group: Using gitta | order: 7 | desc: On Linux, gitta can let many Claude Code worktrees share one checkout on disk, and it can run your agents in a sandbox. Turn on either one when you need it. | seo: Shared worktrees and agent sandbox on Linux -->
+<h1>Linux workspaces</h1>
+<p class="lede">On Linux, gitta can let many Claude Code worktrees share one checkout on disk. It can also run agents in a sandbox. Both are optional.</p>
+
+<h2>Shared checkout</h2>
+<p>A normal worktree is a full copy of the repository's files. Five agents on a large repository need five copies. With a shared checkout, every agent sees a full repository, but only the files it changes are stored separately.</p>
+
+<figure class="figure">
+<svg viewBox="0 0 760 210" role="img" aria-labelledby="cow-t"><title id="cow-t">Three agent views on top of one shared read-only checkout. Each agent's changes go to its own thin layer.</title>
+<g font-family="DM Sans,sans-serif" font-size="13" fill="var(--ink)">
+<g><rect x="20" y="16" width="220" height="44" rx="10" fill="var(--surface)" stroke="var(--line)"/><text x="36" y="43" font-weight="600">Agent 1 sees a full repository</text></g>
+<g><rect x="270" y="16" width="220" height="44" rx="10" fill="var(--surface)" stroke="var(--line)"/><text x="286" y="43" font-weight="600">Agent 2 sees a full repository</text></g>
+<g><rect x="520" y="16" width="220" height="44" rx="10" fill="var(--surface)" stroke="var(--line)"/><text x="536" y="43" font-weight="600">Agent 3 sees a full repository</text></g>
+<g fill="var(--signal-soft)"><rect x="20" y="76" width="220" height="40" rx="10"/><rect x="270" y="76" width="220" height="40" rx="10"/><rect x="520" y="76" width="220" height="40" rx="10"/></g>
+<g fill="var(--signal-dark)" font-size="12"><text x="36" y="101">Layer: only files agent 1 changed</text><text x="286" y="101">Layer: only files agent 2 changed</text><text x="536" y="101">Layer: only files agent 3 changed</text></g>
+<rect x="20" y="134" width="720" height="58" rx="12" fill="var(--ink)"/>
+<text x="40" y="160" fill="var(--paper)" font-weight="600">Read-only git checkout (shared)</text><text x="40" y="180" fill="var(--line-strong)" font-size="12">the base commit's files, including node_modules and other ignored folders</text>
+</g></svg>
+</figure>
+
+<p><code>gitta init</code> sets this up for new Claude Code worktrees in the repository. gitta uses the best method that is available:</p>
+<table>
+  <tr><th>Method</th><th>Used when</th></tr>
+  <tr><td>Kernel overlay</td><td>gitta runs as root.</td></tr>
+  <tr><td><code>fuse-overlayfs</code></td><td>It is installed and gitta runs as a normal user.</td></tr>
+  <tr><td>gitta's own FUSE layer</td><td>FUSE is available.</td></tr>
+  <tr><td>Ordinary worktree</td><td>None of the above is available.</td></tr>
+</table>
+
+<p>Each agent still gets a real git worktree, with its own branch, HEAD and index. The agents share only the files, never their git state, so one agent's staged or committed work never shows up in another agent's worktree.</p>
+
+<p>To make several workspaces at once, run <code>gitta up -n 3 --backend overlay</code> as root, or <code>--backend fuse</code> as a normal user. Each agent gets its own branch, <code>gitta/a1</code>, <code>gitta/a2</code> and so on. In a repository where you already ran <code>gitta init</code>, the new agents join that setup and branch off your main branch, so you merge their work with <code>git merge</code> as usual. <code>gitta down</code> removes them again.</p>
+
+<p>When the last worktree on a base commit goes away, gitta also removes the shared checkout of that commit, so old checkouts do not pile up.</p>
+
+<div class="warning"><b>Cost on compile-heavy work</b>Reading through a layer is slower than reading a normal folder, and a compile-heavy test job shows it most. Use the shared checkout when disk space matters more than build time. Turn it off with <code>gitta init --no-cow</code>.</div>
+
+<h2>Sandbox</h2>
+<p>The sandbox uses Linux Landlock. The kernel enforces it for the agent and every process the agent starts. The agent can read and write its own worktree and read system folders. It cannot reach your home folder, SSH keys, cloud credentials, the main checkout or other agents' worktrees.</p>
+<p>Start agents in the sandbox with <code>gitta run --sandbox</code>, or run any command in it directly:</p>
+<term>$ gitta-sandbox --workspace ../translate-api --no-net -- claude
+$ gitta-sandbox --workspace ../translate-api --net-port 443 --write ~/.cache/pip -- claude</term>
+<table>
+  <tr><th>Option</th><th>Effect</th></tr>
+  <tr><td><code>--read PATH</code></td><td>Also allow reading this path.</td></tr>
+  <tr><td><code>--write PATH</code></td><td>Also allow writing this path, for example a cache folder.</td></tr>
+  <tr><td><code>--no-net</code></td><td>No TCP connections and no TCP listening.</td></tr>
+  <tr><td><code>--net-port N</code></td><td>Allow TCP connections only to these ports.</td></tr>
+</table>
+<p>Without <code>--no-net</code> or <code>--net-port</code>, the network stays open. Landlock's network rules cover TCP only. UDP, DNS lookups and raw sockets stay possible. For a complete network ban, run the agent in a network namespace as well, for example a container without a network or <code>unshare -n</code>.</p>
+<p>File rules need Linux 5.13 or later. Network rules need Linux 6.7 or later. On an older kernel, <code>--no-net</code> and <code>--net-port</code> refuse to start instead of running with the network open. Nothing sits between the agent and its files.</p>
+<p>Keep secrets out of reach of agents in any case.</p>
+
+<p>To give each agent its own worktree, see <a href="agents.html">Agents</a>. For what gitta checks in agent changes, see <a href="https://gitta.io/docs/security.html">Security and data</a>.</p>

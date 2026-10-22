@@ -1,0 +1,87 @@
+name: Gitta PR check
+description: >
+  Checks open pull requests against each other: Gitta warns when one PR changes something another PR's
+  new code relies on, when two PRs don't merge, and (with a gate) when their combination fails the tests.
+  Posts one comment per PR and keeps it up to date. No AI involved.
+inputs:
+  gate:
+    description: Test command run on each combination (for example "npm ci && npm test"). Empty = no cross-testing.
+    default: ""
+  mode:
+    description: "current: check the PR that triggered the run. all: re-check every open PR (use on push to the base branch or on a schedule)."
+    default: current
+  fail-on:
+    description: "breaks: fail the check when the combination breaks or does not merge. never: comment only."
+    default: breaks
+  max-prs:
+    description: Most open pull requests to compare against.
+    default: "30"
+  github-token:
+    description: Token with pull-requests write.
+    default: ${{ github.token }}
+  version:
+    description: "Use a released Gitta binary (for example 0.1.0) instead of building from source. Starts in seconds."
+    default: ""
+  release-url:
+    description: "Where release files are downloaded from. Default: this action's repository's GitHub releases for the version."
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Download released Gitta
+      id: bin
+      if: inputs.version != ''
+      shell: bash
+      env:
+        V: ${{ inputs.version }}
+        URL: ${{ inputs.release-url }}
+        REPO: ${{ github.action_repository || github.repository }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        case "$(uname -s)-$(uname -m)" in
+          Linux-x86_64) t=x86_64-unknown-linux-musl ;; Linux-aarch64) t=aarch64-unknown-linux-musl ;;
+          Darwin-arm64) t=aarch64-apple-darwin ;; Darwin-x86_64) t=x86_64-apple-darwin ;;
+          *) echo "no Gitta build for $(uname -s) $(uname -m)"; exit 1 ;;
+        esac
+        name="gitta-$V-$t"; dir="$RUNNER_TEMP/gitta-bin"; mkdir -p "$dir"
+        if [ -n "$URL" ]; then
+          curl -fsSL "$URL/$name.tar.gz" -o "$dir/$name.tar.gz"
+          curl -fsSL "$URL/$name.tar.gz.sha256" -o "$dir/$name.tar.gz.sha256"
+        else
+          # GitHub releases of the repository the action comes from (works for private repositories too).
+          gh release download "v$V" -R "$REPO" -D "$dir" -p "$name.tar.gz" -p "$name.tar.gz.sha256"
+        fi
+        (cd "$dir" && (sha256sum -c "$name.tar.gz.sha256" 2>/dev/null || shasum -a 256 -c "$name.tar.gz.sha256"))
+        tar -xzf "$dir/$name.tar.gz" -C "$dir"
+        echo "exe=$dir/$name/gitta" >> "$GITHUB_OUTPUT"
+    - name: Locate Gitta source
+      id: src
+      if: inputs.version == ''
+      shell: bash
+      run: |
+        src="$(cd "${{ github.action_path }}/.." && pwd)"
+        echo "dir=$src" >> "$GITHUB_OUTPUT"
+        echo "key=gitta-${{ runner.os }}-$(cat "$src"/gitta-cli/Cargo.lock "$src"/gitta-cli/Cargo.toml "$src"/gitta-core/Cargo.toml "$src"/gitta-core/src/*.rs "$src"/gitta-cli/src/*.rs | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        echo "exe=$src/gitta-cli/target/release/gitta" >> "$GITHUB_OUTPUT"
+    - name: Cache Gitta build
+      if: inputs.version == ''
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.src.outputs.dir }}/gitta-cli/target
+        key: ${{ steps.src.outputs.key }}
+    - name: Build Gitta
+      if: inputs.version == ''
+      shell: bash
+      run: cargo build --release --quiet --manifest-path "${{ steps.src.outputs.dir }}/gitta-cli/Cargo.toml"
+    - name: Check pull requests
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GITTA: ${{ steps.bin.outputs.exe || steps.src.outputs.exe }}
+        GATE: ${{ inputs.gate }}
+        MODE: ${{ inputs.mode }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        MAX_PRS: ${{ inputs.max-prs }}
+        CURRENT_PR: ${{ github.event.pull_request.number }}
+      run: bash "${{ github.action_path }}/run.sh"

@@ -1,0 +1,103 @@
+<!-- title: Install | group: Get started | order: 2 | desc: Install the gitta command on macOS and Linux with the install script or Homebrew, on Windows with PowerShell, or build it from source with Rust. | seo: Install gitta on macOS, Linux and Windows -->
+<h1>Install</h1>
+<p class="lede">gitta is one program, <code>gitta</code>. Install it on each machine where agents work, and on the CI runners that run the pull request check.</p>
+
+<h2>Requirements</h2>
+<ul>
+  <li>Git, a current release. gitta calls the <code>git</code> command on your <code>PATH</code>.</li>
+  <li>curl. The install script and <code>gitta update</code> use it to download releases.</li>
+  <li>The agents you use, for example Claude Code, Cursor or Codex. They do not need to be installed first.</li>
+</ul>
+
+<h2>By platform</h2>
+<table>
+  <tr><th>Platform</th><th>How to install</th></tr>
+  <tr><td>macOS, Apple silicon and Intel</td><td><a href="#install-script">Install script</a> or <a href="#homebrew">Homebrew</a></td></tr>
+  <tr><td>Linux, x86_64 and arm64</td><td><a href="#install-script">Install script</a>. These builds are static and need no libraries.</td></tr>
+  <tr><td>Windows, x86_64 and arm64</td><td><a href="#windows">PowerShell install script</a></td></tr>
+</table>
+<p>FreeBSD is <a href="#coming-next">coming next</a>.</p>
+
+<h2>Install script</h2>
+<p>The script picks the build for your system and processor, verifies its SHA-256 checksum and puts <code>gitta</code> in <code>~/.local/bin</code>. Set <code>GITTA_BIN_DIR</code> to install somewhere else.</p>
+<term>$ curl -fsSL {{INSTALL}} | sh</term>
+<p>The script downloads through gitta.io, which counts the download, and gets the files from GitHub releases if gitta.io does not answer. The count holds the version, the build and the country, and nothing about you. See <a href="../privacy.html">Privacy</a>.</p>
+<p>The script says what it installs, and from which version to which when you upgrade. It then checks your setup and ends with the next steps:</p>
+<term>Installing gitta {{VERSION}} for macOS, Apple silicon into ~/.local/bin
+Done. Checksum verified, gitta installed.
+
+Added ~/.local/bin to your PATH in ~/.zshrc. Open a new terminal, or run:  export PATH="$HOME/.local/bin:$PATH"
+
+Found git 2.50.1.
+Found Claude Code. `gitta init` will connect it.
+
+Next steps
+  1. Go to your repository:      cd path/to/your/repo
+  2. Set it up with your tests:  gitta init --gate "&lt;your test command&gt;"
+     for example --gate "pytest", --gate "npm test", --gate "cargo test" or --gate "go test ./..."
+  3. See what gitta does:        gitta watch
+  Quick start: https://gitta.io/docs/quickstart.html</term>
+<p>If <code>~/.local/bin</code> is not on your <code>PATH</code>, the script adds the line for your shell (zsh, bash or fish) to its startup file, once, and tells you which file it changed. Open a new terminal after that, or run the line it prints.</p>
+<p>The script also checks for git. gitta works best with git 2.28 or later. With an older git, gitta still checks every merge, and the script tells you to update git. It looks for Claude Code, Cursor and Codex too, so you know which tools <code>gitta init</code> connects.</p>
+<p>Then check the installation:</p>
+<term>$ gitta --version
+gitta {{VERSION}}</term>
+<p><code>gitta --help</code> lists every command.</p>
+
+<h2>Homebrew</h2>
+<p>Install from the gitta tap. Each release updates the formula there.</p>
+<term>$ brew install gitta-io/tap/gitta</term>
+
+<h2 id="windows">Windows</h2>
+<p>Run this in PowerShell. You do not need administrator rights.</p>
+<term>PS&gt; irm https://gitta.io/install.ps1 | iex</term>
+<p>The script picks the build for your processor (x86_64 or arm64), verifies its SHA-256 checksum and puts <code>gitta.exe</code> in <code>%LOCALAPPDATA%\gitta\bin</code>. It adds that folder to your user <code>PATH</code>, so new terminals find gitta, and the window you ran it in finds it at once. Set <code>GITTA_BIN_DIR</code> to install somewhere else. Like the install script for macOS and Linux, it downloads through gitta.io and falls back to GitHub releases.</p>
+<term>Installing gitta {{VERSION}} for Windows x86_64 into ~\AppData\Local\gitta\bin
+Done. Checksum verified, gitta.exe installed.
+
+Added ~\AppData\Local\gitta\bin to your user PATH. New terminals find gitta; this one does too.
+
+Found git 2.51.0.
+Found Claude Code. `gitta init` will connect it.
+
+Next steps
+  1. Go to your repository:      cd path\to\your\repo
+  2. Set it up with your tests:  gitta init --gate "&lt;your test command&gt;"
+     for example --gate "pytest", --gate "npm test", --gate "cargo test" or --gate "go test ./..."
+  3. See what gitta does:        gitta watch
+  Quick start: https://gitta.io/docs/quickstart.html</term>
+<p>gitta needs Git for Windows. Its hooks and gate commands run in the <code>sh</code> that Git for Windows installs. <code>gitta update</code> works on Windows too. Shared copy-on-write workspaces and the agent sandbox are Linux only, and inside WSL you can use the install script as on Linux.</p>
+<p>You can also download the zip for your processor from the <a href="https://github.com/gitta-io/gitta/releases/latest">latest release</a>, check it with <code>Get-FileHash -Algorithm SHA256</code> against the <code>.sha256</code> file next to it, and put <code>gitta.exe</code> in a folder on your <code>PATH</code>.</p>
+
+<h2>Build from source</h2>
+<p>Use a recent stable Rust toolchain. This works on every platform in the table above.</p>
+<term>$ git clone https://github.com/gitta-io/gitta
+$ cd gitta
+$ cargo install --path gitta-cli</term>
+
+<h2>Check the download</h2>
+<p>Each release publishes a checksum for every build, and an SBOM and a CBOM. See <a href="https://gitta.io/docs/sbom.html">SBOM and CBOM</a>.</p>
+
+<h2>Update</h2>
+<p>If you installed gitta with the install script, let gitta update itself.</p>
+<term>$ gitta update</term>
+<p><code>gitta update</code> asks gitta.io for the latest release, downloads the build for your system and verifies its SHA-256 checksum. If gitta.io does not answer, it gets the release from GitHub. Then it writes the new files next to the current <code>gitta</code> and renames them over the old ones, so a running <code>gitta</code> is never changed in place. To see if a new release exists without installing it, add <code>--check</code>.</p>
+<term>$ gitta update --check</term>
+<p>If Homebrew installed gitta, update it with Homebrew.</p>
+<term>$ brew upgrade gitta</term>
+<p>If you built gitta with <code>cargo install</code>, run that command again. In both cases <code>gitta update</code> leaves the installation as it is and prints the command to use.</p>
+<p>Repositories that use gitta need no change. Their settings stay in each repository's <code>.gitta/</code> folder.</p>
+
+<h3>Update notice</h3>
+<p>When a newer release exists, gitta prints one line about it, at most once a day. The check runs in the background with a short timeout, so commands do not wait for it. It sends the gitta version, your operating system and your CPU type to gitta.io, and asks GitHub when gitta.io is out of reach. The result is kept in your user cache folder.</p>
+<p>The notice shows only at a terminal. It stays out of CI, agent hooks, the MCP server and JSON output. To turn it off, do one of these:</p>
+<ul>
+  <li>Set <code>GITTA_NO_UPDATE_CHECK=1</code> in your environment.</li>
+  <li>Put <code>{"update_check": false}</code> in <code>~/.config/gitta/config.json</code>.</li>
+</ul>
+
+<h2>Coming next</h2>
+<p>Release builds for FreeBSD come next. With gitta Enterprise, gitta also runs inside z/OS in a zCX container, see the <a href="https://gitta.io/docs/mainframe.html">Mainframe guide</a>.</p>
+
+<h2>Next step</h2>
+<p>Continue with the <a href="quickstart.html">quick start</a>.</p>

@@ -1,0 +1,31 @@
+# Gitta pull-request check for Azure Repos (Azure Pipelines steps template). Use it from your pipeline:
+#   steps:
+#     - template: gitta-pr-check.yml
+#       parameters: { releases: "<where Gitta's release files are published>", gate: "npm ci && npm test" }
+# Run the pipeline as a build validation policy on the target branch. The project's build service needs
+# "Contribute to pull requests" on the repository so the check can comment.
+parameters:
+  - name: releases
+    type: string
+  - name: gate
+    type: string
+    default: ""
+  - name: failOn
+    type: string
+    default: breaks
+steps:
+  - checkout: self
+    fetchDepth: 0
+    persistCredentials: true
+  - bash: |
+      set -euo pipefail
+      bin="$(Agent.TempDirectory)/gitta"
+      curl -fsSL "${{ parameters.releases }}/install.sh" | GITTA_BIN_DIR="$bin" sh
+      curl -fsSL "${{ parameters.releases }}/gitta-mr-check.sh" -o "$bin/gitta-mr-check.sh"
+      MODE=current; [ "$(Build.Reason)" = PullRequest ] || MODE=all
+      PROVIDER=azure GITTA="$bin/gitta" MODE=$MODE bash "$bin/gitta-mr-check.sh"
+    displayName: Gitta pull-request check
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      GATE: ${{ parameters.gate }}
+      FAIL_ON: ${{ parameters.failOn }}

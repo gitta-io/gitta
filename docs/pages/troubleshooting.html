@@ -1,0 +1,116 @@
+<!-- title: Troubleshooting | group: Help | order: 1 | desc: Fixes for common gitta problems. Agents that get no warnings, worktree and hook errors, stopped merges, failing pull request checks and team server sign in. | seo: Troubleshooting gitta warnings and merges -->
+<h1>Troubleshooting</h1>
+<p class="lede">Find the message or the symptom, then follow the steps.</p>
+
+<h2>An agent gets no warnings</h2>
+<ol class="steps">
+  <li>Run <code>gitta status</code> in the repository. If the agent is missing, its folder is not a worktree of this repository. Check with <code>git worktree list</code>.</li>
+  <li>For Claude Code, look in <code>~/.claude/settings.json</code> for the two <code>gitta hook</code> entries. Add them again with <code>gitta install claude</code>.</li>
+  <li>For Cursor and Codex, the agent must call <code>gitta_status</code>. Tell it to in your <code>AGENTS.md</code>.</li>
+  <li>Warnings come once. An agent that already saw a warning does not see it again.</li>
+</ol>
+
+<h2>A worktree runs the main checkout's Git hooks</h2>
+<p>Claude Code can write an absolute <code>core.hooksPath</code> into a worktree's <code>config.worktree</code>, so Git hooks such as <code>pre-commit</code> run the main checkout's copy (<a href="https://github.com/anthropics/claude-code/issues/88747">Claude Code issue #88747</a>). gitta's warnings reach the session through Claude Code hooks, and its merge check runs in the checkout where you merge into main, so both work as usual. To see which hooks a worktree runs:</p>
+<term>$ git config --show-scope --get-all core.hooksPath</term>
+<p>If a <code>worktree</code> line points into another checkout, remove it with <code>git config --worktree --unset core.hooksPath</code>. See <a href="parallel-claude-code.html#git-hooks-in-claude-code-worktrees">Git hooks in Claude Code worktrees</a>.</p>
+
+<h2>"git worktree add" fails, or .git/worktrees is read-only</h2>
+<p>On Linux, <code>CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1</code> makes <code>.git/worktrees/</code> read-only to the agent's Bash commands. <code>git worktree add</code> then fails, and so do commits inside a worktree (<a href="https://github.com/anthropics/claude-code/issues/101546">Claude Code issue #101546</a>). gitta keeps its own state in <code>.gitta/</code> in the main checkout, and <code>gitta sync</code> writes files in the worktree folder, so warnings and sync carry on. For the agent's own commits, start the session without the variable, or make the worktrees from your own terminal with <code>git worktree add</code> before you start the agents.</p>
+
+<h2>An old worktree stays after a squash merge</h2>
+<p>After a squash merge, the worktree's commits are not on main, so cleanup tools can keep the worktree (<a href="https://github.com/anthropics/claude-code/issues/102671">Claude Code issue #102671</a>). gitta counts every worktree in <code>git worktree list</code> as an agent, so the old one stays in <code>gitta status</code>. Its work is already on main. Remove the worktree, and gitta drops the agent at its next run.</p>
+<term>$ git worktree remove .claude/worktrees/detect-language
+$ git branch -D worktree-detect-language</term>
+
+<h2>A resumed session says "could not verify worktree"</h2>
+<p>The Claude desktop app checks a worktree with a <code>git fetch</code> before it resumes a session in it. When the fetch times out, the resume stops (<a href="https://github.com/anthropics/claude-code/issues/96091">Claude Code issue #96091</a>). The worktree and gitta's record of the agent are unchanged. Check that <code>git fetch origin</code> works from that machine, then resume again. The session's warnings continue from where they were.</p>
+
+<h2>Two agents changed the same file in different worktrees</h2>
+<p>Worktrees keep the edits apart, so neither agent sees the other's change. gitta compares them.</p>
+<ul>
+  <li>Both agents changed the same function or the same lines. Each one gets an <b>also editing</b> note, and gitta merges the two changes by structure.</li>
+  <li>One agent changed a function that the other agent's new code uses, in the same file or another one. The second agent gets a warning with the other agent's new definition. The tests run on the combined code when you merge.</li>
+  <li>The two changes cannot be combined. git names the file at merge time, and the second agent resolves it in its own worktree after <code>gitta sync</code>.</li>
+</ul>
+<p>Run <code>gitta status</code> to see all of these at once. See <a href="warnings.html#kinds-of-warning">Kinds of warning</a>.</p>
+
+<h2>A file shows as changed, but nobody changed it</h2>
+<p>On mainframe repositories this usually comes from a code page. Git converts the file between EBCDIC and UTF-8 with the <code>working-tree-encoding</code> in <code>.gitattributes</code>. When that setting changes, or a folder gets the wrong code page, every line can differ by a few characters such as <code>[</code> and <code>]</code>. gitta reports a change that differs only in those characters as a weakened check, with <code>code page conversion changed characters</code>.</p>
+<ol class="steps">
+  <li>Run <code>gitta encoding</code>. It shows the code page of each kind of file and the folders that have none.</li>
+  <li>Set the right code page for the folder in <code>.gitattributes</code>. See <a href="https://gitta.io/docs/mainframe.html#code-pages">Set the code page for each folder</a>.</li>
+  <li>Check out the file again with <code>git checkout -- &lt;file&gt;</code>. Git converts it with the new setting.</li>
+</ol>
+
+<h2>"gitta: skipped &lt;agent&gt;: ..."</h2>
+<p>gitta could not read one worktree. It leaves that worktree out and keeps working for all the others. The line names the worktree, the reason and the fix. The agent in that worktree is told once that gitta cannot check its work.</p>
+<p>The commit the agent started from is gone. This happens after <code>git gc</code> removed a rewritten branch, or in a shallow clone.</p>
+<pre><code>gitta: skipped a69: the commit it started from (1c5976ee8281) is no longer in this repository (removed by `git gc`, or the clone is shallow). Fix: `gitta adopt --reset a69` to restart its record from where it meets the main branch now, or `git fetch --unshallow` in a shallow clone</code></pre>
+<p>Run <code>gitta adopt --reset a69</code>. In a shallow clone, run <code>git fetch --unshallow</code> instead and the agent comes back as it was.</p>
+<p>The worktree's folder is gone.</p>
+<pre><code>gitta: skipped a67: its folder /work/wts/a67 is gone (deleted, or on a disk that is not mounted). Fix: `git worktree prune` if it was deleted, or mount the disk again</code></pre>
+<p>Run <code>git worktree prune</code> if you deleted it. If it lives on another disk, mount that disk. Locked worktrees and worktrees on a detached HEAD are read as usual.</p>
+
+<h2>"gitta: tests fail on main with ..."</h2>
+<p>gitta stopped a <code>git merge</code>, <code>git pull</code> or <code>git push</code> because the tests fail on the combined code. main does not move. The message names the failing test and its first error line.</p>
+<ol class="steps">
+  <li>Nothing to clean up. gitta cancels the stopped merge attempt by itself, stops a fast-forward before the branch moves, and a failed push sends nothing. Only when you had other uncommitted changes does it ask you to run <code>git merge --abort</code>.</li>
+  <li>Let the agent fix its code in its own worktree. It often already has, because gitta told it about the clash while it worked.</li>
+  <li>Merge again.</li>
+</ol>
+
+<h2>"... was not merged: .gitta.toml sets weakened_checks to block"</h2>
+<p>The incoming work removes tests or weakens a security check, and the team policy stops such merges. Ask the agent to restore what it removed, then merge again. If the change is right, the team can change <code>weakened_checks</code> in <code>.gitta.toml</code> with a reviewed commit. See <a href="commands.html#team-policy">Team policy</a>.</p>
+
+<h2>"gitta approve runs only for a person"</h2>
+<p>The optional override comes from a person, not from an agent session or a script. Run the command yourself, in your own terminal, from the main checkout.</p>
+
+<h2>Two pull requests fail the gitta check because of each other</h2>
+<p>Only the newer one should fail. If the older one fails too, it clashes with an even older pull request. Merge in order of age, or mark the one that should wait as draft or label it <code>gitta-skip</code>.</p>
+
+<h2>"network rules need Linux 6.7 or later"</h2>
+<p>The kernel cannot enforce <code>--no-net</code> or <code>--net-port</code>, so the sandbox refuses to start. Update the kernel, or run the agent in a container without a network.</p>
+
+<h2>"land refused: ... collides with work that already landed"</h2>
+<p>This comes from the optional <code>gitta land</code>. The agent's change and merged work change the same code in ways that cannot be combined. Run <code>gitta sync &lt;agent&gt;</code>. gitta names the file. The agent resolves it in its own worktree.</p>
+
+<h2>"land stopped: main could not move forward"</h2>
+<p>This comes from the optional <code>gitta land</code>. Either someone changed main during the landing, or the checkout of main has uncommitted edits in files that the landing touches. Commit or stash those edits, then land again. gitta never overwrites uncommitted work.</p>
+
+<h2>The gate passes alone but fails in gitta</h2>
+<p>The gate runs in a separate checkout under <code>.gitta/wt/</code>, not in your working folder. Files that are not in Git, for example <code>.env</code> or a local build, are not there. Make the gate install and build what it needs, as in CI, for example <code>npm ci &amp;&amp; npm test</code>.</p>
+
+<h2>Hooks are slow</h2>
+<p>A hook scans only its own agent's worktree and reuses the last scan of the others. Every other agent counts from its last scan while its checked out commit and index are unchanged, kept in <code>.gitta/cache/</code>. Each agent's own hook keeps its scan current. A few of the oldest scans are refreshed on each run, so edits made without a hook show up within minutes. Meaning checks against landed work are kept too, and redone only when the agent's files, its base or the protected branch change.</p>
+<p><code>gitta status</code> reads every worktree fresh, with one <code>git status</code> each, and reuses the meaning checks it already made.</p>
+<p>Slow hooks usually come from many untracked files. Add build folders to <code>.gitignore</code>.</p>
+
+<h2>Team server: no "gitta (team)" warnings</h2>
+<ol class="steps">
+  <li>Run <code>gitta team whoami</code>. If it fails, the machine cannot reach a server or the token is wrong.</li>
+  <li>Check the server with <code>curl https://gitta-1.example.com/healthz</code>.</li>
+  <li>With a private certificate authority, set <code>GITTA_SERVER_CA</code>.</li>
+  <li>Both machines must use the same repository. gitta identifies it by the address of the remote <code>origin</code>, so <code>git@github.com:miguelgrinberg/microblog.git</code> and <code>https://github.com/miguelgrinberg/microblog</code> match. A repository without <code>origin</code> is identified by its folder name.</li>
+  <li>In evaluation, only 5 people get warnings between machines. See <a href="https://gitta.io/docs/licence.html">Licence</a>.</li>
+</ol>
+
+<h2>"gitta server: no admin tokens configured"</h2>
+<p>The server does not run without a token. Set <code>GITTA_TOKENS</code> or <code>--token-file</code>.</p>
+
+<h2>"licence not accepted"</h2>
+<p>The file was changed or damaged. Use the file exactly as you received it. Contact <a href="support.html">support</a> for a new copy.</p>
+
+<h2>"sign-in refused"</h2>
+<table>
+  <tr><th>Reason in the message</th><th>Fix</th></tr>
+  <tr><td>not in an allowed domain</td><td>Add the domain to <code>GITTA_OIDC_DOMAINS</code>, or sign in with a company account.</td></tr>
+  <tr><td>issued for another application</td><td><code>GITTA_OIDC_CLIENT_ID</code> does not match the application the person signed in to.</td></tr>
+  <tr><td>the email is not verified</td><td>The provider sent no <code>email_verified</code>, or sent <code>false</code>. Verify the email at the provider, or make it send the claim.</td></tr>
+  <tr><td>the email is missing or its domain is not verified (xms_edov)</td><td>Entra ID. Add the optional claims <code>email</code> and <code>xms_edov</code> to the ID token, and verify the domain in the tenant.</td></tr>
+  <tr><td>a tenant that is not allowed</td><td>Entra ID. Add the tenant ID to <code>GITTA_OIDC_TENANTS</code>, or sign in with an account of your own tenant.</td></tr>
+  <tr><td>no allowed tenants are set</td><td>Entra ID. Set <code>GITTA_OIDC_TENANTS</code> on every server.</td></tr>
+  <tr><td>not in an allowed Workspace domain (hd)</td><td>Google. Sign in with a Workspace account of an allowed domain, not a personal account.</td></tr>
+  <tr><td>issued by another provider, not ...</td><td><code>GITTA_OIDC_ISSUER</code> is wrong. Use the issuer from the provider's discovery document.</td></tr>
+  <tr><td>sign-in expired</td><td>Check the server's clock, then sign in again.</td></tr>
+</table>

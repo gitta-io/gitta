@@ -1,0 +1,11 @@
+name: Feature request
+description: Something gitta should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes: { label: What you want to do, description: The work you do with your agents, and where gitta gets in the way or could help }
+    validations: { required: true }
+  - type: textarea
+    id: idea
+    attributes: { label: How gitta could help, description: Your idea for a solution, if you have one }

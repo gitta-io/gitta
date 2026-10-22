@@ -1,0 +1,97 @@
+<!-- title: Audit trail | group: Using gitta | order: 8 | desc: What gitta records for every AI agent change, how to check that nobody changed the record afterwards, and how to export it for your auditor. | seo: Audit trail for parallel AI coding agents -->
+<h1>Audit trail</h1>
+<p class="lede">gitta records who started each agent, what it changed, what was checked, what was stopped and what was merged. Every record links to the one before it, so a change to the record is found.</p>
+
+<h2>Why an audit trail for AI coding agents</h2>
+<p>When agents write code, an auditor asks new questions. Which changes came from an agent? Who started it? Was the change tested with the other work merged at the same time? Were tests removed or checks skipped? Git history shows commits and authors. The gitta trail adds the agent, the checks and the decisions around each change, in one record that you can verify and export.</p>
+
+<h2>What is recorded</h2>
+<table>
+  <tr><th>Event</th><th>When</th><th>Content</th></tr>
+  <tr><td><code>agent_started</code></td><td>A new agent worktree appears</td><td>Tool, branch, starting commit, path</td></tr>
+  <tr><td><code>warning</code></td><td>An agent is told about another agent's change, or about a security note on its own new code</td><td>Kind, symbol, file, the other agent and its machine. For a security note: the rule, severity, file and line</td></tr>
+  <tr><td><code>security_allowed</code></td><td>An allow marker or an <code>[allow]</code> entry covers a security note</td><td>The rule, file, line and reason, and whether the agent's own change added the allow</td></tr>
+  <tr><td><code>merge_checked</code></td><td>A <code>git merge</code>, <code>git pull</code> or <code>git push</code> to the protected branch passes the checks</td><td>The target branch, the incoming commit, the git command, the files and the test command with its result and time</td></tr>
+  <tr><td><code>merge_stopped</code></td><td>gitta stops a merge, pull or push because the tests fail on the combined code</td><td>The target branch, the incoming commit, the git command and the failing tests</td></tr>
+  <tr><td><code>checks_skipped</code></td><td>A merge ran with <code>--no-verify</code>, or a command moved the protected branch with <code>GITTA_SKIP</code></td><td>The target branch, the merge commit and the command</td></tr>
+  <tr><td><code>warned</code></td><td>A merge removes tests or weakens a check, and <code>weakened_checks</code> is <code>warn</code></td><td>The findings, the setting and who ran the merge</td></tr>
+  <tr><td><code>blocked</code></td><td>The same, and <code>weakened_checks</code> is <code>block</code>, so the merge stops</td><td>The findings, the setting and who ran the merge</td></tr>
+  <tr><td><code>checks</code></td><td>Before <code>gitta land</code> moves main</td><td>Each check and its result: weakened checks, security, security rules with each note and the threshold, credentials, changed meaning, merge and tests. Also the test command and its time</td></tr>
+  <tr><td><code>land_refused</code></td><td>A landing is stopped</td><td>The check that stopped it, and why</td></tr>
+  <tr><td><code>landed</code></td><td><code>gitta land</code> moves main</td><td>Old and new commit, exact file versions, the agent's commits with authors and trailers such as <code>Co-Authored-By</code>, approvals</td></tr>
+  <tr><td><code>reached_main</code></td><td>Work arrives by another route, for example a merged pull request, a push or <code>git merge</code></td><td>The commits, authors, committers, trailers, and how many name an AI co-author</td></tr>
+  <tr><td><code>approved</code></td><td>A person records an optional override with <code>gitta approve</code></td><td>Who, the reason, the exact findings</td></tr>
+</table>
+<p>Each event also records the person (Git name and email, operating system user) and the machine. No source code is recorded. gitta records paths, symbols, commits and results only.</p>
+<p>The trail is on from <code>gitta init</code>. It is stored in <code>.gitta/audit.jsonl</code>, one event per line.</p>
+
+<h2>Read it</h2>
+<term>$ gitta audit
+2026-10-22T14:43:57Z  agent_started ci-level       dev@workstation git worktree workspace on branch ci-level from e1091763d4
+2026-10-22T14:43:57Z  agent_started ci99           dev@workstation git worktree workspace on branch ci99 from e1091763d4
+2026-10-22T14:43:58Z  warning       ci99           dev@workstation HAZARD bench.aidev-replay.analyze.wilson in bench/aidev-replay/analyze.py (with ci-level)
+2026-10-22T14:43:59Z  merge_checked ci-level       dev@workstation 
+2026-10-22T14:44:00Z  merge_stopped ci99           dev@workstation 
+2026-10-22T14:44:00Z  reached_main                 dev@workstation 
+2026-10-22T14:44:01Z  merge_checked ci99           dev@workstation 
+...</term>
+<p>Filter by date, agent or event. <code>--json</code> shows every field of each event:</p>
+<term>$ gitta audit --since 2026-10-01 --event merge_stopped
+$ gitta audit --agent ci99 --json</term>
+
+<h2>Check that nobody changed it</h2>
+<p>Each event carries the SHA-256 hash of the event before it. If someone changes, removes or reorders an event, the chain breaks at that point.</p>
+<term>$ gitta audit verify
+gitta: audit trail intact: 39 event(s), every one linked to the one before
+$ gitta audit verify   # after someone edited .gitta/audit.jsonl
+gitta: audit trail BROKEN: event 29 (merge_checked, 2026-10-21T09:50:39Z) was changed after it was written</term>
+<p>For a record that nobody on a machine can rewrite, use the <a href="https://gitta.io/docs/team-server.html">team server</a>. Each machine sends its events to the servers as they happen, and the servers keep a copy that the machine cannot change. <code>gitta audit verify --team</code> checks that copy.</p>
+
+<h2>Export it</h2>
+<term>$ gitta audit --csv > evidence.csv
+$ gitta audit --json > events.jsonl</term>
+<term title="evidence.csv, first lines">time,event,agent,person,email,machine,summary,hash
+"2026-10-22T09:47:05Z","agent_started","worktree-detect-language","dev","dev@example.com","workstation","Claude Code workspace on branch worktree-detect-language from a975ef6486","ff84c7a4670f0c4281377eb3435ffbdfb33c4a909ae25adb057952961cbfa2e6"
+"2026-10-22T09:47:05Z","agent_started","worktree-translate-api","dev","dev@example.com","workstation","Claude Code workspace on branch worktree-translate-api from a975ef6486","193096e09832a4f8ead6226bee2d721f4eacaac6613eed156076ddb0cf54de71"</term>
+<p>Use CSV for spreadsheets and auditors. Use JSON lines for a log system or SIEM.</p>
+
+<h2>Follow new events</h2>
+<p><code>gitta audit --follow</code> prints each new event as gitta writes it. Add <code>--json</code> to get one JSON line per event and send it on with any tool. <code>--agent</code> and <code>--event</code> filter the stream, and <code>--since</code> prints the earlier events first.</p>
+<term>$ gitta audit --follow --json >> ~/gitta-audit.jsonl
+$ gitta audit --follow --json | logger --tag gitta
+$ gitta audit --follow --event landed</term>
+
+<h2>Notes on landed commits</h2>
+<p>Each commit that <code>gitta land</code> makes gets a Git note with the agent, the tool, who landed it and the checks. Notes are a standard Git feature and do not change the commit.</p>
+<term>$ git notes --ref=gitta show main | head -14
+{
+  "gitta": 1,
+  "agent": "quickfix",
+  "tool": "git worktree",
+  "landed_by": {
+    "name": "dev",
+    "email": "dev@example.com",
+    "os_user": "dev",
+    "machine": "workstation"
+  },
+  "checks": [
+    {
+      "check": "weakened checks",
+      "result": "none found"
+  ...</term>
+<p>To share notes with your team, push them with <code>git push origin refs/notes/gitta</code>.</p>
+
+<h2>SOC 2 and ISO 27001</h2>
+<p>gitta gives evidence for the controls that auditors ask about when AI agents write code. The table maps each question to the events that answer it.</p>
+<table>
+  <tr><th>Question an auditor asks</th><th>Evidence</th><th>SOC 2</th><th>ISO/IEC 27001:2022</th></tr>
+  <tr><td>Who made this change, and was an AI agent involved?</td><td><code>agent_started</code>, <code>landed</code>, <code>reached_main</code></td><td>CC8.1</td><td>8.32, 8.4</td></tr>
+  <tr><td>Was the change tested before it reached production code?</td><td><code>merge_checked</code>, <code>merge_stopped</code>, <code>checks</code></td><td>CC8.1</td><td>8.29, 8.25</td></tr>
+  <tr><td>Were checks weakened or skipped, and who merged it?</td><td><code>warned</code>, <code>blocked</code>, <code>checks_skipped</code>, <code>approved</code></td><td>CC8.1, CC6.8</td><td>8.32, 8.28</td></tr>
+  <tr><td>Were security controls weakened, or risky code added, and who merged it?</td><td><code>warning</code>, <code>checks</code>, <code>approved</code>, <code>security_allowed</code></td><td>CC8.1, CC6.8</td><td>8.28, 8.32</td></tr>
+  <tr><td>Can secrets end up in the code?</td><td><code>warned</code> and <code>blocked</code> for credentials</td><td>CC6.1</td><td>8.28</td></tr>
+  <tr><td>Are conflicts between parallel changes found?</td><td><code>warning</code></td><td>CC7.2</td><td>8.16</td></tr>
+  <tr><td>Can the record be trusted?</td><td>Hash chain, <code>gitta audit verify</code>, server copies</td><td>CC7.2</td><td>8.15, 5.33</td></tr>
+</table>
+
+<p>To map these records to SOC 2 and ISO 27001 controls in more detail, see <a href="https://gitta.io/docs/compliance.html">Compliance</a>. For what gitta checks in each change, see <a href="https://gitta.io/docs/security.html">Security and data</a>.</p>

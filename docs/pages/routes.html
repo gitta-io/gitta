@@ -1,0 +1,52 @@
+<!-- title: What gitta watches and blocks | group: Using gitta | order: 5 | desc: Which routes to main gitta only watches and which it blocks, and how to make its checks mandatory with branch protection on your Git host. | seo: What gitta watches and what it blocks -->
+<h1>What gitta watches and what it blocks</h1>
+<p class="lede">gitta stops work on the routes that go through its checks. Branch protection decides which routes exist, so you can send every change through one of them.</p>
+
+<figure class="figure">
+<svg viewBox="0 0 760 270" role="img" aria-labelledby="rt-t"><title id="rt-t">Three routes to main. A git merge, pull or push on a machine with gitta and a pull request with the required gitta check are stopped when a check fails. A push from a machine without gitta is checked at the next merge on a machine with gitta, and branch protection can turn that route off.</title>
+<defs><marker id="r1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--ink)"/></marker><marker id="r2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--fg-9aa39c)"/></marker></defs>
+<g font-family="DM Sans,sans-serif" font-size="13" fill="var(--ink)">
+<rect x="10" y="20" width="200" height="56" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="26" y="44" font-weight="600">git merge, pull, push</text><text x="26" y="63" fill="var(--muted)" font-size="12">on a machine with gitta</text>
+<rect x="10" y="106" width="200" height="56" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="26" y="130" font-weight="600">Pull request</text><text x="26" y="149" fill="var(--muted)" font-size="12">from a person or cloud agent</text>
+<rect x="10" y="192" width="200" height="56" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="26" y="216" font-weight="600">Other push</text><text x="26" y="235" fill="var(--muted)" font-size="12">from a machine without gitta</text>
+<rect x="290" y="20" width="230" height="56" rx="12" fill="var(--ink)"/><text x="306" y="44" fill="var(--paper)" font-weight="600">git hooks and gate</text><text x="306" y="63" fill="var(--signal)" font-size="12">stops a failing merge</text>
+<rect x="290" y="106" width="230" height="56" rx="12" fill="var(--ink)"/><text x="306" y="130" fill="var(--paper)" font-weight="600">gitta check, required</text><text x="306" y="149" fill="var(--signal)" font-size="12">blocks the merge button</text>
+<rect x="290" y="192" width="230" height="56" rx="12" fill="var(--surface)" stroke="var(--bd-9aa39c)" stroke-dasharray="5 4"/><text x="306" y="216" font-weight="600">No check</text><text x="306" y="235" fill="var(--muted)" font-size="12">turn off with branch protection</text>
+<path d="M210 48h76M210 134h76" stroke="var(--ink)" stroke-width="1.5" marker-end="url(#r1)"/><path d="M210 220h76" stroke="var(--bd-9aa39c)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#r2)"/>
+<rect x="600" y="80" width="150" height="110" rx="14" fill="var(--sage)"/><text x="618" y="110" font-weight="600">main</text><text x="618" y="134" fill="var(--moss-text)" font-size="12">the next merge with</text><text x="618" y="152" fill="var(--moss-text)" font-size="12">gitta tests what</text><text x="618" y="170" fill="var(--moss-text)" font-size="12">arrived by any route</text>
+<path d="M520 48 C560 48 570 90 596 104M520 134h76" stroke="var(--ink)" stroke-width="1.5" fill="none" marker-end="url(#r1)"/><path d="M520 220 C560 220 570 180 596 168" stroke="var(--bd-9aa39c)" stroke-width="1.5" stroke-dasharray="5 4" fill="none" marker-end="url(#r2)"/>
+</g></svg>
+</figure>
+
+<h2>Work that reached main</h2>
+<p>Work can reach main by a local <code>git merge</code>, a merged pull request or a push. gitta checks each agent's work against main as it is when that agent merges. When new code of an agent calls something that changed on main, gitta writes a note to <code>.gitta/gitta.log</code>, and the tests at merge time decide. A failed merge shows the new definition on main. A security control removed on main reaches the agents whose new code calls the code it protected, as a security warning at their next step.</p>
+
+<h2>Blocking routes</h2>
+<table>
+  <tr><th>Route</th><th>What stops bad work</th></tr>
+  <tr><td><code>git merge</code>, <code>git pull</code>, <code>git push</code></td><td>The <a href="landing.html">git hooks</a> that <code>gitta init</code> adds run your gate on the combined code before main moves, and stop the merge when the tests fail. This also applies when a merge stopped on a conflict and is finished with <code>git commit</code>. <code>--no-verify</code> skips them, and the audit trail records it.</td></tr>
+  <tr><td>Pull request</td><td>The <a href="pull-requests.html">gitta check</a> fails when the pull request breaks together with another open pull request. It blocks the merge only when branch protection requires it.</td></tr>
+  <tr><td>Push from a machine without gitta</td><td>No check runs there. The next merge on a machine with gitta runs the tests on code that includes it.</td></tr>
+</table>
+
+<h2>Security controls on each route</h2>
+<p>When an agent removes or switches off a security control, such as a login check, gitta handles it like this:</p>
+<table>
+  <tr><th>Route</th><th>What happens</th></tr>
+  <tr><td>Agent session</td><td>The agent that removed the control and each agent whose new code calls the code it protected get a security warning at their next step.</td></tr>
+  <tr><td><code>git merge</code>, <code>git pull</code>, <code>git push</code></td><td>Reported in the output, <code>.gitta/gitta.log</code> and the audit trail. With <code>weakened_checks</code> set to <code>block</code>, the merge stops.</td></tr>
+  <tr><td>Pull request</td><td>The gitta check adds a <b>Security</b> line to its comment, and a <code>security</code> field to its JSON result.</td></tr>
+  <tr><td>Push from a machine without gitta</td><td>Not stopped. Agents whose new code relies on the control get a security warning.</td></tr>
+</table>
+
+<h2>Make the checks mandatory</h2>
+<p>To send every change through a check, use your Git host's branch protection.</p>
+<ol class="steps">
+  <li>Add the <a href="pull-requests.html">gitta check</a> to your CI.</li>
+  <li>On GitHub, open the repository settings and add a branch protection rule, or a ruleset, for <code>main</code>.</li>
+  <li>Require a pull request before merging.</li>
+  <li>Require status checks to pass, and select the gitta check.</li>
+  <li>Do not allow bypass, or allow it only for a small group of people.</li>
+</ol>
+<p>With these rules, direct pushes to main are refused. Agents and people then merge through a pull request, which goes through the check. GitLab has protected branches and merge request approvals. Azure Repos has branch policies with build validation.</p>
+<div class="note"><b>Without branch protection</b>Pushes from machines where gitta runs are checked by its git hooks, and agents still warn each other while they work.</div>

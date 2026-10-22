@@ -1,0 +1,112 @@
+<!-- title: CI/CD integration for teams | group: Using gitta | order: 6.5 | desc: Fail the build when agent changes break together. Required checks, test cost and audit evidence on GitHub Actions, Jenkins and any other CI. | seo: Test combined work from parallel agents in CI -->
+<h1>CI/CD integration for teams</h1>
+<p class="lede">Make the gitta check required in your pipeline, so the build fails when agent changes break together. This page shows how a team with many developers, agents and pull requests puts gitta into its pipelines. It builds on <a href="pull-requests.html">Pull requests and CI</a>, which explains the check itself.</p>
+
+<figure class="figure">
+<svg viewBox="0 0 760 250" role="img" aria-labelledby="cicd-t"><title id="cicd-t">Agents on laptops and in CI open pull requests. The gitta check compares each pull request with the other open ones. Only pull requests that pass merge to main. Each push to main checks all open pull requests again. Agents with a team server token report while they work.</title>
+<defs><marker id="c1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--ink)"/></marker></defs>
+<g font-family="DM Sans,sans-serif" font-size="13" fill="var(--ink)">
+<g><rect x="10" y="30" width="150" height="52" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="24" y="53" font-weight="600">Agents and people</text><text x="24" y="71" fill="var(--muted)" font-size="12">laptops, CI, cloud</text></g>
+<g><rect x="200" y="30" width="140" height="52" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="214" y="53" font-weight="600">Pull requests</text><text x="214" y="71" fill="var(--muted)" font-size="12">open in parallel</text></g>
+<g><rect x="380" y="20" width="170" height="72" rx="14" fill="var(--ink)"/><text x="396" y="48" fill="var(--paper)" font-weight="600">gitta check</text><text x="396" y="70" fill="var(--line-strong)" font-size="12">a required check</text></g>
+<g><rect x="590" y="30" width="160" height="52" rx="12" fill="var(--fg-e3eadf)"/><text x="604" y="53" font-weight="600">main</text><text x="604" y="71" fill="var(--muted)" font-size="12">then your deploy</text></g>
+<g stroke="var(--ink)" stroke-width="1.4" fill="none" marker-end="url(#c1)"><path d="M162 56H196"/><path d="M342 56H376"/><path d="M552 56H586"/></g>
+<path d="M670 86 C 670 150, 470 150, 465 98" stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#c1)"/>
+<text x="440" y="160" fill="var(--muted)" font-size="12">each push to main checks all open ones again</text>
+<g><rect x="10" y="180" width="360" height="52" rx="12" fill="var(--surface)" stroke="var(--line)"/><text x="24" y="203" font-weight="600">Team server (Enterprise)</text><text x="24" y="221" fill="var(--muted)" font-size="12">agents report while they work, before any pull request</text></g>
+<path d="M85 84 V176" stroke="var(--signal)" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#c1)"/>
+</g></svg>
+<div class="cap">Two layers. The team server warns agents while they work. The check guards the merge.</div>
+</figure>
+
+<h2>Test combined work from several agents</h2>
+<p>Normal CI tests each pull request on its own, against the base branch. With parallel agents, that leaves a gap. Two agent pull requests can each pass, and still fail once both are on main. The gitta check closes that gap. It merges each pair of open pull requests on top of the base branch and runs your gate on the result. A pair that fails gets a <b>Breaks together with</b> line, with the test output, and the newer pull request fails the check.</p>
+<p>The same test runs on a developer machine before any pull request exists. <code>gitta check</code> runs the gate on one agent's work combined with each other agent's work, and <code>gitta land</code> runs it on the work merged with main. See <a href="warnings.html#test-a-combination">Test a combination</a>.</p>
+
+<h2>The setup we recommend</h2>
+<ol class="steps">
+  <li>Add the <a href="pull-requests.html#github">gitta check</a> to every repository where agents open pull requests.</li>
+  <li>Start with <code>fail-on: never</code>. The check only comments. Let your team read the comments for a week or two.</li>
+  <li>Set <code>fail-on: breaks</code> and make the check required in branch protection. From now on, a pull request that breaks with an older one cannot merge.</li>
+  <li>Give each CI runner and cloud agent its own runner token, so agents that run in CI report to the team server while they work. See <a href="#agents-in-ci">Agents in CI</a>.</li>
+  <li>Add a scheduled job that checks the audit trail. See <a href="#audit-evidence-in-ci">Audit evidence in CI</a>.</li>
+</ol>
+
+<h2>How much the gate costs</h2>
+<p>Without a gate, the check only reads code. It takes seconds and needs no build. With a gate, the check runs your test command once for each combination of two pull requests.</p>
+<table>
+  <tr><th>Event</th><th>Mode</th><th>Test runs, with N open pull requests into the same branch</th></tr>
+  <tr><td>A pull request is opened or updated</td><td><code>current</code></td><td>N − 1</td></tr>
+  <tr><td>main moves</td><td><code>all</code></td><td>N × (N − 1)</td></tr>
+</table>
+<p>With 20 open pull requests, one update costs 19 test runs, and one push to main costs 380. For a large team, do one or more of these:</p>
+<table>
+  <tr><th>To</th><th>Do</th></tr>
+  <tr><td>Make each run cheaper</td><td>Use a fast gate, for example the unit tests and the type check. Your normal CI still runs the full suite on each pull request.</td></tr>
+  <tr><td>Check all pull requests less often</td><td>Run <code>mode: all</code> on a schedule, for example every hour, instead of on each push to main.</td></tr>
+  <tr><td>Limit the comparison</td><td>Set <code>max-prs</code>. The default is 30.</td></tr>
+  <tr><td>Skip the gate</td><td>Leave <code>gate</code> empty. gitta still reports the warnings and the merges that fail.</td></tr>
+</table>
+<p>Only pull requests into the same branch are compared. Long-lived release branches do not add cost to main.</p>
+
+<h3>Check all pull requests every hour</h3>
+<pre class="code"><code># .github/workflows/gitta-all.yml
+name: Gitta, all open pull requests
+on:
+  schedule: [{ cron: "0 * * * *" }]
+  workflow_dispatch: {}
+permissions: { contents: read, pull-requests: write }
+concurrency: { group: gitta-pr-check, cancel-in-progress: false }
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: {{ACTION}}
+        with:
+          version: {{VERSION}}
+          gate: "npm ci &amp;&amp; npm run test:unit"
+          mode: all</code></pre>
+<p>Keep the workflow from <a href="pull-requests.html#github">Pull requests and CI</a> for the <code>pull_request</code> event, and remove the <code>push</code> event from it.</p>
+
+<h2>Agents in CI</h2>
+<p>Many teams run agents inside CI, for example Claude Code or Codex in a GitHub Actions job. Without a team server, those agents only meet the others at the pull request. With a runner token, they report while they work, and the agents on laptops hear about their changes at once.</p>
+<pre class="code"><code># a step before the agent runs
+env:
+  GITTA_SERVER: https://gitta-1.example.com,https://gitta-2.example.com
+  GITTA_SERVER_TOKEN: ${{ secrets.GITTA_RUNNER_TOKEN }}
+  GITTA_MACHINE: ci-${{ github.run_id }}</code></pre>
+<table>
+  <tr><th>Setting</th><th>Why</th></tr>
+  <tr><td>One runner token for each pipeline</td><td>The audit trail then shows which pipeline started each agent. Make it with <code>gitta team token create --runner</code>. See <a href="https://gitta.io/docs/access.html">Tokens and sign-in</a>.</td></tr>
+  <tr><td>A unique <code>GITTA_MACHINE</code> for each run</td><td>Two runs on the same runner image do not look like one machine.</td></tr>
+  <tr><td>A token that expires</td><td>Use <code>--days</code>, and renew the secret before it expires. Revoke a token at once if it leaks.</td></tr>
+</table>
+
+<h2>Other CI systems</h2>
+<p>GitLab and Azure Repos are coming next, see <a href="pull-requests.html">Pull requests and CI</a>. In Jenkins, Buildkite, CircleCI or any other system, run <code>gitta pr-check</code> yourself and read its JSON output.</p>
+<pre class="code"><code># fetch the pull request under test and the other open ones, then:
+gitta pr-check --pr refs/pr/124 --base origin/main \
+  --other "refs/pr/119=#119" --other "refs/pr/121=#121" \
+  --gate "make test-fast" --json &gt; gitta.json
+
+# fail the build when a combination breaks or does not merge
+jq -e 'all(.[]; .merges and .tests != "FAIL")' gitta.json</code></pre>
+<p><code>gitta pr-check</code> exits with 0 when it finds clashes, so your pipeline decides what fails, as in the <code>jq</code> line above. It exits with 3 when the branch removes tests or weakens checks and <code>weakened_checks</code> is <code>block</code>. Use the same rule as the GitHub check, so two incompatible pull requests do not block each other: only fail for a clash with an older pull request. See <a href="pull-requests.html#which-pull-request-goes-first">Which pull request goes first</a>.</p>
+
+<h3>IBM DBB pipelines</h3>
+<p>For COBOL on z/OS with gitta Enterprise, run <code>gitta pr-check</code> on a Linux or macOS CI agent before the DBB build step. A pull request whose new code uses a copybook field that another pull request changed then stops before it uses z/OS build time. See <a href="https://gitta.io/docs/mainframe.html#ci-and-dbb">Mainframe guide</a>.</p>
+
+<h2>Audit evidence in CI</h2>
+<p>A scheduled job can check the audit trail and keep an export with each run, so your auditor gets evidence without asking anyone.</p>
+<pre class="code"><code># weekly job
+gitta audit verify --team
+gitta audit --since "$(date -d '-7 days' +%F)" --csv &gt; gitta-audit.csv   # keep as a build artifact</code></pre>
+<p>See <a href="audit.html">Audit trail</a> and <a href="https://gitta.io/docs/compliance.html">Compliance</a>.</p>
+
+<h2>Monorepos</h2>
+<p>gitta compares pull requests by the code they change, so pull requests in unrelated parts of a monorepo get no warnings about each other. The gate still runs your whole test command. Make the gate a script that tests only the packages the two pull requests touch, for example with your build tool's affected-packages command.</p>
+
+<h2>Merge queues</h2>
+<p>With a merge queue, make the gitta check required on the pull request. A pull request then enters the queue only after gitta passed it, and the queue runs your full CI as usual.</p>

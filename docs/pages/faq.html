@@ -1,0 +1,30 @@
+<!-- title: FAQ | group: Help | order: 0.5 | desc: Answers to common questions about gitta, worktrees, parallel agent tools, code review, where your code goes, the EU AI Act and Git on z/OS. | seo: gitta FAQ for parallel AI coding agents -->
+<h1>Frequently asked questions</h1>
+<p class="lede">Short answers to what teams ask before they start with gitta, each with a link to the page that has the details.</p>
+
+<h2>Is gitta free?</h2>
+<p>Yes. The <code>gitta</code> command is free and open source, and it runs on every machine with all its checks. gitta Enterprise is a paid yearly licence for teams. It adds the team server that connects agents on every machine, single sign-on and the shared audit trail. See <a href="https://gitta.io/docs/enterprise.html">gitta Enterprise</a>.</p>
+
+<h2>Do I still need git worktrees if I use gitta?</h2>
+<p>Yes. Worktrees keep each agent's files apart, so agents don't write over each other. gitta works on top of them. It reads every worktree of the repository and tells an agent when another agent's change affects its work. See <a href="../guides/worktrees-and-agent-conflicts.html">Why git worktrees don't prevent agent conflicts</a>.</p>
+
+<h2>Does gitta work with Conductor, Claude Squad or Vibe Kanban?</h2>
+<p>Yes. These tools start agents in git worktrees, and gitta finds every worktree through <code>git worktree list</code>. Keep using the tool you like to start and manage agents. gitta adds the warnings between them and the checks inside your normal git merge. See <a href="agents.html#other-tools">Other tools</a> and <a href="../guides/parallel-coding-agent-tools.html">Parallel coding agent tools compared</a>.</p>
+
+<h2>Can gitta tell when two agents edit the same file in different worktrees?</h2>
+<p>Yes. When two agents change the same function or the same lines, both get an <b>also editing</b> note. When one agent changes code that the other agent's new code uses, in any file, the second agent gets a warning with the other agent's new definition. Your tests run on both changes together when you merge. See <a href="warnings.html">Warnings and sync</a>.</p>
+
+<h2>Does gitta replace code review of AI pull requests?</h2>
+<p>No. A person still reviews the code. gitta tells the reviewer what changed under an agent's work, which other pull requests touch the same code, and whether the combination passes your tests. It also reports weakened tests and removed security controls, and in CI it stops such a merge by default. See <a href="pull-requests.html#review-agent-pull-requests">Review agent pull requests</a>.</p>
+
+<h2>Does gitta send my code anywhere?</h2>
+<p>No. gitta runs on your machines and uses no AI model. With Enterprise, the team server runs in your own cloud account or cluster and receives only the files an agent changed. Nothing goes to gitta's company. See <a href="https://gitta.io/docs/security.html">Security and data</a>.</p>
+
+<h2>Does the EU AI Act require logging of AI-written code?</h2>
+<p>The AI Act's record-keeping duty in Article 12 is for high-risk AI systems, and most of its duties fall on providers and deployers of AI systems. Whether it reaches your code depends on what you build, so ask your legal advisers. When you want a record of how agents took part in your development, gitta's audit trail gives one. See <a href="https://gitta.io/docs/compliance.html#eu-regulations">EU regulations</a>.</p>
+
+<h2>Does gitta work with Git on z/OS and EBCDIC files?</h2>
+<p>Yes, with gitta Enterprise. gitta runs on Linux and macOS, next to Git for z/OS. It reads the code page of each folder from <code>.gitattributes</code>, and it reports changes that only a wrong conversion would make as a weakened check. See <a href="https://gitta.io/docs/mainframe.html#git-and-ebcdic">Git and EBCDIC</a>.</p>
+
+<h2>Which agents does gitta work with?</h2>
+<p>Claude Code through hooks, Cursor and Codex through MCP tools, any tool that makes git worktrees, and cloud agents that open pull requests. See <a href="agents.html">Agents</a>.</p>

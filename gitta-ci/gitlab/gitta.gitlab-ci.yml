@@ -1,0 +1,21 @@
+# Gitta merge-request check for GitLab. Include it from your .gitlab-ci.yml:
+#   include:
+#     - remote: "<GITTA_RELEASES>/gitta.gitlab-ci.yml"
+#   variables:
+#     GITTA_RELEASES: "<where Gitta's release files are published>"
+#     GATE: "npm ci && npm test"          # optional: test command run on each combination
+# Add a CI/CD variable GITTA_TOKEN (masked): a project or group access token with the `api` scope, used to comment.
+gitta-mr-check:
+  stage: test
+  image: python:3.12
+  variables:
+    GIT_DEPTH: "0"
+    FAIL_ON: breaks
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH        # target branch moved: re-check every open merge request
+  script:
+    - curl -fsSL "$GITTA_RELEASES/install.sh" | GITTA_BIN_DIR=/usr/local/bin sh
+    - curl -fsSL "$GITTA_RELEASES/gitta-mr-check.sh" -o /tmp/gitta-mr-check.sh
+    - export MODE=$([ "$CI_PIPELINE_SOURCE" = merge_request_event ] && echo current || echo all)
+    - PROVIDER=gitlab bash /tmp/gitta-mr-check.sh

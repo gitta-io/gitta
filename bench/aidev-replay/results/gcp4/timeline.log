@@ -1,0 +1,10 @@
+2026-10-21T09:57:40Z [gcp4] terraform apply
+2026-10-21T09:58:09Z [gcp4] vm up: {"image":"https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261016","type":"e2-standard-4","zone":"europe-north1-a"}
+2026-10-21T09:58:47Z [gcp4] ssh ok
+2026-10-21T09:58:51Z [gcp4] setup start
+2026-10-21T10:02:15Z [gcp4] setup done
+2026-10-21T10:02:17Z [gcp4] runner start 
+2026-10-22T05:14:51Z [gcp4] runner done
+2026-10-22T05:14:55Z [gcp4] pulled      747 results
+2026-10-22T05:14:57Z [gcp4] terraform destroy
+2026-10-22T05:16:09Z [gcp4] destroyed

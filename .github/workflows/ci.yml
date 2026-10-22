@@ -1,0 +1,43 @@
+# Build and test on every push and pull request, on Linux and macOS.
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix: { os: [ubuntu-latest, macos-latest] }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git user for the end-to-end tests
+        run: git config --global user.name ci && git config --global user.email ci@localhost
+      - name: Build and test the command line
+        shell: bash
+        run: |
+          cargo build --release --locked --manifest-path gitta-cli/Cargo.toml
+          cargo test --release --locked --manifest-path gitta-core/Cargo.toml
+          cargo test --release --locked --manifest-path gitta-cli/Cargo.toml -- --test-threads 4
+      - name: Build the Linux workspace and sandbox tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libfuse3-dev pkg-config
+          cargo build --release --locked --manifest-path gitta-fs/Cargo.toml
+          cargo build --release --locked --manifest-path gitta-sandbox/Cargo.toml
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the command line and check that it starts
+        shell: bash
+        run: |
+          cargo build --release --locked --manifest-path gitta-cli/Cargo.toml
+          gitta-cli/target/release/gitta.exe --version
+  crypto-inventory:
+    # Fails when a cryptography crate enters, leaves or changes version in a Cargo.lock without an update to sbom/crypto-inventory.json.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 sbom/cbom.py check sbom/crypto-inventory.json

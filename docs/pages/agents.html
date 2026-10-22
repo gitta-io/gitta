@@ -1,0 +1,86 @@
+<!-- title: Agents | group: Using gitta | order: 2 | desc: Set up gitta so each AI coding agent hears when another agent changes code its work relies on. Hooks for Claude Code, MCP tools for Cursor and Codex. | seo: Run Claude Code, Cursor and Codex in parallel -->
+<h1>Agents</h1>
+<p class="lede">gitta works with any tool that makes Git worktrees. Claude Code gets warnings automatically through hooks. Cursor and Codex get them through MCP tools, which work only when the agent calls them.</p>
+<table>
+  <tr><th>Tool</th><th>How warnings arrive</th><th>Automatic</th></tr>
+  <tr><td>Claude Code</td><td>Hooks after every tool call, and before the agent finishes</td><td>Yes</td></tr>
+  <tr><td>Cursor, Codex</td><td>MCP tools the agent calls</td><td>Only when the agent calls them. Tell it to, in <code>AGENTS.md</code></td></tr>
+  <tr><td>Any other tool</td><td><code>gitta status</code>, <code>gitta watch</code>, the git merge output and the check on pull requests</td><td>No</td></tr>
+</table>
+
+<h2>Claude Code</h2>
+<p><code>gitta init</code> adds two hooks to <code>~/.claude/settings.json</code>:</p>
+<table>
+  <tr><th>Hook</th><th>What it does</th></tr>
+  <tr><td><code>PostToolUse</code></td><td>After each tool call, gitta tells the agent about changes by other agents that affect its work.</td></tr>
+  <tr><td><code>Stop</code></td><td>When the agent's last merge failed its tests, gitta sends it back once with the repair note. Nothing else happens when it finishes. Other agents' unfinished work is never tested here, because the merge itself runs the tests.</td></tr>
+</table>
+<h3>What the agent reads</h3>
+<p>A hook note names the other agent and the function it changed, and shows that agent's new definition line. It is information, and the agent hears it once:</p>
+<term title="In the ci99 agent's session">Gitta: agent ci-level changed `wilson`, which your new code in bench/aidev-replay/analyze.py calls. Check that your code still fits. Their version: bench/aidev-replay/analyze.py:23: def wilson(k, n, *, z=1.96):
+
+Handle it yourself and tell the user in one sentence.</term>
+<p>When a merge fails its tests, the agent gets one short repair note. It names the failing tests with their first error lines and, when a function the code relies on changed, its new definition line. The merge output shows it first, and the agent's hook does not repeat it. If the agent stops while its merge still fails, the Stop hook sends the note once more:</p>
+<term title="In the ci99 agent's session">Gitta: your merge into main failed its tests (test_ci99.T.test_wider). Fix it and merge again.
+  TypeError: wilson() takes 2 positional arguments but 3 were given
+Now on main: bench/aidev-replay/analyze.py:23: def wilson(k, n, *, z=1.96):</term>
+<p>The agent fixes its code and tells you in its chat, in one sentence, what gitta caught and what it changed.</p>
+<p>The hooks do nothing outside repositories where you ran <code>gitta init</code>. They print nothing there. Inside one, a hook scans only its own agent's worktree and reuses the last scan of the others. See <a href="troubleshooting.html">Hooks are slow</a>.</p>
+<p>Start Claude Code in a worktree as usual, for example with <code>claude --worktree</code>. gitta finds the worktree the next time it runs. See <a href="parallel-claude-code.html">Run multiple Claude Code agents in parallel</a>.</p>
+<p>To skip the hooks, run <code>gitta init --no-claude</code>. To add them later, run <code>gitta install claude</code>.</p>
+
+<h2>Cursor and Codex</h2>
+<p>When Cursor or Codex is installed, <code>gitta init</code> registers gitta as an MCP server in <code>~/.cursor/mcp.json</code> or <code>~/.codex/config.toml</code>. The agent then has these tools:</p>
+<table>
+  <tr><th>Tool</th><th>What the agent can do</th></tr>
+  <tr><td><code>gitta_status</code></td><td>See the other agents, what each changed, and the warnings that affect it.</td></tr>
+  <tr><td><code>gitta_sync</code></td><td>Merge work that reached main into its own copy.</td></tr>
+  <tr><td><code>gitta_check</code></td><td>Run your tests on its work combined with each other agent's work.</td></tr>
+  <tr><td><code>gitta_claim</code>, <code>gitta_release</code></td><td>Announce a symbol or path that it is about to change, so others are warned before they build on it.</td></tr>
+</table>
+<p>Registering the tools does not make an agent use them. An MCP tool runs only when the agent decides to call it, so put an instruction in your <code>AGENTS.md</code>, for example:</p>
+<pre class="code"><code>Merge with git as usual. gitta runs the tests on the combined code during the merge.
+If a merge fails, fix it and merge again.</code></pre>
+<p>To register later, run <code>gitta install cursor</code> or <code>gitta install codex</code>.</p>
+
+<h2>Git worktrees with Claude Code, Cursor and Codex</h2>
+<p>Each tool makes its worktrees in its own place. gitta reads <code>git worktree list</code>, so it finds them all without setup. It names each agent after the worktree's branch, or after its folder when the worktree has no branch.</p>
+<table>
+  <tr><th>Tool</th><th>How it makes worktrees</th><th>Where they go</th><th>How gitta picks them up</th></tr>
+  <tr><td>Claude Code</td><td><code>claude --worktree &lt;name&gt;</code>, the <code>EnterWorktree</code> tool, subagents with <code>isolation: worktree</code>, and desktop sessions. A <code>WorktreeCreate</code> hook can replace the Git steps.</td><td><code>.claude/worktrees/&lt;name&gt;/</code> in the repository, on branch <code>worktree-&lt;name&gt;</code></td><td>Found on the next gitta command or hook. The hooks in <code>~/.claude/settings.json</code> warn each session.</td></tr>
+  <tr><td>Cursor</td><td>Agents Window agents in a worktree, <code>/worktree</code> and <code>/best-of-n</code> in the editor. Setup commands come from <code>.cursor/worktrees.json</code>.</td><td>A worktree root that Cursor manages. Run <code>git worktree list</code> to see it.</td><td>Found the same way. Warnings come through the MCP tools.</td></tr>
+  <tr><td>Codex app</td><td>A new chat in a worktree, started from the <code>HEAD</code> of the branch you pick. The worktree has a detached <code>HEAD</code> until you choose Create branch here.</td><td><code>$CODEX_HOME/worktrees</code>, or the worktree root in Settings</td><td>Found the same way, named after its folder while detached. Warnings come through the MCP tools.</td></tr>
+</table>
+<p>Clean up worktrees with the tool that made them. Cursor and Codex delete old managed worktrees by themselves. gitta drops an agent when its worktree is gone from <code>git worktree list</code>. Merge or push the work first.</p>
+<p>On Linux, <code>gitta init</code> can make new Claude Code and Cursor worktrees share one checkout copy-on-write. It does this through a <code>WorktreeCreate</code> hook for Claude Code and a first setup step in <code>.cursor/worktrees.json</code> for Cursor. See <a href="linux.html">Linux workspaces</a>.</p>
+<p>Sources: Anthropic, <a href="https://code.claude.com/docs/en/worktrees">Run parallel sessions with worktrees</a>. Cursor, <a href="https://cursor.com/docs/configuration/worktrees">Worktrees</a>. OpenAI, <a href="https://learn.chatgpt.com/docs/environments/git-worktrees">Codex worktrees</a>. For a full Claude Code walkthrough, see <a href="parallel-claude-code.html">Run multiple Claude Code agents in parallel</a>.</p>
+
+<h2>Other tools</h2>
+<p>gitta watches every worktree of the repository. Conductor, Claude Squad and worktrees made by hand all work. Use <code>gitta status</code> or <code>gitta watch</code> to see their warnings. The <a href="pull-requests.html">GitHub check</a> covers cloud agents that only open pull requests.</p>
+
+<h2>AGENTS.md and CLAUDE.md</h2>
+<p>Agents read an instruction file at the start of each session. Codex, Cursor and many other tools read <code>AGENTS.md</code>. Claude Code reads <code>CLAUDE.md</code>, which can import <code>AGENTS.md</code> with a line <code>@AGENTS.md</code>. A few lines about gitta in that file tell every agent what to do with a warning.</p>
+<pre class="code"><code>## Working with gitta
+This repository uses gitta. Other agents work in parallel in their own worktrees.
+- Merge with git as usual. If gitta stops a merge, fix it and merge again.
+- Handle gitta's findings yourself, and tell the user in one sentence what gitta caught.
+- Do not delete or skip tests to make a check pass. gitta reports it at merge time.
+- Do not edit AGENTS.md or CLAUDE.md unless a person asks you to.</code></pre>
+<p>Claude Code gets warnings through its hooks even without these lines. The lines help it act on them the same way each time. For Cursor and Codex, the merge output is where the agent learns what failed.</p>
+<p>A person should add and commit this text. When an agent changes one of these files, gitta warns about it, because the change reaches every agent. Sources: <a href="https://agents.md/">AGENTS.md</a>, Anthropic, <a href="https://code.claude.com/docs/en/memory">Manage Claude's memory</a>.</p>
+
+<h2>Run a batch of agents</h2>
+<p><code>gitta run</code> starts one agent per task, each in its own worktree. Merge the results with git as usual.</p>
+<term>$ gitta run --agent claude --task "Add type hints to bench/aidev-replay/analyze.py" --task "Add tests for wilson"</term>
+<p>Use <code>--agent codex</code> for Codex, or <code>--cmd</code> with a command template that contains <code>{task}</code> for any other tool.</p>
+
+<h2>Settings files that init changes</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>.gitta/</code> in the repository</td><td>gitta's settings and state. Listed in <code>.git/info/exclude</code>, so Git ignores it.</td></tr>
+  <tr><td>Git hooks of the repository</td><td><code>pre-merge-commit</code>, <code>post-merge</code>, <code>reference-transaction</code> and <code>pre-push</code>, in the folder that <code>core.hooksPath</code> names. A hook you already had is kept and still runs first.</td></tr>
+  <tr><td><code>~/.claude/settings.json</code></td><td>Two hooks. A backup is kept next to the file.</td></tr>
+  <tr><td><code>~/.cursor/mcp.json</code>, <code>~/.codex/config.toml</code></td><td>The gitta MCP server, when the tool is installed.</td></tr>
+  <tr><td><code>.claude/settings.local.json</code> (Linux)</td><td>Worktree hooks for shared workspaces. Skip with <code>--no-cow</code>. <code>gitta install claude</code> also adds the two hooks here, because Claude Code reads this file at the main checkout in worktree sessions.</td></tr>
+</table>
+<p>gitta merges into existing files. It never replaces your other settings. <a href="uninstall.html">Uninstall</a> removes exactly what it added.</p>

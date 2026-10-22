@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" width="880" height="330" role="img"><title>Two agents work in their own worktrees. gitta tells agent 2 when agent 1 changes code it relies on, and git merge runs the tests on the combined code before main moves.</title>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;fill:#242B28}.s{font-size:13px;fill:#626B64}.h{font-size:15px;font-weight:600}.k{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;fill:#626B64}</style>
+<g fill="none" stroke="#AEB6AA" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0.1 6">
+<path d="M40 70H560c40 0 50 50 90 50"/><path d="M40 170H560c40 0 50-50 90-50"/><path d="M650 120H840"/>
+</g>
+<path d="M290 76V160" stroke="#C98A1E" stroke-width="1.6" stroke-dasharray="4 4" fill="none"/><path d="M285 154l5 8 5-8" stroke="#C98A1E" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text class="h" x="40" y="52">agent 1</text><text class="k" x="104" y="52">float-option</text>
+<text class="h" x="40" y="202">agent 2</text><text class="k" x="104" y="202">number-helper</text>
+<circle cx="130" cy="70" r="5" fill="#242B28"/><circle cx="210" cy="70" r="5" fill="#242B28"/><circle cx="290" cy="70" r="6" fill="#C98A1E"/>
+<circle cx="160" cy="170" r="5" fill="#242B28"/><circle cx="240" cy="170" r="5" fill="#242B28"/><circle cx="420" cy="170" r="5" fill="#242B28"/>
+<text class="s" x="304" y="112">gitta tells agent 2 at its next step</text><text class="s" x="304" y="130">that code it calls has changed</text>
+<rect x="608" y="98" width="84" height="44" rx="9" fill="#D2402A"/><text x="650" y="126" text-anchor="middle" style="font-size:15px;font-weight:700;fill:#fff">tests</text>
+<text class="s" x="608" y="172">git merge runs your</text><text class="s" x="608" y="190">tests on the combined</text><text class="s" x="608" y="208">code first</text>
+<circle cx="800" cy="120" r="7" fill="#466349"/><text class="h" x="790" y="98">main</text>
+<g transform="translate(0 250)"><path d="M40 0H840" stroke="#AEB6AA" stroke-width="1"/>
+<text class="k" x="40" y="30">1</text><text class="s" x="60" y="30">Each agent works in its own</text><text class="s" x="60" y="48">Git worktree, as it does today.</text>
+<text class="k" x="330" y="30">2</text><text class="s" x="350" y="30">gitta reads every step and warns</text><text class="s" x="350" y="48">an agent about changes it relies on.</text>
+<text class="k" x="620" y="30">3</text><text class="s" x="640" y="30">main moves only when the</text><text class="s" x="640" y="48">combined code passes.</text></g>
+</svg>

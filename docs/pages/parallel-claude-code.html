@@ -1,0 +1,73 @@
+<!-- title: Run multiple Claude Code agents in parallel | group: Using gitta | order: 2.1 | desc: Run multiple Claude Code agents in parallel without conflicts. Give each session a git worktree, and gitta warns them when their work collides. -->
+<h1>Run multiple Claude Code agents in parallel without conflicts</h1>
+<p class="lede">Give each Claude Code session its own git worktree, so no two sessions edit the same files. Then let gitta watch all the worktrees together. It tells a session when another session changed something its work uses, and it runs your tests on the combined work when you merge.</p>
+
+<h2>1. Set up gitta once</h2>
+<p>Run <code>gitta init</code> in the main checkout, with the command that runs your tests. gitta calls this command the gate.</p>
+<term>$ cd ~/src/microblog
+$ gitta init --gate "python3 -m unittest -q"
+gitta is set up in microblog.
+
+No agent worktrees exist yet. Every worktree an agent tool creates from now on is picked up on its own.
+After every step an agent takes, gitta looks at what it changed. When one agent changes a function that another agent's new code calls, gitta tells that agent right away, so it can adapt before anything reaches main.
+Merging works as always, with git merge, git pull or git push. gitta hooks into those commands and runs `python3 -m unittest -q` on the combined code first. If the tests fail, it stops the merge and says which test failed and why.
+Claude Code hooks added to ~/.claude/settings.json (backup next to it). They stay silent outside gitta repositories.
+When gitta tells an agent about a clash, the agent fixes its code itself and mentions it to you in one sentence in its chat.
+gitta never asks you anything. When a merge removes tests or weakens a security check, it says so in the merge output and in the log. The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block.
+To share the test command and rules with your team and the CI check, run `gitta init --team` and commit .gitta.toml.
+
+Start your agents the way you always do. `gitta watch` shows what gitta does as it happens, and `tail -f .gitta/gitta.log` follows the same story as plain lines.</term>
+<p>The hooks go into your user settings, <code>~/.claude/settings.json</code>. Claude Code loads that file in every session, also in worktrees. You do not need a settings file in each worktree.</p>
+
+<h2>2. Start each session in its own worktree</h2>
+<p>Open one terminal per task and start Claude Code with <code>--worktree</code> (or <code>-w</code>) and a name. Claude Code makes the worktree under <code>.claude/worktrees/&lt;name&gt;/</code> on a new branch <code>worktree-&lt;name&gt;</code>. See Anthropic's page <a href="https://code.claude.com/docs/en/worktrees">Run parallel sessions with worktrees</a>.</p>
+<term>$ claude --worktree detect-language
+# in a second terminal
+$ claude --worktree translate-api</term>
+<p>You can also make the worktrees yourself and start Claude Code inside each one. gitta treats both the same way.</p>
+<term>$ git worktree add -b detect-language ../detect-language
+$ cd ../detect-language && claude</term>
+<p>Subagents with <code>isolation: worktree</code> and sessions from the Claude desktop app also use worktrees. gitta picks up every worktree of the repository, whichever tool made it. Add <code>.claude/worktrees/</code> to <code>.gitignore</code>, as Anthropic suggests.</p>
+
+<h2>3. What gitta does across the sessions</h2>
+<p>This run uses <a href="https://github.com/miguelgrinberg/microblog">microblog</a>, the Flask app of Miguel Grinberg's Flask Mega-Tutorial. The <code>detect-language</code> session makes the source language of <code>translate</code> optional, so the translation service can detect it, and moves it to the end of the parameters. It also updates the one call that already exists. The <code>translate-api</code> session writes a new API endpoint that calls <code>translate</code> in the old order.</p>
+<term>$ git worktree list
+~/src/microblog                                    a975ef6 [main]
+~/src/microblog/.claude/worktrees/detect-language  a975ef6 [worktree-detect-language]
+~/src/microblog/.claude/worktrees/translate-api    a975ef6 [worktree-translate-api]
+$ gitta status
+main is the branch gitta merges finished work into. Before each merge it runs `python3 -m unittest -q` on main combined with the agent's changes.
+  worktree-detect-language 2 files changed, ready to merge
+  worktree-translate-api 2 files changed, ready to merge
+  worktree-detect-language changed `app.translate.translate`, which worktree-translate-api's new code in app/api/translate.py uses. Check that the two changes still work together.</term>
+<p>You don't have to run <code>gitta status</code>. After each tool call, the hook tells the affected session what changed:</p>
+<term title="In the translate-api session">Gitta: agent worktree-detect-language changed `translate`, which your new code in app/api/translate.py calls. Check that your code still fits. Their version: app/translate.py:6: def translate(text, dest_language, source_language=None):</term>
+<p>If a merge of the session's work fails its tests, the session gets one short note with the failing test and its first error line. It fixes the code and merges again.</p>
+<p>The session fixes its call and tells you in one sentence what gitta caught. Then you merge with <code>git merge</code>, as always. gitta runs the gate on the combined code during the merge. When the tests pass, it adds nothing to git's output.</p>
+<p>If a session's code still fails the tests on the combined code, the merge stops with the failing test before main moves. See <a href="landing.html#stopped">When gitta stops a merge</a>. To follow all sessions at once, run <code>gitta watch</code> in a spare terminal.</p>
+
+<h2>How the hooks find the right session</h2>
+<p>Claude Code runs the same gitta hook in every session. Each call carries a <code>cwd</code> field with the session's current folder, and in a worktree session that is the worktree. gitta matches that folder to the worktree that holds it, so a warning goes to the session it is about. A session in the main checkout is not an agent, so the hook stays silent there.</p>
+<p>Worktrees can sit inside other worktrees. If you start <code>claude --worktree</code> inside an agent's worktree, the new one goes under that worktree's <code>.claude/worktrees/</code>. gitta gives each folder to the deepest worktree that holds it, and it does not count the inner worktree as a change of the outer one.</p>
+<p>Three Claude Code rules matter here. They come from Anthropic's <a href="https://code.claude.com/docs/en/worktrees">worktrees</a>, <a href="https://code.claude.com/docs/en/hooks">hooks</a> and <a href="https://code.claude.com/docs/en/settings">settings</a> pages.</p>
+<table>
+  <tr><th>Rule</th><th>Effect on gitta</th></tr>
+  <tr><td><code>~/.claude/settings.json</code> applies in every session.</td><td>The hooks from <code>gitta init</code> run in every worktree.</td></tr>
+  <tr><td>In a worktree, Claude Code reads <code>.claude/settings.local.json</code> at the main checkout's root. Desktop worktree sessions read all project settings there, and run hook commands in that root.</td><td>gitta reads the session folder from <code>cwd</code>, never from the hook's working folder or <code>CLAUDE_PROJECT_DIR</code>. <code>gitta install claude</code> writes its hooks to the main checkout's local settings too.</td></tr>
+  <tr><td>The same hook command in several settings files runs once.</td><td>The hooks never run twice in one step.</td></tr>
+</table>
+
+<h2>Git hooks in Claude Code worktrees</h2>
+<p>Claude Code issue <a href="https://github.com/anthropics/claude-code/issues/88747">#88747</a> reports that worktrees from the desktop app and from <code>EnterWorktree</code> can get an absolute <code>core.hooksPath</code> in their <code>config.worktree</code>. Git hooks such as <code>pre-commit</code> in that worktree then run the main checkout's copy. gitta's warnings do not depend on Git hooks, so this does not change what gitta tells your sessions. gitta's gate runs your test command in its own checkout of the merged work. To check a worktree, run:</p>
+<term>$ git config --show-scope --get-all core.hooksPath</term>
+<p>If a <code>worktree</code> line points into another checkout, follow the workaround in the issue.</p>
+
+<h2>Troubleshooting</h2>
+<table>
+  <tr><th>What you see</th><th>What to do</th></tr>
+  <tr><td>A session gets no warnings.</td><td>Run <code>gitta status</code> in the main checkout. If the worktree is missing, check <code>git worktree list</code>. If you used <code>gitta init --no-claude</code>, run <code>gitta install claude</code>.</td></tr>
+  <tr><td>The hooks are not in <code>/status</code> under setting sources.</td><td>Check that <code>~/.claude/settings.json</code> holds <code>gitta hook claude</code>. Cloud sessions do not read that file. Use the <a href="pull-requests.html">pull request check</a> for them.</td></tr>
+  <tr><td>A warning names the wrong agent.</td><td>Update gitta. Builds before the fix for nested worktrees could give an inner worktree's folder to the outer one.</td></tr>
+  <tr><td>A worktree's Git hooks run the main checkout's scripts.</td><td>See <a href="#git-hooks-in-claude-code-worktrees">Git hooks in Claude Code worktrees</a>.</td></tr>
+</table>
+<p>More cases are on the <a href="troubleshooting.html">Troubleshooting</a> page. For Cursor and Codex, see <a href="agents.html#git-worktrees-with-claude-code-cursor-and-codex">Agents</a>.</p>

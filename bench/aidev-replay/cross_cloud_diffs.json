@@ -1,0 +1,394 @@
+[
+ {
+  "run": "aws8",
+  "idx": 35,
+  "repo": "https://github.com/mautic/mautic",
+  "gcp8": "conflict",
+  "aws8": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 124,
+  "repo": "https://github.com/dotnet/macios",
+  "gcp8": "no_runnable_tests +gitta",
+  "aws8": "no_runnable_tests",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 161,
+  "repo": "https://github.com/primer/react",
+  "gcp8": "side_fails",
+  "aws8": "fine",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 179,
+  "repo": "https://github.com/microsoft/azurelinux",
+  "gcp8": "side_fails",
+  "aws8": "no_runnable_tests",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 187,
+  "repo": "https://github.com/sakaiproject/sakai",
+  "gcp8": "no_runnable_tests",
+  "aws8": "no_runnable_tests +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 253,
+  "repo": "https://github.com/pterm/pterm",
+  "gcp8": "fine",
+  "aws8": "side_fails",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 314,
+  "repo": "https://github.com/microsoft/vscode",
+  "gcp8": "side_fails",
+  "aws8": "side_fails +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 324,
+  "repo": "https://github.com/dreadl0ck/netcap",
+  "gcp8": "conflict",
+  "aws8": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 352,
+  "repo": "https://github.com/oven-sh/bun",
+  "gcp8": "unsupported_bun",
+  "aws8": "unsupported_bun +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 401,
+  "repo": "https://github.com/tinacms/tinacms",
+  "gcp8": "side_fails +gitta",
+  "aws8": "fine +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 598,
+  "repo": "https://github.com/ray-project/ray",
+  "gcp8": "side_fails",
+  "aws8": "side_fails +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 604,
+  "repo": "https://github.com/vllm-project/vllm",
+  "gcp8": "conflict",
+  "aws8": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws8",
+  "idx": 672,
+  "repo": "https://github.com/sst/opencode",
+  "gcp8": "conflict +gitta",
+  "aws8": "conflict",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 129,
+  "repo": "https://github.com/mvisonneau/gitlab-ci-pipelines-exporter",
+  "gcp8": "fine +gitta",
+  "gcp4": "side_fails +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 161,
+  "repo": "https://github.com/primer/react",
+  "gcp8": "side_fails",
+  "gcp4": "fine",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 179,
+  "repo": "https://github.com/microsoft/azurelinux",
+  "gcp8": "side_fails",
+  "gcp4": "no_runnable_tests",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 269,
+  "repo": "https://github.com/dotCMS/core",
+  "gcp8": "conflict +gitta",
+  "gcp4": "conflict",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 338,
+  "repo": "https://github.com/carverauto/serviceradar",
+  "gcp8": "side_fails",
+  "gcp4": "fine",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 423,
+  "repo": "https://github.com/rsyslog/rsyslog",
+  "gcp8": "conflict +gitta",
+  "gcp4": "conflict",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 567,
+  "repo": "https://github.com/AgentOps-AI/agentops",
+  "gcp8": "fine +gitta",
+  "gcp4": "side_fails +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 592,
+  "repo": "https://github.com/MetaMask/metamask-extension",
+  "gcp8": "side_fails +gitta",
+  "gcp4": "side_fails",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 604,
+  "repo": "https://github.com/vllm-project/vllm",
+  "gcp8": "conflict",
+  "gcp4": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "gcp4",
+  "idx": 665,
+  "repo": "https://github.com/assistant-ui/assistant-ui",
+  "gcp8": "fine",
+  "gcp4": "side_fails",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 35,
+  "repo": "https://github.com/mautic/mautic",
+  "gcp8": "conflict",
+  "aws4": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 161,
+  "repo": "https://github.com/primer/react",
+  "gcp8": "side_fails",
+  "aws4": "fine",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 179,
+  "repo": "https://github.com/microsoft/azurelinux",
+  "gcp8": "side_fails",
+  "aws4": "no_runnable_tests",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 187,
+  "repo": "https://github.com/sakaiproject/sakai",
+  "gcp8": "no_runnable_tests",
+  "aws4": "no_runnable_tests +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 253,
+  "repo": "https://github.com/pterm/pterm",
+  "gcp8": "fine",
+  "aws4": "side_fails",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 314,
+  "repo": "https://github.com/microsoft/vscode",
+  "gcp8": "side_fails",
+  "aws4": "side_fails +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 324,
+  "repo": "https://github.com/dreadl0ck/netcap",
+  "gcp8": "conflict",
+  "aws4": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 352,
+  "repo": "https://github.com/oven-sh/bun",
+  "gcp8": "unsupported_bun",
+  "aws4": "unsupported_bun +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 401,
+  "repo": "https://github.com/tinacms/tinacms",
+  "gcp8": "side_fails +gitta",
+  "aws4": "fine +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 486,
+  "repo": "https://github.com/promptfoo/promptfoo",
+  "gcp8": "conflict",
+  "aws4": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 522,
+  "repo": "https://github.com/JuliaLang/julia",
+  "gcp8": "no_runnable_tests",
+  "aws4": "side_fails",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 598,
+  "repo": "https://github.com/ray-project/ray",
+  "gcp8": "side_fails",
+  "aws4": "side_fails +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "aws4",
+  "idx": 604,
+  "repo": "https://github.com/vllm-project/vllm",
+  "gcp8": "conflict",
+  "aws4": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 35,
+  "repo": "https://github.com/mautic/mautic",
+  "gcp8": "conflict",
+  "azure4": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 161,
+  "repo": "https://github.com/primer/react",
+  "gcp8": "side_fails",
+  "azure4": "fine",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 179,
+  "repo": "https://github.com/microsoft/azurelinux",
+  "gcp8": "side_fails",
+  "azure4": "no_runnable_tests",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 187,
+  "repo": "https://github.com/sakaiproject/sakai",
+  "gcp8": "no_runnable_tests",
+  "azure4": "no_runnable_tests +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 253,
+  "repo": "https://github.com/pterm/pterm",
+  "gcp8": "fine",
+  "azure4": "side_fails",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 314,
+  "repo": "https://github.com/microsoft/vscode",
+  "gcp8": "side_fails",
+  "azure4": "side_fails +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 324,
+  "repo": "https://github.com/dreadl0ck/netcap",
+  "gcp8": "conflict",
+  "azure4": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 338,
+  "repo": "https://github.com/carverauto/serviceradar",
+  "gcp8": "side_fails",
+  "azure4": "fine",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 352,
+  "repo": "https://github.com/oven-sh/bun",
+  "gcp8": "unsupported_bun",
+  "azure4": "unsupported_bun +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 401,
+  "repo": "https://github.com/tinacms/tinacms",
+  "gcp8": "side_fails +gitta",
+  "azure4": "fine +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 405,
+  "repo": "https://github.com/microsoft/sbom-tool",
+  "gcp8": "no_runnable_tests",
+  "azure4": "side_fails",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 604,
+  "repo": "https://github.com/vllm-project/vllm",
+  "gcp8": "conflict",
+  "azure4": "conflict +gitta",
+  "same_shas": true
+ },
+ {
+  "run": "azure4",
+  "idx": 634,
+  "repo": "https://github.com/DaveSkender/Stock.Indicators",
+  "gcp8": "no_runnable_tests +gitta",
+  "azure4": "side_fails +gitta",
+  "same_shas": true
+ }
+]

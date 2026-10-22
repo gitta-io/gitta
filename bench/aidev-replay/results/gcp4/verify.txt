@@ -1,0 +1,5 @@
+terraform state: 0 resources
+instances: 0
+disks: 0
+firewall rules: 0
+static addresses: 0

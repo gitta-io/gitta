@@ -1,0 +1,41 @@
+<!-- title: Stop agents overwriting each other | group: Using gitta | order: 2.2 | desc: When AI coding agents overwrite or revert each other's changes, give each one a git worktree and let gitta warn them when their work meets. | seo: Stop AI agents overwriting each other's changes -->
+<h1>Stop AI agents overwriting each other's changes</h1>
+<p class="lede">Each agent gets its own worktree, so no agent writes over another agent's files. gitta then watches the worktrees together and tells an agent when another agent changed code its work relies on, so it adapts instead of undoing the other change.</p>
+
+<h2>Why agents overwrite each other</h2>
+<p>Two things cause it. When several agents share one folder, each one edits the files the others just changed. An agent that reloads a file and finds unexpected code often "fixes" it back. People who run agents in parallel describe the same thing, with agents fixing one bug in opposite directions (<a href="https://dev.to/yureki_lab/how-i-run-multiple-claude-code-agents-in-parallel-without-collisions-3pbk">DEV, running Claude Code agents in parallel</a>).</p>
+<p>The second cause is later. Each agent works from the commit it started on. When one agent's work is merged and another agent's work is merged after it, the second can bring back the old code of a function, or call it in its old form.</p>
+
+<h2>1. Give each agent its own worktree</h2>
+<p>A git worktree is a second working folder of the same repository, with its own branch. Agents in separate worktrees cannot write over each other's files.</p>
+<term>$ git worktree add -b ci-level ../ci-level
+$ git worktree add -b ci99 ../ci99</term>
+<p>Claude Code, Cursor and Codex can make the worktrees for you. See <a href="agents.html#git-worktrees-with-claude-code-cursor-and-codex">Git worktrees with Claude Code, Cursor and Codex</a>.</p>
+
+<h2>2. Let gitta watch all the worktrees</h2>
+<term>$ gitta init --gate "python3 -m unittest discover -s bench/aidev-replay -q"</term>
+<p>From now on, gitta compares what each agent changed with what the other agents' new code uses.</p>
+<table>
+  <tr><th>What happens</th><th>What the agent hears</th></tr>
+  <tr><td>Another agent changed a function, type or constant that this agent's new code uses</td><td>A warning at its next step with the other agent's new definition</td></tr>
+  <tr><td>Both agents changed the same function or the same lines</td><td>An <b>also editing</b> note. gitta merges both changes by structure.</td></tr>
+  <tr><td>Work reached main that this agent's code relies on</td><td>Nothing while it works. gitta checks the change at merge time. If the tests fail, the merge output shows the new definition on main.</td></tr>
+</table>
+
+<h2>3. Merge with git</h2>
+<p>Merge each agent's work with <code>git merge</code>, as always. gitta runs your tests on the combined code during the merge. When they fail, the merge stops before main moves, so a late agent's work meets the tests together with what an earlier agent changed.</p>
+<term>$ git merge --no-edit ci99
+Auto-merging bench/aidev-replay/analyze.py
+gitta: tests fail on main with ci99 (test_ci99.T.test_wider); main unchanged, merge cancelled (ignore git's note). Fix it and merge again.
+    TypeError: wilson() takes 2 positional arguments but 3 were given
+Now on main: bench/aidev-replay/analyze.py:23: def wilson(k, n, *, z=1.96):
+Not committing merge; use 'git commit' to complete the merge.</term>
+<p>This example comes from the <a href="quickstart.html">quick start</a>.</p>
+<p>Agents that open pull requests get the same comparison from the <a href="pull-requests.html">pull request check</a>.</p>
+
+<h2>Read more</h2>
+<ul>
+  <li><a href="parallel-claude-code.html">Run multiple Claude Code agents in parallel</a></li>
+  <li><a href="../guides/worktrees-and-agent-conflicts.html">Why git worktrees don't prevent agent conflicts</a></li>
+  <li><a href="warnings.html">Warnings and sync</a></li>
+</ul>

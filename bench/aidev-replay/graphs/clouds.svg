@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="798.173897pt" height="258.616pt" viewBox="0 0 798.173897 258.616" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 258.616 
+L 798.173897 258.616 
+L 798.173897 0 
+L 0 0 
+z
+" style="fill: #f7f7f2"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 177.173897 251.416 
+L 476.588532 251.416 
+L 476.588532 24.112 
+L 177.173897 24.112 
+z
+" style="fill: #f7f7f2"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 177.173897 61.397043 
+L 320.064783 61.397043 
+L 320.064783 34.444 
+L 177.173897 34.444 
+z
+" clip-path="url(#p3a963322be)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 177.173897 106.318783 
+L 293.665041 106.318783 
+L 293.665041 79.365739 
+L 177.173897 79.365739 
+z
+" clip-path="url(#p3a963322be)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 177.173897 151.240522 
+L 398.962515 151.240522 
+L 398.962515 124.287478 
+L 177.173897 124.287478 
+z
+" clip-path="url(#p3a963322be)" style="fill: #626b64"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 177.173897 196.162261 
+L 347.102788 196.162261 
+L 347.102788 169.209217 
+L 177.173897 169.209217 
+z
+" clip-path="url(#p3a963322be)" style="fill: #626b64"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 177.173897 241.084 
+L 370.227819 241.084 
+L 370.227819 214.130957 
+L 177.173897 214.130957 
+z
+" clip-path="url(#p3a963322be)" style="fill: #626b64"/>
+   </g>
+   <g id="matplotlib.axis_1"/>
+   <g id="matplotlib.axis_2"/>
+   <g id="text_1">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="324.500555" y="52.012522" transform="rotate(-0 324.500555 52.012522)">12.4 h</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="172.738125" y="52.012522" transform="rotate(-0 172.738125 52.012522)">Google Cloud, e2-standard-8</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="298.100814" y="96.934261" transform="rotate(-0 298.100814 96.934261)">10.1 h</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="172.738125" y="96.934261" transform="rotate(-0 172.738125 96.934261)">AWS, m6i.2xlarge</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="403.398288" y="141.856" transform="rotate(-0 403.398288 141.856)">19.2 h</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="172.738125" y="141.856" transform="rotate(-0 172.738125 141.856)">Google Cloud, e2-standard-4</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="351.53856" y="186.777739" transform="rotate(-0 351.53856 186.777739)">14.7 h</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="172.738125" y="186.777739" transform="rotate(-0 172.738125 186.777739)">AWS, m6i.xlarge</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="374.663592" y="231.699478" transform="rotate(-0 374.663592 231.699478)">16.7 h</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: end; fill: #242b28" x="172.738125" y="231.699478" transform="rotate(-0 172.738125 231.699478)">Azure, Standard_D4s_v5</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 11px; font-family: 'DM Sans'; text-anchor: start; fill: #626b64" x="177.173897" y="18.112" transform="rotate(-0 177.173897 18.112)">Benchmark wall-clock</text>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_8">
+    <path d="M 491.559263 251.416 
+L 790.973897 251.416 
+L 790.973897 24.112 
+L 491.559263 24.112 
+z
+" style="fill: #f7f7f2"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 491.559263 61.397043 
+L 706.736635 61.397043 
+L 706.736635 34.444 
+L 491.559263 34.444 
+z
+" clip-path="url(#pa89ba64e14)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 491.559263 106.318783 
+L 713.347881 106.318783 
+L 713.347881 79.365739 
+L 491.559263 79.365739 
+z
+" clip-path="url(#pa89ba64e14)" style="fill: #242b28"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 491.559263 151.240522 
+L 671.96534 151.240522 
+L 671.96534 124.287478 
+L 491.559263 124.287478 
+z
+" clip-path="url(#pa89ba64e14)" style="fill: #626b64"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 491.559263 196.162261 
+L 649.168666 196.162261 
+L 649.168666 169.209217 
+L 491.559263 169.209217 
+z
+" clip-path="url(#pa89ba64e14)" style="fill: #626b64"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 491.559263 241.084 
+L 707.432877 241.084 
+L 707.432877 214.130957 
+L 491.559263 214.130957 
+z
+" clip-path="url(#pa89ba64e14)" style="fill: #626b64"/>
+   </g>
+   <g id="matplotlib.axis_3"/>
+   <g id="matplotlib.axis_4"/>
+   <g id="text_12">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="711.172408" y="52.012522" transform="rotate(-0 711.172408 52.012522)">$4.58</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="717.783653" y="96.934261" transform="rotate(-0 717.783653 96.934261)">$4.72</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="676.401113" y="141.856" transform="rotate(-0 676.401113 141.856)">$3.84</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="653.604438" y="186.777739" transform="rotate(-0 653.604438 186.777739)">$3.35</text>
+   </g>
+   <g id="text_16">
+    <text style="font-size: 12px; font-family: 'DM Sans'; text-anchor: start; fill: #242b28" x="711.868649" y="231.699478" transform="rotate(-0 711.868649 231.699478)">$4.59</text>
+   </g>
+   <g id="text_17">
+    <text style="font-size: 11px; font-family: 'DM Sans'; text-anchor: start; fill: #626b64" x="491.559263" y="18.112" transform="rotate(-0 491.559263 18.112)">Total cost, VM and disk, apply to destroy</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p3a963322be">
+   <rect x="177.173897" y="24.112" width="299.414634" height="227.304"/>
+  </clipPath>
+  <clipPath id="pa89ba64e14">
+   <rect x="491.559263" y="24.112" width="299.414634" height="227.304"/>
+  </clipPath>
+ </defs>
+</svg>

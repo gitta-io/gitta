@@ -1,0 +1,59 @@
+<!-- title: Supported platforms | group: Get started | order: 2.5 | desc: Everything gitta supports today, and what comes next. AI coding agents, Git hosts, CI systems, operating systems, languages, clouds and identity providers. | seo: Supported agents, Git hosts and platforms -->
+<h1>Supported platforms</h1>
+<p class="lede">The full list of what gitta works with today, and what comes next.</p>
+
+<h2>AI coding agents</h2>
+<table>
+  <tr><th>Agent</th><th>How it works with gitta</th></tr>
+  <tr><td>Claude Code</td><td>Supported. Warnings arrive automatically through hooks. See <a href="agents.html">Agents</a>.</td></tr>
+  <tr><td>Cursor, Codex</td><td>Supported through MCP tools, which the agent calls when your <code>AGENTS.md</code> tells it to.</td></tr>
+  <tr><td>Any tool that uses Git worktrees</td><td>Supported, for example Conductor or Claude Squad. Warnings show in <code>gitta status</code> and <code>gitta watch</code>.</td></tr>
+  <tr><td>Cloud agents that open pull requests</td><td>Supported through the pull request check, for example GitHub Copilot&rsquo;s coding agent, Codex cloud, Jules and Devin.</td></tr>
+</table>
+
+<h2>Git hosts and CI</h2>
+<table>
+  <tr><th>System</th><th>Status</th></tr>
+  <tr><td>GitHub and GitHub Actions</td><td>Supported. See <a href="pull-requests.html">Pull requests and CI</a>.</td></tr>
+  <tr><td>Jenkins, Buildkite, CircleCI and other CI</td><td>Supported through <code>gitta pr-check --json</code>. See <a href="ci-cd.html">CI/CD integration for teams</a>.</td></tr>
+  <tr><td>IBM Dependency Based Build</td><td>With gitta Enterprise, a step before the build. See <a href="https://gitta.io/docs/mainframe.html">Mainframe guide</a>.</td></tr>
+</table>
+
+<h2>Operating systems for the gitta command</h2>
+<table>
+  <tr><th>System</th><th>Status</th></tr>
+  <tr><td>macOS, Apple silicon and Intel</td><td>Supported, with release builds</td></tr>
+  <tr><td>Linux, x86_64 and arm64</td><td>Supported, with release builds. Shared copy-on-write workspaces and the agent sandbox are Linux only.</td></tr>
+  <tr><td>Windows, x86_64 and arm64</td><td>Supported, with release builds</td></tr>
+</table>
+<p>For mainframe teams, gitta runs on the developer machines and CI servers that hold the Git repositories.</p>
+
+<h2>Languages</h2>
+<table>
+  <tr><th>Language</th><th>What gitta does</th></tr>
+  <tr><td>Python, TypeScript, JavaScript, Go, Rust, Java, C#, Kotlin</td><td>Meaning analysis between agents, structural merge and security checks</td></tr>
+  <tr><td>C and C++, including headers</td><td>Meaning analysis between agents, also through headers, and security checks. Structural merge for files that parse cleanly, the others line by line. See <a href="c-cpp.html">C and C++</a>.</td></tr>
+  <tr><td>All other files</td><td>Line by line merge, and your tests on the combined work</td></tr>
+</table>
+<p>Mainframe languages come with gitta Enterprise, see below.</p>
+
+<h2>gitta Enterprise</h2>
+<table>
+  <tr><th>Area</th><th>Supported</th></tr>
+  <tr><td>COBOL, including copybooks</td><td>Meaning analysis of programs, copybook fields and program interfaces, and security checks. Files merge line by line. See <a href="https://gitta.io/docs/mainframe-cobol.html">COBOL, copybooks and JCL</a>.</td></tr>
+  <tr><td>JCL</td><td>Job steps and programs, and security checks</td></tr>
+  <tr><td>REXX, CLIST and assembler</td><td>Security checks. See <a href="https://gitta.io/docs/mainframe-security.html">Security checks on mainframe code</a>.</td></tr>
+  <tr><td>Code pages</td><td>EBCDIC code pages for each folder, with checks on conversions. See <a href="https://gitta.io/docs/mainframe.html">Mainframe guide</a>.</td></tr>
+  <tr><td>Clouds</td><td>Google Cloud, AWS and Azure, as a small locked-down VM. See <a href="https://gitta.io/docs/deploy-cloud.html">Google Cloud, AWS, Azure</a>.</td></tr>
+  <tr><td>Kubernetes</td><td>EKS, GKE, AKS and your own clusters, with Helm. See <a href="https://gitta.io/docs/deploy-kubernetes.html">Kubernetes</a>.</td></tr>
+  <tr><td>Containers</td><td>Docker, Docker Compose and managed container services. Images for amd64 and arm64. See <a href="https://gitta.io/docs/deploy-docker.html">Docker and containers</a>.</td></tr>
+  <tr><td>SSO</td><td>Your OpenID Connect provider, such as Okta, Microsoft Entra ID or Google. See <a href="https://gitta.io/docs/access.html">Tokens and sign-in</a>.</td></tr>
+  <tr><td>SBOM and CBOM</td><td>CycloneDX and SPDX. See <a href="https://gitta.io/docs/sbom.html">SBOM and CBOM</a>.</td></tr>
+</table>
+
+<h2>Coming next</h2>
+<table>
+  <tr><th>Area</th><th>Next in line</th></tr>
+  <tr><td>Git hosts and CI</td><td>GitLab and GitLab CI, Azure Repos and Azure Pipelines. See <a href="pull-requests.html">Pull requests and CI</a>.</td></tr>
+  <tr><td>Operating systems</td><td>FreeBSD</td></tr>
+</table>

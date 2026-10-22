@@ -1,0 +1,92 @@
+<!-- title: Controlled examples | group: Get started | order: 4 | desc: Three collisions between parallel AI agents in requests, ky and chi. Plain Git merges each pair without a conflict, then the code fails. See what gitta does. | seo: Parallel agent collisions on real repositories -->
+<h1>Controlled examples on real repositories</h1>
+<p class="lede">Three popular open-source projects, two agents in each, two reasonable changes. Plain Git merges every pair without a conflict. The merged code then crashes, fails to build, or quietly does the wrong thing.</p>
+<p>The projects are unmodified copies of <a href="https://github.com/psf/requests">psf/requests</a>, <a href="https://github.com/sindresorhus/ky">sindresorhus/ky</a> and <a href="https://github.com/go-chi/chi">go-chi/chi</a> from their main branches in October 2026. The changes are ours, made for this page and written the way an agent would write them, so these are controlled examples, not incidents from production.</p>
+
+<table>
+  <tr><th>Project</th><th>Plain Git</th><th>After the merge</th><th>gitta</th></tr>
+  <tr><td>requests (Python)</td><td>Merges, no conflict</td><td>Crashes at run time</td><td>Warns the agent during the work</td></tr>
+  <tr><td>ky (TypeScript)</td><td>Merges, no conflict</td><td>The build fails</td><td>Warns the agent during the work</td></tr>
+  <tr><td>chi (Go)</td><td>Merges, no conflict</td><td>Wrong value, no error</td><td>Warns the agent during the work</td></tr>
+</table>
+
+<h2>requests, the Python HTTP library, where a helper now returns nothing</h2>
+<p>One agent follows RFC 7231 and removes the old ISO-8859-1 default for text responses without a charset. <code>get_encoding_from_headers</code> now returns <code>None</code> for them. Its own change is correct.</p>
+<pre class="code"><code>  # src/requests/utils.py, agent no-latin1-default
+-    if "text" in content_type:
+-        return "ISO-8859-1"
+-</code></pre>
+<p>At the same time, another agent adds a debug helper that calls the same function and expects a string.</p>
+<pre class="code"><code># src/requests/diagnostics.py, agent encoding-log (new file)
+from .utils import get_encoding_from_headers
+
+
+def describe_encoding(response):
+    """One line for the debug log: which encoding the body will be decoded with."""
+    return "body encoding: " + get_encoding_from_headers(response.headers).lower()</code></pre>
+<p>Plain Git merges both. The first <code>text/html</code> response without a charset then crashes the helper:</p>
+<term title="After a plain git merge">AttributeError: 'NoneType' object has no attribute 'lower'</term>
+<p>With gitta, the second agent hears about it in its session, before it finishes:</p>
+<term title="In the encoding-log agent's session">Gitta: agent no-latin1-default changed `get_encoding_from_headers`, which your new code in src/requests/diagnostics.py calls. Check that your code still fits. Their version: src/requests/utils.py:569: def get_encoding_from_headers(headers: CaseInsensitiveDict[str]) -&gt; str | None:
+
+Handle it yourself and tell the user in one sentence.</term>
+<p>The agent makes its helper handle a missing encoding. When you merge, gitta runs your tests on the combined code, so a test that covers this case stops the merge before main changes.</p>
+
+<h2>ky, the TypeScript HTTP client: a field renamed for clarity</h2>
+<p>One agent renames the <code>timeout</code> field of the shared <code>TimeoutOptions</code> type to <code>timeoutMs</code>, so the unit is obvious. It updates every place that uses the field, and its build passes.</p>
+<pre class="code"><code>  // source/utils/timeout.ts, agent timeout-ms
+ export type TimeoutOptions = {
+-	timeout: number;
++	/** Milliseconds. */
++	timeoutMs: number;</code></pre>
+<p>Another agent adds a longer deadline for uploads, written against the old field name. Its build passes too.</p>
+<pre class="code"><code>// source/utils/deadline.ts, agent upload-deadline (new file)
+import type {TimeoutOptions} from './timeout.js';
+
+/** Uploads get a longer deadline than ordinary requests. */
+export const uploadTimeoutOptions = (fetch: TimeoutOptions['fetch']): TimeoutOptions => ({
+	timeout: 120_000,
+	fetch,
+});</code></pre>
+<p>Plain Git merges both. The merged code no longer compiles:</p>
+<term title="tsc after a plain git merge">source/utils/deadline.ts(5,2): error TS2561: Object literal may only specify known properties, but 'timeout' does not exist in type 'TimeoutOptions'. Did you mean to write 'timeoutMs'?</term>
+<p>CI would catch this one after the merge. gitta catches it while the second agent still works on the file:</p>
+<term>$ gitta status
+main is the branch gitta merges finished work into.
+  timeout-ms 2 files changed, ready to merge
+  upload-deadline 1 file changed, ready to merge
+  timeout-ms changed `source/utils/timeout.TimeoutOptions`, which upload-deadline's new code in source/utils/deadline.ts uses. Check that the two changes still work together.</term>
+<p>With a gate that builds the code, such as <code>npm test</code>, <code>git merge</code> stops on this build error before main moves.</p>
+
+<h2>chi, the Go router: shorter request IDs</h2>
+<p>One agent makes logs easier to read. <code>GetReqID</code> now returns only the counter of a request ID, for example <code>000042</code> instead of <code>web-3/a1b2c3-000042</code>. It updates the test that checks the ID, and its tests pass.</p>
+<pre class="code"><code>  // middleware/request_id.go, agent short-request-ids
+ 	if reqID, ok := ctx.Value(RequestIDKey).(string); ok {
++		// Logs only need the counter: "host/abc123-000042" becomes "000042".
++		if i := strings.LastIndex(reqID, "-"); i >= 0 {
++			return reqID[i+1:]
++		}
+ 		return reqID
+ 	}</code></pre>
+<p>Another agent adds middleware that tells clients which host served them, read from the start of the same ID.</p>
+<pre class="code"><code>// middleware/served_by.go, agent host-header (new file)
+func ServedBy(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := strings.SplitN(GetReqID(r.Context()), "/", 2)[0]
+		w.Header().Set("X-Served-By", host)
+		next.ServeHTTP(w, r)
+	})
+}</code></pre>
+<p>Plain Git merges both. The code compiles and nothing crashes. The header is simply wrong:</p>
+<term title="go test after a plain git merge">--- FAIL: TestServedByExample (0.00s)
+    zz_served_by_example_test.go:16: X-Served-By = "000042", want "web-3"</term>
+<p>Only a test for exactly this case finds it. With gitta:</p>
+<term title="In the host-header agent's session">Gitta: agent short-request-ids changed `GetReqID`, which your new code in middleware/served_by.go calls. Check that your code still fits. Their version: middleware/request_id.go:83: func GetReqID(ctx context.Context) string {
+
+Handle it yourself and tell the user in one sentence.</term>
+<p>The agent reads the new definition and takes the host from somewhere else. At merge time your tests on the combined code decide, as in the other two cases.</p>
+
+<h2>What the three have in common</h2>
+<p>Each change is reasonable alone, and each agent's own checks pass. The problem exists only in the combination, so neither agent can see it and plain Git cannot either. gitta compares what each agent changed with what each other agent's new code uses, while they work. The second agent learns about the change in time to adapt, instead of after the merge.</p>
+
+<p>To try it in your own repository, follow the <a href="quickstart.html">quick start</a>. <a href="https://gitta.io/docs/measurements.html">Measurements</a> shows how gitta did with real agents.</p>

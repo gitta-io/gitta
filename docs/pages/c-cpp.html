@@ -1,0 +1,110 @@
+<!-- title: C and C++ | group: Using gitta | order: 6.8 | desc: What gitta follows in C and C++ code. How it finds headers and include directories, treats the preprocessor and decides what counts as a change of meaning. | seo: C and C++ with parallel AI coding agents -->
+<h1>C and C++</h1>
+<p class="lede">What gitta reads in C and C++ code, how it finds headers, and how it treats the preprocessor.</p>
+
+<h2>What gitta follows</h2>
+<p>gitta reads <code>.c</code> and <code>.h</code> files as C, and <code>.cc</code>, <code>.cpp</code>, <code>.cxx</code>, <code>.c++</code>, <code>.hpp</code>, <code>.hh</code>, <code>.hxx</code>, <code>.h++</code>, <code>.ipp</code>, <code>.inl</code> and <code>.tpp</code> files as C++. It keeps track of these names:</p>
+<ul>
+  <li>Functions, including <code>static</code> and <code>inline</code> ones, and their prototypes in headers.</li>
+  <li>Global variables, structs, unions and enums with their fields and constants, and typedefs.</li>
+  <li>Macros, both plain values and macros with parameters.</li>
+  <li>C++ namespaces (nested, inline and anonymous), classes, member functions with constructors, destructors and operators, data members, templates and their specialisations, and <code>using</code> aliases.</li>
+</ul>
+<p>Names are written as in C++ code: <code>leveldb::DB::Put</code>, <code>fmt::vformat</code>. A C struct is <code>struct client</code>, and its field is <code>client::querybuf</code>. Inline namespaces are left out, because callers leave them out too.</p>
+<p>Overloaded functions are separate items, keyed by their parameter types. A call is matched by name, so a change to one overload reaches every call of that name.</p>
+<p>A <code>static</code> function or variable, a macro defined in a source file and anything in an anonymous namespace belong to that one file. A function with the same name in another file is a different function. Static inline functions and macros in headers belong to every file that includes them.</p>
+
+<h3>Uses</h3>
+<p>gitta counts calls, type names, macros (also inside other macros), template arguments, and fields read with <code>.</code> or <code>-&gt;</code>. For a field, it uses the declared type of the variable in front of it: a parameter, a local variable, a global, <code>this</code>, a data member of the class, or a chain of members such as <code>data-&gt;set.timeout</code>. A global declared in a header, such as <code>extern struct redisServer server;</code>, is followed too. C++ names are looked up in the enclosing namespaces and class, in <code>using namespace</code>, in <code>using a::b</code> and through namespace aliases.</p>
+
+<h2 id="headers">Headers</h2>
+<p>A header usually has many users. When one agent changes a declaration, a macro or a struct field in a header, every agent whose new code uses it is warned, in any file. The agent that changed the header does not have to know where it is included.</p>
+<p>gitta looks for <code>#include "x.h"</code> next to the including file first. Then it looks in the include directories, then in <code>include/</code> and <code>src/</code> of the repository. If none has the file, it uses a file anywhere in the repository whose path ends in <code>x.h</code>. It looks for <code>#include &lt;x.h&gt;</code> only in the include directories and <code>include/</code>. A header that is not in the repository is a system or library header, and gitta leaves it alone.</p>
+
+<h3 id="include-directories">Include directories</h3>
+<p>List your include directories in a committed <code>.gitta-include</code> file, one per line, the way you give them to the compiler with <code>-I</code>:</p>
+<term title=".gitta-include">include
+deps/hiredis
+# .h files under src/ are C++
+.h c++ src/
+# a macro that opens a namespace
+namespace PROTOBUF_NAMESPACE_OPEN google</term>
+<p>You can also add directories for one checkout with the <code>include</code> list in <code>.gitta/config.json</code>.</p>
+
+<h3>Is a .h file C or C++?</h3>
+<p>gitta decides in this order:</p>
+<ol>
+  <li>A <code>.h c++</code> or <code>.h c</code> line in <code>.gitta-include</code>, for all headers or for one directory. The most specific line wins.</li>
+  <li>A header that a C++ source file of the repository includes is C++.</li>
+  <li>A header whose text uses C++, such as classes, namespaces or templates, is C++.</li>
+  <li>Any other header is C.</li>
+</ol>
+<p>When the chosen language reads a header badly, gitta tries the other one and keeps the better result.</p>
+
+<h2 id="preprocessor">The preprocessor</h2>
+<p>gitta does not run the preprocessor. It reads the code of every branch of <code>#if</code>, <code>#ifdef</code>, <code>#elif</code> and <code>#else</code>, so a function that exists only on one platform is still followed. When two branches write different headers for the same function, gitta reads the first branch. Code under <code>#if 0</code> is skipped.</p>
+<p>Line continuations, X-macros, export macros such as <code>class LEVELDB_EXPORT DB</code> and macros that open a namespace, such as <code>FMT_BEGIN_NAMESPACE</code>, are read. A macro that gitta does not know, for example one used as a statement without a semicolon, leaves a small region that does not parse. The rest of the file is read as usual, and the uses inside that region still count. gitta reports a file as not parsed only when more than half of it does not parse.</p>
+
+<h2 id="zos">z/OS XL C/C++</h2>
+<p>With gitta Enterprise, gitta reads the parts of the z/OS XL C/C++ dialect that change what a name means. It keeps every byte offset, so line numbers stay right.</p>
+<ul>
+  <li><b>Trigraphs and digraphs.</b> <code>??(</code> <code>??)</code> <code>??&lt;</code> <code>??&gt;</code> <code>??=</code> <code>??/</code> <code>??'</code> <code>??!</code> <code>??-</code> and <code>&lt;:</code> <code>:&gt;</code> <code>&lt;%</code> <code>%&gt;</code> <code>%:</code> <code>%:%:</code> are read as the characters they stand for. Trigraphs are read everywhere, as the compiler does. Digraphs are read outside strings and comments.</li>
+  <li><b><code>_Packed</code>.</b> A <code>_Packed</code> struct or union is read like any other. Adding or removing <code>_Packed</code> is a change to its layout.</li>
+  <li><b><code>#pragma map(name, "EXTNAME")</code>.</b> The external name is the same symbol as the C name. A change to the function reaches code that calls either name, also COBOL that calls <code>'EXTNAME'</code>. A change to the external name is a change to the function&rsquo;s interface.</li>
+  <li><b><code>#pragma linkage(name, OS)</code>.</b> The linkage is part of the function&rsquo;s interface, so a change to it is high severity.</li>
+  <li><b>Other pragmas</b>, such as <code>options</code>, <code>runopts</code>, <code>pack</code> and <code>inline</code>, are skipped. They never stop a file from being read.</li>
+  <li><b>Embedded SQL and CICS.</b> <code>EXEC SQL ... ;</code> and <code>EXEC CICS ... ;</code> do not stop a file from being read. Host variables such as <code>:hv_id</code> and the arguments of CICS options count as uses. <code>EXEC CICS LINK</code>, <code>XCTL</code>, <code>LOAD</code> and <code>RELEASE PROGRAM(...)</code> call that program, as they do in COBOL. A program name in a variable is found through the literal the file gives it, such as <code>char pgm[9] = "ACCTINQ";</code> or <code>strcpy(pgm, "ACCTINQ")</code>.</li>
+  <li><b>Fixed-length records.</b> Sequence numbers in columns 73 to 80 and blanks that pad lines to column 72 or 80 are not part of any name or text. Renumbering a file changes nothing.</li>
+</ul>
+<p>For code pages of C sources on z/OS, see <a href="https://gitta.io/docs/mainframe.html#code-pages">Set the code page for each folder</a>.</p>
+
+<h2>What counts as a change of meaning</h2>
+<p>These changes are high severity. Code that uses the changed name must be checked:</p>
+<ul>
+  <li>The parameters of a function: their types, their number or their order. A C++ parameter added at the end with a default value is not, because every call stays the same.</li>
+  <li>The return type, or what a function returns.</li>
+  <li><code>const</code>, <code>volatile</code>, <code>&amp;</code> and <code>&amp;&amp;</code> on a member function, and <code>virtual</code>, <code>override</code>, <code>final</code>, <code>noexcept</code>, <code>= 0</code> and <code>= delete</code>.</li>
+  <li>The layout of a struct or class: the type, order or bit-field width of a data member, a member added or removed, a base class, or a virtual function. Code that works with the struct depends on its size.</li>
+  <li>The value of an enum constant. A constant added in the middle changes the values after it. A constant added at the end does not.</li>
+  <li>The value or the parameters of a macro.</li>
+  <li>The type or initial value of a global or a constant, and the target of a typedef or <code>using</code> alias.</li>
+</ul>
+<p>gitta also follows a change through helper functions. A function that returns what a changed helper returns has changed meaning too.</p>
+
+<h2>Merging</h2>
+<p>When two agents edit the same file, Git merges it line by line first. When the lines collide, gitta merges functions, classes and namespaces as units, so two agents who change different functions next to each other both keep their work. This structural merge needs a file that parses cleanly. Other files merge line by line, and a collision there is a conflict.</p>
+
+<h2>Security checks</h2>
+<p>gitta checks the lines that an agent adds to C and C++ files. It reports these risks:</p>
+<table>
+  <tr><th>Risk</th><th>Severity</th></tr>
+  <tr><td>A copy into a buffer with no size limit: <code>strcpy</code>, <code>strcat</code>, <code>sprintf</code>, <code>gets</code>, <code>scanf</code> with <code>%s</code>, or <code>memcpy</code> and <code>memmove</code> with a length nothing bounds. A length is bounded when it is a <code>sizeof</code>, a constant or the smaller of two values, or when the few lines before compare it, set it from a <code>sizeof</code> or allocate the buffer with it.</td><td>Medium</td></tr>
+  <tr><td>A variable used as the format of <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>snprintf</code>, <code>syslog</code> and similar calls</td><td>Medium</td></tr>
+  <tr><td>A command that is not a literal given to <code>system</code>, <code>popen</code> or an <code>exec</code> call</td><td>High</td></tr>
+  <tr><td>Certificate checks turned off: <code>SSL_VERIFY_NONE</code> in OpenSSL or wolfSSL, <code>MBEDTLS_SSL_VERIFY_NONE</code>, curl&rsquo;s <code>CURLOPT_SSL_VERIFYPEER</code> or <code>CURLOPT_SSL_VERIFYHOST</code> set to 0</td><td>High</td></tr>
+  <tr><td>MD5 or SHA-1 on a password</td><td>Medium</td></tr>
+  <tr><td>Secrets in the code, or written to a log or the console</td><td>Medium</td></tr>
+</table>
+<p>Between agents, a function named like a check, for example <code>verify_peer</code>, <code>ossl_verify_peer</code> or <code>check_permission</code>, counts as a security control. When one agent weakens it, every agent whose new code calls it is warned, and the merge reports it as a weakened check. See <a href="warnings.html#security-notes">Warnings</a>.</p>
+
+<h2>Tests</h2>
+<p>gitta recognises C and C++ test files by name, such as <code>db_test.cc</code>, <code>cache_unittest.cpp</code> and <code>test_sds.c</code>, and by content: GoogleTest, Catch2, doctest, Boost.Test, CppUnit, Unity and CMocka test cases. A merge reports a weakened check when an agent</p>
+<ul>
+  <li>removes assertions such as <code>ASSERT_</code>, <code>EXPECT_</code>, <code>REQUIRE</code> or <code>CHECK</code>,</li>
+  <li>adds <code>DISABLED_</code> to a test name, <code>GTEST_SKIP</code>, <code>SKIP</code> or a hidden Catch2 tag,</li>
+  <li>puts tests under <code>#if 0</code>, or</li>
+  <li>removes <code>add_test</code> or <code>gtest_discover_tests</code> lines from CMake files.</li>
+</ul>
+
+<h2>Measured on real code</h2>
+<p>We read every C and C++ file of these projects with the release build in October 2026. When part of a file does not parse, gitta reads the rest of the file as usual. The table shows how much was left unread.</p>
+<table>
+  <tr><th>Project</th><th>Files</th><th>Files with an unread part</th><th>Bytes left unread</th><th>Files not parsed</th><th>Read speed</th></tr>
+  <tr><td>SQLite 3.50.4 amalgamation</td><td>4</td><td>2</td><td>0.01%</td><td>0</td><td>6.8 MB/s</td></tr>
+  <tr><td>curl</td><td>1071</td><td>15 (1%)</td><td>0.02%</td><td>0</td><td>5.5 MB/s</td></tr>
+  <tr><td>Redis, with its dependencies</td><td>854</td><td>39 (5%)</td><td>0.14%</td><td>3 (0.35%)</td><td>5.4 MB/s</td></tr>
+  <tr><td>fmt</td><td>74</td><td>19 (26%)</td><td>0.42%</td><td>0</td><td>2.2 MB/s</td></tr>
+  <tr><td>LevelDB</td><td>133</td><td>0</td><td>0</td><td>0</td><td>3.0 MB/s</td></tr>
+  <tr><td>Linux kernel/, mm/ and include/linux/</td><td>3718</td><td>111 (3%)</td><td>0.08%</td><td>0</td><td>5.2 MB/s</td></tr>
+</table>
+<p>Read speed is on one core of an Apple M1 Pro. A hook scans only its own agent's worktree and reuses the last scan of the others.</p>
