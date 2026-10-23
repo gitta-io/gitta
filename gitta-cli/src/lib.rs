@@ -214,9 +214,34 @@ fn load(root: &Path) -> Config {
     let t = std::fs::read_to_string(cfg_path(root)).unwrap_or_else(|_| die("Gitta is not set up here; run `gitta init` once in this repository"));
     let mut c: Config = serde_json::from_str(&t).unwrap_or_else(|e| die(&format!("Gitta's settings in .gitta/config.json are damaged ({e}). Run `gitta init` to set them up again.")));
     if c.watch { refresh(root, &mut c); }
-    if c.gate.is_none() { c.gate = team_setting(root, "gate"); }
+    // The gate committed in .gitta.toml on the target branch wins: only a reviewed commit there changes it.
+    if let Some(g) = team_setting(root, "gate") { c.gate = Some(g); }
     apply_settings(root, &c.security, &c.include);
     c
+}
+
+/// What tells gitta that a process runs inside an agent session (the agent tools set these).
+const AGENT_ENV: [&str; 6] = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CURSOR_AGENT", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "GITTA_AGENT"];
+
+/// The variable that marks this process as part of an agent session, if one does.
+fn agent_session() -> Option<&'static str> { AGENT_ENV.iter().copied().find(|v| std::env::var_os(v).is_some()) }
+
+/// Only a person sets the local gate: inside an agent session this stops before anything is changed. It keeps an agent
+/// from switching the tests off by habit. What an agent cannot change at all is the gate committed in .gitta.toml.
+fn gate_by_person() {
+    if let Some(v) = agent_session() { die(&format!("only a person sets the gate, not an agent session ({v} is set). Ask the user to run this in their own terminal.")) }
+}
+
+/// Set the local gate and record the change in the audit trail. A gate committed in .gitta.toml still wins.
+fn set_gate(root: &Path, c: &mut Config, gate: Option<String>) {
+    let Some(g) = gate else { return };
+    if c.gate.as_deref() != Some(g.as_str()) {
+        audit::record(root, "gate_changed", "", &audit::actor(root), serde_json::json!({"from": c.gate, "to": g}));
+    }
+    if let Some(t) = team_setting(root, "gate").filter(|t| *t != g) {
+        println!("gitta: .gitta.toml on the target branch sets the gate to `{t}`, and that one counts. Change it there, in a reviewed commit.");
+    }
+    c.gate = Some(g);
 }
 
 /// The one place the repository's analysis settings reach the analysis, for every command, hook and MCP tool:
@@ -285,6 +310,7 @@ fn refresh(root: &Path, c: &mut Config) {
 fn cmd_init(args: &[String]) {
     let root = root();
     let get = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
+    if get("--gate").is_some() { gate_by_person(); }
     let onto = get("--onto").unwrap_or_else(|| git_ok(&root, &["symbolic-ref", "--short", "HEAD"]));
     let main = format!("refs/heads/{onto}");
     branch_must_exist(&root, &onto);
@@ -297,7 +323,7 @@ fn cmd_init(args: &[String]) {
         Config { root: root.to_string_lossy().into(), agents: vec![], gate: None, link: vec![], auto_sync: true, parallel: 0, main: main.clone(), watch: true, server: None, server_token: None, security: vec![], security_block: None, include: vec![], notify: false, weakened_checks: None }
     };
     c.watch = true; c.auto_sync = true; c.main = main.clone();
-    if let Some(g) = get("--gate") { c.gate = Some(g); }
+    set_gate(&root, &mut c, get("--gate"));
     if let Some(n) = get("--parallel").and_then(|n| n.parse().ok()) { c.parallel = n; }
     // several servers, comma separated, for when one is down: agents report to all of them
     if let Some(u) = get("--server") { c.server = Some(u.split(',').map(|x| x.trim().trim_end_matches('/')).filter(|x| !x.is_empty()).collect::<Vec<_>>().join(",")); }
@@ -341,7 +367,7 @@ fn cmd_init(args: &[String]) {
         0 => "No agent worktrees exist yet.".to_string(), 1 => format!("It watches the agent worktree {}.", names[0]),
         n => format!("It watches the {n} agent worktrees {}.", names.join(", ")) });
     println!("After every step an agent takes, gitta looks at what it changed. When one agent changes a function that another agent's new code calls, gitta tells that agent right away, so it can adapt before anything reaches {onto}.");
-    match &c.gate {
+    match &team_setting(&root, "gate").or(c.gate.clone()) {
         Some(g) => println!("Merging works as always, with git merge, git pull or git push. gitta hooks into those commands and runs `{g}` on the combined code first. If the tests fail, it stops the merge and says which test failed and why.{}", if chained.is_empty() { String::new() } else { format!(" Your existing {} hooks still run first.", chained.join(" and ")) }),
         None => println!("Merging works as always, with git merge, git pull or git push. No test command is set, so gitta runs no tests during a merge yet. Add one with `gitta init --gate \"<your test command>\"`."),
     }
@@ -1069,8 +1095,7 @@ fn cmd_approve(args: &[String]) {
     // A person approves, at a terminal, outside the agents' sessions and workspaces. On one machine where agents run
     // as the same user this keeps agents from approving their own changes by accident or habit; it is not a security
     // boundary. The enforced boundary is branch protection with a required review (see the docs).
-    const AGENT_ENV: [&str; 6] = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CURSOR_AGENT", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "GITTA_AGENT"];
-    if let Some(v) = AGENT_ENV.iter().find(|v| std::env::var_os(v).is_some()) {
+    if let Some(v) = agent_session() {
         die(&format!("gitta approve runs only for a person, not inside an agent session ({v} is set). Ask the user to run it in their own terminal."))
     }
     let cwd = std::env::current_dir().map(|d| std::fs::canonicalize(&d).unwrap_or(d)).unwrap_or_default();
@@ -1102,6 +1127,7 @@ fn cmd_up(args: &[String]) {
                            "--link" => link.push(it.next().cloned().unwrap_or_default()), "--backend" => backend = it.next().cloned().unwrap_or_default(),
                            "--deny-read" => deny_read.push(it.next().cloned().unwrap_or_default()), _ => die(&format!("unknown option {a}")) }
     }
+    if gate.is_some() { gate_by_person(); }
     if !matches!(backend.as_str(), "worktree" | "overlay" | "fuse") { die("--backend worktree|overlay|fuse") }
     // After `gitta init` the new workspaces join the existing setup and branch off its main branch.
     let existing: Option<Config> = if cfg_path(&root).exists() {
@@ -1151,10 +1177,11 @@ fn cmd_up(args: &[String]) {
         agents.push(Agent { name, path: view.to_string_lossy().into(), base: base.clone(), owned: true, backend: how.into(), upper: String::new(), pid });
     }
     let made: Vec<(String, String)> = agents.iter().map(|a| (a.name.clone(), a.path.clone())).collect();
-    let c = match existing {
-        Some(mut c) => { c.agents.extend(agents); if gate.is_some() { c.gate = gate; } for l in link { if !c.link.contains(&l) { c.link.push(l); } } c }
-        None => Config { root: root.to_string_lossy().into(), agents, gate, link, auto_sync: true, parallel: 0, main: MAIN.into(), watch: false, server: None, server_token: None, security: vec![], security_block: None, include: vec![], notify: false, weakened_checks: None },
+    let mut c = match existing {
+        Some(mut c) => { c.agents.extend(agents); for l in link { if !c.link.contains(&l) { c.link.push(l); } } c }
+        None => Config { root: root.to_string_lossy().into(), agents, gate: None, link, auto_sync: true, parallel: 0, main: MAIN.into(), watch: false, server: None, server_token: None, security: vec![], security_block: None, include: vec![], notify: false, weakened_checks: None },
     };
+    set_gate(&root, &mut c, gate);
     save(&root, &c);
     let target = c.main.trim_start_matches("refs/heads/").to_string();
     log(&root, "setup", "", &format!("Created {n} separate workspaces, one per agent, all starting from the same commit. Agents can't see each other's half-finished work; Gitta watches all of them."));
@@ -3409,6 +3436,7 @@ fn cmd_adopt(args: &[String]) {
     while let Some(a) = it.next() {
         match a.as_str() { "--onto" => onto = it.next().cloned(), "--gate" => gate = it.next().cloned(), "--all" => all = true, "--reset" => reset = it.next().cloned(), x => paths.push(x.into()) }
     }
+    if gate.is_some() { gate_by_person(); }
     // --reset NAME: the recorded base is gone (gc, shallow clone); restart it from where the agent meets main now.
     if let Some(name) = reset {
         let mut c = load(&root);
@@ -3428,7 +3456,7 @@ fn cmd_adopt(args: &[String]) {
         std::fs::create_dir_all(root.join(".gitta")).unwrap();
         Config { root: root.to_string_lossy().into(), agents: vec![], gate: None, link: vec![], auto_sync: false, parallel: 0, main: main.clone(), watch: false, server: None, server_token: None, security: vec![], security_block: None, include: vec![], notify: false, weakened_checks: None }
     };
-    if gate.is_some() { c.gate = gate; }
+    set_gate(&root, &mut c, gate);
     // Worktrees: path + branch, from git itself.
     let mut wts: Vec<(String, String)> = vec![];
     let (mut cur, mut br) = (String::new(), String::new());
@@ -3814,9 +3842,8 @@ pub fn main_with(ext: &Ext) {
     update::notice(cmd, &rest);
     // A person at a terminal reads what this command says; waiting notices go first, on stderr.
     if !matches!(cmd, "hook" | "git-hook" | "mcp" | "__update-refresh") {
-        const AGENT_ENV: [&str; 6] = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CURSOR_AGENT", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "GITTA_AGENT"];
         use std::io::IsTerminal;
-        if std::io::stderr().is_terminal() && !AGENT_ENV.iter().any(|v| std::env::var_os(v).is_some()) { people::AT_TERMINAL.store(true, std::sync::atomic::Ordering::Relaxed); }
+        if std::io::stderr().is_terminal() && agent_session().is_none() { people::AT_TERMINAL.store(true, std::sync::atomic::Ordering::Relaxed); }
         if let Ok(r) = std::panic::catch_unwind(|| { let here = std::env::current_dir().ok()?; let o = Command::new("git").arg("-C").arg(&here).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).stderr(Stdio::null()).output().ok()?; o.status.success().then(|| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())) }) {
             if let Some(common) = r { if let Some(root) = common.parent() { if root.join(".gitta").is_dir() { people::show_notices(root); } } }
         }

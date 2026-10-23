@@ -309,6 +309,8 @@ pub(crate) fn run(args: &[String]) {
     let root = root();
     let Ok(t) = std::fs::read_to_string(cfg_path(&root)) else { return };
     let Ok(mut c) = serde_json::from_str::<Config>(&t) else { return };
+    // The gate committed in .gitta.toml on the target branch wins, as in every other command.
+    if let Some(g) = team_setting(&root, "gate") { c.gate = Some(g); }
     if c.watch { refresh(&root, &mut c); }
     apply_settings(&root, &c.security, &c.include);
     let target = c.main.trim_start_matches("refs/heads/").to_string();

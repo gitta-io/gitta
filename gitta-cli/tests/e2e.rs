@@ -23,12 +23,19 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&o.stdout).trim().to_string()
 }
 
+/// The gitta binary as a person at a terminal runs it: none of the variables that mark an agent session.
+fn gitta_cmd() -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_gitta"));
+    for v in ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CURSOR_AGENT", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "GITTA_AGENT"] { c.env_remove(v); }
+    c
+}
+
 fn gitta(e: &Env, dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_gitta")).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_WEAKENED_CHECKS", "block").args(args).current_dir(dir).env("HOME", &e.home).output().unwrap()
+    gitta_cmd().env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_WEAKENED_CHECKS", "block").args(args).current_dir(dir).env("HOME", &e.home).output().unwrap()
 }
 
 fn gitta_in(e: &Env, dir: &Path, args: &[&str], input: &str) -> Output {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_gitta")).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_WEAKENED_CHECKS", "block").args(args).current_dir(dir).env("HOME", &e.home)
+    let mut c = gitta_cmd().env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_WEAKENED_CHECKS", "block").args(args).current_dir(dir).env("HOME", &e.home)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     c.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
     c.wait_with_output().unwrap()
@@ -1185,6 +1192,35 @@ fn git_merge_runs_the_tests_on_the_combined_code_and_stops_only_when_they_fail()
     assert!(log.contains("gitta stopped the git merge: tests fail on main combined with totals") && log.contains("totals was merged into main with git merge"), "{log}");
     let w = text(&gitta(&e, &e.repo, &["watch", "--once"]));
     assert!(w.contains("Today gitta checked") && w.contains("merged 2 pieces of work"), "{w}");
+}
+
+#[test]
+fn the_committed_gate_counts_in_git_merge_and_only_a_person_sets_the_gate() {
+    let e = env("teamgate");
+    shop(&e);
+    write(&e.repo.join(".gitta.toml"), &format!("gate = {FAILING_GATE:?}\n"));
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "team gate"]);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let bad = worktree(&e, "totals");
+    write(&bad.join("shop/cart.py"), &format!("{CART}\n\n# BROKEN\n"));
+    git(&bad, &["commit", "-qam", "totals"]);
+    let before = git(&e.repo, &["rev-parse", "main"]);
+    // No local gate: git merge runs the committed one.
+    let o = git_run(&e, &e.repo, &["merge", "--no-edit", "totals"]);
+    assert!(!o.status.success() && text(&o).contains("tests fail on main with totals"), "{}", text(&o));
+    let _ = git_run(&e, &e.repo, &["merge", "--abort"]);
+    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before);
+    // An agent session cannot set the gate, not even from its own worktree.
+    let o = Command::new(env!("CARGO_BIN_EXE_gitta")).env("GITTA_NO_NOTIFY", "1").env("CLAUDECODE", "1").args(["init", "--no-claude", "--gate", "true"])
+        .current_dir(&bad).env("HOME", &e.home).output().unwrap();
+    assert!(!o.status.success() && text(&o).contains("only a person sets the gate"), "{}", text(&o));
+    // A person can set a local gate. The committed one still counts, and the change is in the audit trail.
+    let o = gitta(&e, &e.repo, &["init", "--no-claude", "--gate", "true"]);
+    assert!(o.status.success() && text(&o).contains("that one counts"), "{}", text(&o));
+    let o = git_run(&e, &e.repo, &["merge", "--no-edit", "totals"]);
+    assert!(!o.status.success() && text(&o).contains("tests fail on main with totals"), "{}", text(&o));
+    let _ = git_run(&e, &e.repo, &["merge", "--abort"]);
+    assert!(text(&gitta(&e, &e.repo, &["audit", "--json"])).contains("\"gate_changed\""));
 }
 
 #[test]
