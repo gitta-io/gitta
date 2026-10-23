@@ -1172,6 +1172,25 @@ fn a_credential_name_already_in_a_file_does_not_stop_an_unrelated_edit() {
     assert!(!o.status.success() && text(&o).contains("shop/text.py:4 looks like it contains a credential"), "{}", text(&o));
 }
 
+#[test]
+fn a_credential_is_refused_by_git_merge_and_the_pull_request_check() {
+    let e = env("credmerge");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let a = worktree(&e, "token");
+    write(&a.join("shop/text.py"), "TOKEN = \"ghp_0123456789abcdefghijABCDEFGHIJ012345\"\n\n\ndef shout(s):\n    return s.upper()\n");
+    git(&a, &["commit", "-qam", "token"]);
+    let before = git(&e.repo, &["rev-parse", "main"]);
+    let o = git_run(&e, &e.repo, &["merge", "--no-edit", "token"]);
+    assert!(!o.status.success() && text(&o).contains("shop/text.py:1 looks like it contains a credential (GitHub token)"), "{}", text(&o));
+    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before);
+    // The pull request check fails too, whatever weakened_checks says.
+    let o = Command::new(env!("CARGO_BIN_EXE_gitta")).env("GITTA_NO_NOTIFY", "1").env("GITTA_WEAKENED_CHECKS", "warn").args(["pr-check", "--pr", "token", "--base", "main"])
+        .current_dir(&e.repo).env("HOME", &e.home).output().unwrap();
+    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    assert!(text(&o).contains("shop/text.py:1 looks like it contains a credential (GitHub token)"), "{}", text(&o));
+}
+
 /// A plain `git` command, with the environment a person's terminal would have (no prompt in tests).
 fn git_run(e: &Env, dir: &Path, args: &[&str]) -> Output {
     Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args)

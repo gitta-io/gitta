@@ -180,6 +180,15 @@ pub fn find_secret_at(text: &str) -> Option<(usize, String)> {
     None
 }
 
+/// A credential on a line of `text` that `base` does not have, with its 1-based line number. A credential that was
+/// already there does not stop an unrelated edit.
+pub fn secret_in_new_lines(base: &str, text: &str) -> Option<(usize, String)> {
+    let old: std::collections::BTreeSet<&str> = base.lines().collect();
+    // Keep line numbers: lines that were already there are blanked, not dropped.
+    let fresh: String = text.lines().map(|l| if old.contains(l) { "" } else { l }).collect::<Vec<_>>().join("\n");
+    find_secret_at(&fresh)
+}
+
 /// `password = "literal"`, `"api_key": "literal"`, `secret_key => 'literal'`: a secret-named setting that is given
 /// a real-looking literal. The name must be assigned the value; a name that only appears inside a string or a
 /// template (`"{conn.password}@".format(...)`) is not a setting.

@@ -899,15 +899,7 @@ fn find_injection(text: &str) -> Option<&'static str> {
 fn new_secret(a: &Agent, p: &str, text: &str) -> Option<(usize, String)> {
     let o = git(Path::new(&a.path), &["show", &format!("{}:{p}", a.base)]);
     let base = if o.status.success() { String::from_utf8_lossy(&o.stdout).to_string() } else { String::new() };
-    secret_in_new_lines(&base, text)
-}
-
-/// A credential on a line of `text` that `base` does not have.
-fn secret_in_new_lines(base: &str, text: &str) -> Option<(usize, String)> {
-    let old: BTreeSet<&str> = base.lines().collect();
-    // Keep line numbers: lines that were already there are blanked, not dropped.
-    let fresh: String = text.lines().map(|l| if old.contains(l) { "" } else { l }).collect::<Vec<_>>().join("\n");
-    gitta_core::guard::find_secret_at(&fresh)
+    gitta_core::guard::secret_in_new_lines(&base, text)
 }
 
 /// Key of a check that depends only on the agent's base, the contents of `paths` in its workspace and the
@@ -950,7 +942,7 @@ fn safety_read(a: &Agent, paths: &BTreeSet<String>) -> Vec<Warning> {
         let text = String::from_utf8_lossy(&bytes);
         let w = |kind: &str, what: String| Warning { kind: kind.into(), path: p.clone(), symbol: Some(what), changed_by: Some(a.name.clone()),
                                                       referenced_by: None, severity: Some("high".into()), agents: vec![a.name.clone()], security: None };
-        if let Some((_, sec)) = secret_in_new_lines(&base.get(p).map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default(), &text) { out.push(w("SECRET", sec)); }
+        if let Some((_, sec)) = gitta_core::guard::secret_in_new_lines(&base.get(p).map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default(), &text) { out.push(w("SECRET", sec)); }
         if instruction_file(p) {
             out.push(w("INSTRUCTIONS", find_injection(&text).map(|x| format!("agent instruction file changed; contains \"{x}\"")).unwrap_or("agent instruction file changed".into())));
         }
@@ -3520,6 +3512,14 @@ fn cmd_pr_check(args: &[String]) {
         for n in notes.iter().filter(|n| blocks(n, rank)) { f.push(gitta_core::guard::Finding { kind: "SECURITY_RULE".into(), path: n.path.clone(), detail: format!("adds code that {} (line {})", n.text.trim_end_matches('.'), n.line) }); }
         weakened_lines(&pr_name, &f)
     };
+    // Credentials on the lines the pull request adds: a failing check whatever weakened_checks says, as in gitta land.
+    let credentials: Vec<String> = {
+        let mb = git_ok(&root, &["merge-base", &pr, &target]);
+        let paths = diff(&mb, &pr);
+        let (b, n) = (blobs(&root, &mb, &paths), blobs(&root, &pr, &paths));
+        let txt = |s: &gitta_core::Snapshot, p: &str| s.get(p).map(|x| String::from_utf8_lossy(x).to_string()).unwrap_or_default();
+        paths.iter().filter_map(|p| gitta_core::guard::secret_in_new_lines(&txt(&b, p), &txt(&n, p)).map(|(l, label)| format!("{p}:{l} looks like it contains a credential ({label})"))).collect()
+    };
     let policy = std::env::var("GITTA_WEAKENED_CHECKS").ok().or(team_setting_at(&root, &target, "weakened_checks")).unwrap_or("block".into());
     // The team's rules for agents. A pull request is agent work when a commit names an AI tool as co-author;
     // --approved: the pull request has an approving review.
@@ -3580,8 +3580,8 @@ fn cmd_pr_check(args: &[String]) {
         results.push(serde_json::json!({"other": oname, "weakened": weakened, "warnings": warnings, "info": info, "security": security, "security_notes": notes_json, "merges": merge_error.is_none(), "merge_error": merge_error,
             "tests": tests.as_ref().map(|(p, _)| if *p { "PASS" } else { "FAIL" }), "test_output": tests.map(|(_, t)| t)}));
     }
-    let stop = (policy == "block" && !weakened.is_empty()) || !rule_lines.is_empty();
-    for r in results.iter_mut() { r["policy"] = serde_json::json!(rule_lines); }
+    let stop = (policy == "block" && !weakened.is_empty()) || !rule_lines.is_empty() || !credentials.is_empty();
+    for r in results.iter_mut() { r["policy"] = serde_json::json!(rule_lines); r["credentials"] = serde_json::json!(credentials); }
     if args.iter().any(|a| a == "--json") { println!("{}", serde_json::to_string_pretty(&results).unwrap()); if stop { std::process::exit(3) } return; }
     // Markdown, ready to post as a PR comment.
     let bad: Vec<&serde_json::Value> = results.iter().filter(|r| !r["merges"].as_bool().unwrap_or(true) || r["tests"] == "FAIL" || !r["warnings"].as_array().map(|w| w.is_empty()).unwrap_or(true)
@@ -3589,7 +3589,8 @@ fn cmd_pr_check(args: &[String]) {
     println!("### Gitta: {pr_name} against {} other open pull request(s)\n", results.len());
     let open: Vec<_> = notes.iter().filter(|n| n.allowed.is_none()).collect();
     for l in &rule_lines { println!("- **Breaks a team rule**: {l}"); }
-    if bad.is_empty() && open.is_empty() && weakened.is_empty() && rule_lines.is_empty() { println!("No interference found with any other open pull request."); }
+    for l in &credentials { println!("- **Credential**: {l}. Remove it and use configuration or a secret store."); }
+    if bad.is_empty() && open.is_empty() && weakened.is_empty() && rule_lines.is_empty() && credentials.is_empty() { println!("No interference found with any other open pull request."); }
     for l in &weakened { println!("- **Weakens a check**: {l}{}", if policy == "block" { " This check fails, because weakened_checks is block. Restore it, or change .gitta.toml in a reviewed commit." } else { "" }); }
     for n in &open { println!("- **Security**: {}:{} {} {} ({}, {})", n.path, n.line, n.text, n.safer, n.severity, n.rule); }
     for r in bad {

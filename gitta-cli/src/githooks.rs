@@ -184,6 +184,15 @@ fn check_from(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incom
     // Removed tests, weakened checks and security rules: the person's merge command is the approval.
     let (b, n) = (blobs(root, &base, &paths), blobs(root, incoming, &paths));
     let list: Vec<String> = paths.iter().cloned().collect();
+    // A credential on a line the merge adds is refused on every route, as `gitta land` refuses it.
+    let txt = |s: &gitta_core::Snapshot, p: &str| s.get(p).map(|x| String::from_utf8_lossy(x).to_string()).unwrap_or_default();
+    for p in &list {
+        let Some((line, label)) = gitta_core::guard::secret_in_new_lines(&txt(&b, p), &txt(&n, p)) else { continue };
+        let what = format!("{p}:{line} looks like it contains a credential ({label})");
+        audit::record(root, "blocked", &who, &audit::actor(root), serde_json::json!({"setting": "credentials", "findings": [what]}));
+        log(root, "refused", &who, &format!("{who} was not merged: {what}."));
+        return Err(format!("{who} was not merged: {what}; {{state}}. Remove it and use configuration or a secret store."));
+    }
     let mut f = gitta_core::guard::safety_net(&b, &n, &list);
     let rank = block_rank(c);
     for x in gitta_core::code_security::findings(&b, &n, &list).iter().filter(|x| blocks(x, rank)) {
