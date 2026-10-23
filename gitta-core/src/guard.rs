@@ -184,7 +184,8 @@ pub fn find_secret_at(text: &str) -> Option<(usize, String)> {
 /// a real-looking literal. The name must be assigned the value; a name that only appears inside a string or a
 /// template (`"{conn.password}@".format(...)`) is not a setting.
 fn assigned_secret(line: &str) -> bool {
-    let l = line.to_lowercase();
+    // ASCII only: full lowercasing changes the length of some letters (`İ`), and `line` is sliced at positions in `l`.
+    let l = line.to_ascii_lowercase();
     for k in ["password", "passwd", "secret_key", "api_key", "apikey", "auth_token"] {
         let mut from = 0;
         while let Some(i) = l[from..].find(k) {

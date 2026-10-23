@@ -65,3 +65,11 @@ fn real_credentials_are_still_found() {
     }
     assert_eq!(find_secret_at("x = 1\n\nPASSWORD = \"Zx9q-Lm2w-Pp7r\"\n"), Some((3, "hard-coded credential".into())));
 }
+
+#[test]
+fn letters_that_grow_when_lowercased_do_not_crash_the_check() {
+    use gitta_core::guard::find_secret;
+    // `İ` is 2 bytes, and 3 once lowercased: a position in the lowercased line is not one in the line.
+    for ok in ["pİ = 1  # password", "İİİ_password", "# İ password"] { assert_eq!(find_secret(ok), None, "{ok}"); }
+    assert!(find_secret("İpassword = 'Tr0ub4dor&3xyz'").is_some());
+}
