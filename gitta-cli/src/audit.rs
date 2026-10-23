@@ -46,15 +46,23 @@ pub fn actor(dir: &Path) -> Value {
     json!({"name": cfg("user.name"), "email": cfg("user.email"), "os_user": std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default(), "machine": machine})
 }
 
-/// The last event's sequence number and hash, read from the end of the file.
+/// The last event's sequence number and hash, read from the end of the file. The last 64 KiB are read as bytes,
+/// since they can start inside a character; the window doubles until it holds a whole event.
 fn tail(f: &mut std::fs::File) -> (u64, String) {
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
     if len == 0 { return (0, String::new()); }
-    let start = len.saturating_sub(64 * 1024);
-    let mut buf = String::new();
-    if f.seek(SeekFrom::Start(start)).is_err() || f.read_to_string(&mut buf).is_err() { return (0, String::new()); }
-    buf.lines().rev().find_map(|l| serde_json::from_str::<Value>(l).ok())
-        .map(|v| (v["seq"].as_u64().unwrap_or(0), v["hash"].as_str().unwrap_or("").to_string())).unwrap_or((0, String::new()))
+    let mut window = 64 * 1024;
+    loop {
+        let start = len.saturating_sub(window);
+        let mut buf = vec![];
+        if f.seek(SeekFrom::Start(start)).is_err() || f.read_to_end(&mut buf).is_err() { return (0, String::new()); }
+        let lines: Vec<&[u8]> = buf.split(|&b| b == b'\n').collect();
+        // The first line is cut off unless the window starts at the top of the file.
+        let last = lines[usize::from(start > 0)..].iter().rev().find_map(|l| serde_json::from_slice::<Value>(l).ok());
+        if let Some(v) = last { return (v["seq"].as_u64().unwrap_or(0), v["hash"].as_str().unwrap_or("").to_string()); }
+        if start == 0 { return (0, String::new()); }
+        window *= 2;
+    }
 }
 
 /// Append one event. `data` holds what happened; never source code, only paths, symbols, commits and results.
@@ -246,5 +254,41 @@ pub fn cmd(root: &Path, args: &[String], team: Option<(String, String, String)>)
     } else {
         if events.is_empty() { println!("gitta: no audit events yet"); return; }
         for e in &events { println!("{}", line(e)); }
+    }
+}
+
+#[cfg(test)]
+mod tail_tests {
+    use super::*;
+    fn trail(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("gitta-audit-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".gitta")).unwrap();
+        root
+    }
+    #[test]
+    fn the_chain_goes_on_when_the_last_64_kib_start_inside_a_character() {
+        let root = trail("utf8");
+        let who = json!({"name": "Łukasz Żółć"});
+        // Add events until the next append reads from a byte in the middle of a character, then add one more.
+        for n in 1..2000 {
+            record(&root, "approved", "a", &who, json!({"reason": "zażółć gęślą jaźń ".repeat(10)}));
+            let b = std::fs::read(file(&root)).unwrap();
+            if b.len() > 64 * 1024 && b[b.len() - 64 * 1024] & 0xC0 == 0x80 {
+                record(&root, "approved", "a", &who, json!({"reason": "one more"}));
+                assert_eq!(verify(&read(&root)), Ok(n + 1));
+                let _ = std::fs::remove_dir_all(&root);
+                return;
+            }
+        }
+        panic!("the trail never started a 64 KiB window inside a character");
+    }
+    #[test]
+    fn the_chain_goes_on_after_an_event_over_64_kib() {
+        let root = trail("big");
+        record(&root, "warning", "a", &json!({}), json!({"findings": "x".repeat(70 * 1024)}));
+        record(&root, "warning", "a", &json!({}), json!({"findings": "y"}));
+        assert_eq!(verify(&read(&root)), Ok(2));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
