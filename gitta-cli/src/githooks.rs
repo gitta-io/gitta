@@ -297,9 +297,9 @@ pub(crate) fn run(args: &[String]) {
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).and_then(|v| v["main"].as_str().map(String::from));
         let Some(main) = main else { return };
         if !input.lines().any(|l| l.split_whitespace().nth(2) == Some(main.as_str())) { return; }
-        // A plain commit is the person's own work and leaves at once.
+        // A plain commit is the person's own work and leaves at once. An agent's commit is checked like a merge.
         let gd = Command::new("git").arg("-C").arg(&here).args(["rev-parse", "--path-format=absolute", "--git-dir"]).output().map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())).unwrap_or_default();
-        if git_command() == "commit" && !gd.join("SQUASH_MSG").exists() && !gd.join("MERGE_HEAD").exists() { return; }
+        if git_command() == "commit" && !gd.join("SQUASH_MSG").exists() && !gd.join("MERGE_HEAD").exists() && !in_agent() { return; }
     }
     GATE_QUIET.store(true, std::sync::atomic::Ordering::Relaxed);
     let action = std::env::var("GIT_REFLOG_ACTION").unwrap_or_default();
@@ -414,14 +414,14 @@ pub(crate) fn run(args: &[String]) {
                 let tree = |r: &str| git_ok(&root, &["rev-parse", &format!("{r}^{{tree}}")]);
                 let nt = tree(new);
                 if nt == tree(old) || is_verified(&root, new) || is_verified(&root, &nt) { continue; }
-                // A plain commit on the target is the person's own work; a squashed merge is not. The git command
-                // that runs this hook is the parent process.
+                // A plain commit on the target is the person's own work; a squashed merge is not, and neither is a
+                // commit from an agent session. The git command that runs this hook is the parent process.
                 let gd = git_ok(&here, &["rev-parse", "--path-format=absolute", "--git-dir"]);
                 let squash = Path::new(&gd).join("SQUASH_MSG").exists();
                 // `git commit` that finishes a merge stopped by a conflict: pre-merge-commit never ran for it.
                 let concludes = Path::new(&gd).join("MERGE_HEAD").exists();
                 let (sub, cmdline) = git_cmdline();
-                if sub == "commit" && !squash && !concludes { continue; }
+                if sub == "commit" && !squash && !concludes && !in_agent() { continue; }
                 // git merge and git pull: pre-merge-commit checks a merge commit (post-merge records a skipped
                 // one). A fast-forward is checked here, before main moves.
                 let merging = matches!(sub.as_str(), "merge" | "pull");

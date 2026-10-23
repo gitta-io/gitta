@@ -1268,6 +1268,29 @@ fn a_fast_forward_that_fails_the_tests_is_refused_before_main_moves() {
 }
 
 #[test]
+fn an_agent_commit_on_main_in_the_main_checkout_is_checked_like_a_merge() {
+    let e = env("agentcommit");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude", "--gate", FAILING_GATE]);
+    let before = git(&e.repo, &["rev-parse", "main"]);
+    // An agent that works in the main checkout commits code that fails the tests: main stays.
+    write(&e.repo.join("shop/cart.py"), &format!("{CART}\n\n# BROKEN\n"));
+    git(&e.repo, &["add", "-A"]);
+    let o = git_run_agent(&e, &e.repo, &["commit", "-qm", "broken"]);
+    assert!(!o.status.success() && text(&o).contains("tests fail on main"), "{}", text(&o));
+    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before);
+    // Fixed, the same commit goes ahead.
+    write(&e.repo.join("shop/cart.py"), &format!("{CART}\n\n# fixed\n"));
+    git(&e.repo, &["add", "-A"]);
+    let o = git_run_agent(&e, &e.repo, &["commit", "-qm", "fixed"]);
+    assert!(o.status.success(), "{}", text(&o));
+    // A person's own commit on main is not checked, as before.
+    write(&e.repo.join("shop/text.py"), "def shout(s):\n    return s.upper()\n# BROKEN\n");
+    let o = git_run(&e, &e.repo, &["commit", "-qam", "mine"]);
+    assert!(o.status.success(), "{}", text(&o));
+}
+
+#[test]
 fn a_passing_fast_forward_is_silent_and_a_merge_commit_is_tested_once() {
     let e = env("gitffok");
     shop(&e);
@@ -1287,7 +1310,8 @@ fn a_passing_fast_forward_is_silent_and_a_merge_commit_is_tested_once() {
     write(&b.join("shop/cart.py"), &format!("{CART}\n\n# more\n"));
     git(&b, &["add", "-A"]); git(&b, &["commit", "-qm", "totals"]);
     write(&e.repo.join("README"), "main\n");
-    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "own"]);
+    git(&e.repo, &["add", "-A"]);
+    assert!(git_run(&e, &e.repo, &["commit", "-qm", "own"]).status.success(), "a person's own commit on main");
     let o = git_run(&e, &e.repo, &["merge", "--no-edit", "totals"]);
     assert!(o.status.success() && !text(&o).contains("gitta"), "{}", text(&o));
     // The commit tested totals on main as it was then (2); main moved after it, so the merge commit tests once more (3).
