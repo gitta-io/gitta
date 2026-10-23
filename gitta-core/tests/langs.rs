@@ -313,3 +313,34 @@ fn clean_overlaps_that_cannot_change_meaning_are_quiet() {
     assert!(!quiet_overlap(&imp, b"import { apiVersion } from \"../utils.js\";\nimport { apiVersion } from \"../utils.js\";\n"));
     assert!(!quiet_overlap(&Warning { kind: "HAZARD".into(), ..w("README.md", None) }, b""));
 }
+
+// ---------------- Object and dict literals ----------------
+#[test]
+fn insertions_at_the_same_place_in_code_conflict() {
+    // (path, base, line both sides insert after, head's lines, submitted lines). Keeping both insertions would
+    // write `audit();` (or `cache,`, or the WHERE clause) twice, so each must conflict, as in Git.
+    let cases = [
+        ("src/handler.ts", "export const handler = async () => {\n  start();\n  finish();\n};\n", "  start();\n", "  audit();\n", "  audit();\n  notify();\n"),
+        ("src/routes.ts", "export const routes = {\n  home: () => {\n    start();\n    finish();\n  },\n};\n", "    start();\n", "    audit();\n", "    audit();\n    notify();\n"),
+        ("src/deps.ts", "export const deps = {\n  db,\n};\n", "  db,\n", "  cache,\n", "  cache,\n  queue,\n"),
+        ("app/query.py", "QUERY = \"\"\"\nSELECT {cols}\nFROM t\n\"\"\"\n", "FROM t\n", "WHERE a = 1\n", "WHERE a = 1\nORDER BY b\n"),
+    ];
+    for (path, base, at, h, s) in cases {
+        conflicts(path, base, &base.replace(at, &format!("{at}{h}")), &base.replace(at, &format!("{at}{s}")));
+    }
+}
+
+#[test]
+fn keys_added_at_the_same_place_in_one_literal_combine() {
+    let ts = "export const limits = {\n  retries: 3,\n};\n";
+    let (h, s) = (ts.replace("3,\n", "3,\n  cache: {\n    ttl: 60,\n  },\n"), ts.replace("3,\n", "3,\n  backoff: 2,\n"));
+    merges("src/limits.ts", ts, &h, &s, &["  retries: 3,\n  cache: {\n    ttl: 60,\n  },\n  backoff: 2,\n};\n"]);
+    let class = "export class Client {\n  static limits = {\n    retries: 3,\n  };\n}\n";
+    let (h, s) = (class.replace("3,\n", "3,\n    timeout: 5,\n"), class.replace("3,\n", "3,\n    backoff: 2,\n"));
+    merges("src/client.ts", class, &h, &s, &["    timeout: 5,\n    backoff: 2,\n"]);
+    let py = "LIMITS = {\n    \"retries\": 3,\n}\n";
+    let (h, s) = (py.replace("3,\n", "3,\n    \"timeout\": 5,\n"), py.replace("3,\n", "3,\n    \"backoff\": 2,\n"));
+    merges("app/limits.py", py, &h, &s, &["    \"timeout\": 5,\n    \"backoff\": 2,\n}\n"]);
+    // The same key added with two values still conflicts.
+    conflicts("src/limits.ts", ts, &ts.replace("3,\n", "3,\n  backoff: 1,\n"), &ts.replace("3,\n", "3,\n  backoff: 2,\n"));
+}
