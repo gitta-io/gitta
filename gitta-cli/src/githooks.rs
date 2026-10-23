@@ -21,6 +21,16 @@ fn hooks_dir(root: &Path) -> PathBuf {
     PathBuf::from(d)
 }
 
+/// The hooks folder git uses, when it is not this repository's own: core.hooksPath points to a folder that other
+/// repositories share, or to one in the working tree. gitta never writes there, or every repository using that folder
+/// would run its hooks.
+pub(crate) fn foreign_hooks_dir(root: &Path) -> Option<PathBuf> {
+    let used = hooks_dir(root);
+    let own = PathBuf::from(git_ok(root, &["rev-parse", "--path-format=absolute", "--git-common-dir"])).join("hooks");
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    (canon(&used) != canon(&own)).then_some(used)
+}
+
 /// Install the three hooks. A hook that was there before is kept as `<name>.pre-gitta` and runs first.
 pub(crate) fn install(root: &Path) -> Vec<String> {
     let dir = hooks_dir(root);

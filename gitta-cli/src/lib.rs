@@ -314,6 +314,10 @@ fn cmd_init(args: &[String]) {
     let onto = get("--onto").unwrap_or_else(|| git_ok(&root, &["symbolic-ref", "--short", "HEAD"]));
     let main = format!("refs/heads/{onto}");
     branch_must_exist(&root, &onto);
+    // Before anything is written: a hooks folder that is not this repository's own stays as it is.
+    if let Some(d) = githooks::foreign_hooks_dir(&root) {
+        die(&format!("core.hooksPath points to {}, a hooks folder outside this repository. gitta does not write there, because other repositories can use it too. Give this repository a hooks folder of its own, then run gitta init again:\n  git config --local core.hooksPath \"$(git rev-parse --path-format=absolute --git-common-dir)/hooks\"\nYour hooks in {} then no longer run in this repository. Call them from the new folder if you need them.", d.display(), d.display()))
+    }
     std::fs::create_dir_all(root.join(".gitta")).unwrap();
     let excl = PathBuf::from(git_ok(&root, &["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"]));
     let t = std::fs::read_to_string(&excl).unwrap_or_default();

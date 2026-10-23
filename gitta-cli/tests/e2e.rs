@@ -17,8 +17,11 @@ fn env(tag: &str) -> Env {
     Env { dir, home, repo }
 }
 
+/// A git command for test setup. It ignores the user's own git configuration, so a global core.hooksPath never runs
+/// the user's hooks on test repositories.
 fn git(dir: &Path, args: &[&str]) -> String {
-    let o = Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).output().unwrap();
+    let o = Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").output().unwrap();
     assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
     String::from_utf8_lossy(&o.stdout).trim().to_string()
 }
@@ -195,6 +198,26 @@ fn uninstall_restores_every_file_exactly() {
         if p.ends_with(".json") { assert_eq!(json(p), serde_json::from_str::<serde_json::Value>(t).unwrap(), "{p}"); }
         else { assert_eq!(std::fs::read_to_string(e.home.join(p)).unwrap(), t, "{p}"); }
     }
+}
+
+#[test]
+fn init_never_writes_into_a_hooks_folder_outside_the_repository() {
+    let e = env("sharedhooks");
+    shop(&e);
+    // core.hooksPath in the user's global config points to a folder that every repository on the machine uses.
+    let shared = e.dir.join("shared-hooks");
+    write(&shared.join("pre-push"), "#!/bin/sh\nexit 0\n");
+    write(&e.home.join(".gitconfig"), &format!("[core]\n\thooksPath = {}\n", shared.display()));
+    let o = gitta(&e, &e.repo, &["init", "--no-claude"]);
+    assert!(!o.status.success() && text(&o).contains("core.hooksPath"), "{}", text(&o));
+    let names: Vec<String> = std::fs::read_dir(&shared).unwrap().map(|x| x.unwrap().file_name().to_string_lossy().to_string()).collect();
+    assert_eq!(names, vec!["pre-push"], "the shared folder is unchanged");
+    assert_eq!(std::fs::read_to_string(shared.join("pre-push")).unwrap(), "#!/bin/sh\nexit 0\n");
+    // With a hooks folder of its own, the repository is set up as usual.
+    git(&e.repo, &["config", "--local", "core.hooksPath", &format!("{}/.git/hooks", e.repo.display())]);
+    let o = gitta(&e, &e.repo, &["init", "--no-claude"]);
+    assert!(o.status.success() && e.repo.join(".git/hooks/pre-merge-commit").exists(), "{}", text(&o));
+    assert_eq!(std::fs::read_dir(&shared).unwrap().count(), 1);
 }
 
 #[test]
