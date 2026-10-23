@@ -536,3 +536,23 @@ fn c_cpp_tests_recognised_and_weakening_found() {
     assert!(f.iter().any(|x| x.kind == "TEST_DELETED"), "{f:?}");
 }
 
+
+#[test]
+fn invalid_utf8_near_a_parameter_name_does_not_crash_the_analyzer() {
+    // A C/C++ file reaches analyze_file through the hooks and the merge hazard check, which (unlike the structural
+    // merge) do not require valid UTF-8. A byte that is not valid UTF-8 just before a parameter name must not panic.
+    for src in [
+        &b"int f(int\xff x){return x;}\n"[..],
+        &b"int g(const char\xc3 *name){return 0;}\n"[..],
+        &b"void h(long\xff\xff count, int y){}\n"[..],
+    ] {
+        for path in ["a.c", "a.cpp", "a.h"] {
+            let _ = analyze_file(path, src);   // must return, not panic
+        }
+    }
+    // And through a real merge: both sides add a malformed .cpp, so the hazard analysis runs on it.
+    let base = snap(&[("m.cpp", "int f(int x){return x;}\n")]);
+    let mut a = base.clone(); a.insert("m.cpp".into(), b"int f(int\xff x){return x + 1;}\n".to_vec());
+    let mut b = base.clone(); b.insert("n.cpp".into(), b"int g(int\xff y){return y;}\n".to_vec());
+    let _ = merge_hazards(&base, &a, &b);   // must return, not panic
+}

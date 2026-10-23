@@ -624,11 +624,13 @@ fn params(fd: Node, src: &[u8]) -> (String, String) {
         if p.kind() == "variadic_parameter" || text(p, src).trim() == "..." { key.push("...".to_string()); sig.push("...".to_string()); continue; }
         // The type without the parameter's name (a name is not part of what callers rely on).
         let (s, e) = (p.start_byte(), field(p, "default_value").map(|d| d.start_byte()).unwrap_or(p.end_byte()));
-        let mut t = String::from_utf8_lossy(&src[s..e]).into_owned();
-        if let Some(nm) = field(p, "declarator").and_then(declared_name).filter(|n| matches!(n.kind(), "identifier")) {
-            let (a, b) = (nm.start_byte() - s, nm.end_byte() - s);
-            if b <= t.len() { t.replace_range(a..b, ""); }
-        }
+        let raw = &src[s..e];
+        // Drop the parameter name in byte space (tree-sitter offsets are byte offsets into src), then convert once.
+        // Slicing the string by those offsets would panic once from_utf8_lossy widens an invalid byte to U+FFFD.
+        let t = match field(p, "declarator").and_then(declared_name).filter(|n| matches!(n.kind(), "identifier")) {
+            Some(nm) if nm.start_byte() >= s && nm.end_byte() <= e => String::from_utf8_lossy(&[&raw[..nm.start_byte() - s], &raw[nm.end_byte() - s..]].concat()).into_owned(),
+            _ => String::from_utf8_lossy(raw).into_owned(),
+        };
         let t = norm(t.trim().trim_end_matches('=').trim());
         let t = if t == "void" && crate::children(pl).len() == 1 { String::new() } else { t };
         if t.is_empty() { continue; }
