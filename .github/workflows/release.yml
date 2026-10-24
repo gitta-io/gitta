@@ -13,7 +13,7 @@ jobs:
     strategy: { matrix: { os: [ubuntu-latest, macos-latest] } }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Tests (core, CLI end to end)
         shell: bash
         run: |
@@ -34,7 +34,7 @@ jobs:
           - { target: aarch64-pc-windows-msvc,   os: windows-latest,   linux: false, windows: true, nocheck: true }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Toolchain
         shell: bash
         run: |
@@ -81,7 +81,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with: { path: dist-out, merge-multiple: true }
       - name: Install script and Homebrew formula for this release
