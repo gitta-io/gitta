@@ -102,6 +102,11 @@ fn myers<T: PartialEq + Clone>(a: &[T], b: &[T]) -> Option<Vec<(usize, usize, Ve
 /// the identical edit. With `union_inserts`, two different insertions at the same point are both kept
 /// (head first): right for changelogs and other append-style text, never used for code.
 pub fn diff3(base: &[u8], head: &[u8], sub: &[u8], union_inserts: bool) -> Result<Vec<u8>, MergeError> {
+    diff3_with(base, head, sub, |_, _| union_inserts)
+}
+
+/// `diff3` that keeps two different insertions at the same point (head first) when `union` accepts their lines.
+fn diff3_with(base: &[u8], head: &[u8], sub: &[u8], union: impl Fn(&[Vec<u8>], &[Vec<u8>]) -> bool) -> Result<Vec<u8>, MergeError> {
     if base.contains(&0) || head.contains(&0) || sub.contains(&0) { return Err(Unsupported("BINARY".into())); }
     let lines = |x: &[u8]| -> Vec<Vec<u8>> { x.split_inclusive(|&c| c == b'\n').map(<[u8]>::to_vec).collect() };
     let (bl, hl, sl) = (lines(base), lines(head), lines(sub));
@@ -114,7 +119,7 @@ pub fn diff3(base: &[u8], head: &[u8], sub: &[u8], union_inserts: bool) -> Resul
             let touch = a1 <= *b2 && *b1 <= a2;
             if !touch { continue; }
             if a1 == *b1 && a2 == *b2 && ar == *br { used_s[j] = true; continue; }
-            if union_inserts && a1 == a2 && *b1 == *b2 && a1 == *b1 { used_s[j] = true; merged.2.extend(br.iter().cloned()); continue; }
+            if a1 == a2 && *b1 == *b2 && a1 == *b1 && union(&ar, br) { used_s[j] = true; merged.2.extend(br.iter().cloned()); continue; }
             return Err(Conflict("TEXT_CONFLICT".into()));
         }
         all.push(merged);
@@ -264,7 +269,7 @@ fn merge_container(lang: Lang, bs: &[u8], b: &Container, hs: &[u8], h: &Containe
                         Key::Class(_) => merge_block(lang, bs, bi, hs, hi, ss, si, "body")?,
                         Key::Def(_) | Key::Member(_, _) if is_fn(k) => merge_block(lang, bs, bi, hs, hi, ss, si, "body").map_err(|e| { if std::env::var("GITTA_DEBUG").is_ok() { eprintln!("merge_block: {e:?}"); } Conflict("SAME_SYMBOL_EDIT".into()) })?,
                         Key::Import(_) => import_union(bt.as_ref().unwrap(), ht.as_ref().unwrap(), st.as_ref().unwrap()).ok_or(Conflict("SAME_IMPORT_EDIT".into()))?,
-                        Key::Assign(_) => literal_union(bt.as_ref().unwrap(), ht.as_ref().unwrap(), st.as_ref().unwrap()).ok_or(Conflict("SAME_SYMBOL_EDIT".into()))?,
+                        Key::Assign(_) => literal_union(lang, bt.as_ref().unwrap(), ht.as_ref().unwrap(), st.as_ref().unwrap()).ok_or(Conflict("SAME_SYMBOL_EDIT".into()))?,
                         _ => return Err(Conflict("SAME_SYMBOL_EDIT".into())),
                     }),
                 }
@@ -327,10 +332,11 @@ fn import_union(b: &[u8], h: &[u8], s: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Both sides added different keys to one object or dict literal at the same place: keep both, refusing
-/// anything that would set one key twice.
-fn literal_union(b: &[u8], h: &[u8], s: &[u8]) -> Option<Vec<u8>> {
+/// anything that would set one key twice. Both insertions are kept only when each is whole key-value entries:
+/// two sides inserting statements, shorthand properties or lines of a string at one place conflict, as in Git.
+fn literal_union(lang: Lang, b: &[u8], h: &[u8], s: &[u8]) -> Option<Vec<u8>> {
     if !b.contains(&b'{') { return None; }
-    let m = diff3(b, h, s, true).ok()?;
+    let m = diff3_with(b, h, s, |x, y| whole_entries(lang, x) && whole_entries(lang, y)).ok()?;
     let keys = |x: &[u8]| -> Vec<String> {
         String::from_utf8_lossy(x).lines().filter_map(|l| {
             let l = l.trim();
@@ -344,6 +350,22 @@ fn literal_union(b: &[u8], h: &[u8], s: &[u8]) -> Option<Vec<u8>> {
     if set.len() != km.len() { return None; }
     let want: BTreeSet<String> = keys(b).into_iter().chain(keys(h)).chain(keys(s)).collect();
     (set.into_iter().cloned().collect::<BTreeSet<String>>() == want).then_some(m)
+}
+
+/// Lines that are one or more whole key-value entries of an object or dict literal (TypeScript, Python) and
+/// otherwise only comments: no statement, shorthand property, spread or part of a longer value.
+fn whole_entries(lang: Lang, lines: &[Vec<u8>]) -> bool {
+    let (open, close, path): (&[u8], &[u8], &[&str]) = match lang {
+        Lang::TypeScript | Lang::Tsx => (b"({\n", b"\n});\n", &["expression_statement", "parenthesized_expression", "object"]),
+        Lang::Python => (b"{\n", b"\n}\n", &["expression_statement", "dictionary"]),
+        _ => return false,
+    };
+    let Some(t) = parser(lang).parse([open, &lines.concat(), close].concat(), None) else { return false };
+    if t.root_node().has_error() { return false; }
+    let mut n = t.root_node();
+    for kind in path { match children(n)[..] { [c] if c.kind() == *kind => n = c, _ => return false } }
+    let entries: Vec<Node> = children(n).into_iter().filter(|c| !is_trivia(c.kind())).collect();
+    !entries.is_empty() && entries.iter().all(|e| e.kind() == "pair")
 }
 
 fn is_fn(k: &Key) -> bool { match k { Key::Def(_) => true, Key::Member(_, i) => matches!(**i, Key::Def(_)), _ => false } }
