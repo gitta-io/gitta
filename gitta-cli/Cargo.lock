@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "gitta"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gitta-core",
  "globset",
@@ -79,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "gitta-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "memchr",
  "serde",
