@@ -3,7 +3,8 @@
 # (or $GITTA_BIN_DIR). The release workflow fills in RELEASES and VERSION.
 # Downloads go through https://gitta.io/dl, which counts them (via=install, no personal data), and fall back to RELEASES.
 # GITTA_RELEASES skips gitta.io; GITTA_DL sets another download base.
-# The script changes no file outside the bin dir, unless you answer yes at the PATH question.
+# The script changes no file outside the bin dir, except your shell startup file: when the bin dir is not on PATH, it
+# adds one line there, once, without asking, and says which file it changed.
 set -eu
 DL=""; [ -z "${GITTA_RELEASES:-}" ] && DL="${GITTA_DL:-https://gitta.io/dl}"
 RELEASES="${GITTA_RELEASES:-@RELEASES@}"
