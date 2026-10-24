@@ -65,7 +65,7 @@
   <tr><td><code>--gate CMD</code>, <code>--link DIR</code></td><td>The gate, and folders to link into each workspace, for example a dependency folder.</td></tr>
   <tr><td><code>--tasks FILE</code></td><td>Read tasks from a file, one per line.</td></tr>
   <tr><td><code>--land</code></td><td>Optional. Land every agent when all are done.</td></tr>
-  <tr><td><code>--sandbox</code></td><td>On Linux, start each agent in the <a href="linux.html">sandbox</a>. Add <code>--net-port P</code> to allow outgoing TCP to that port only.</td></tr>
+  <tr><td><code>--sandbox</code></td><td>On Linux, run each agent in the <a href="linux.html">sandbox</a>, a world built from only its worktree and the toolchain. Add <code>--no-net</code> for no network.</td></tr>
   <tr><td><code>gitta up -n N [--gate CMD] [--link DIR]</code></td><td>Make N agent workspaces, each on its own branch <code>gitta/aN</code>. After <code>gitta init</code> they branch off your main branch and join the existing setup.</td></tr>
   <tr><td><code>--backend worktree|overlay|fuse</code>, <code>--deny-read PATTERN</code></td><td>On Linux, make copy-on-write workspaces over one shared checkout instead of worktrees, and leave files that match the pattern out of them. See <a href="linux.html">Linux workspaces</a>.</td></tr>
   <tr><td><code>gitta down</code></td><td>Remove the workspaces that Gitta made.</td></tr>

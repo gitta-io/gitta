@@ -140,7 +140,7 @@ You merge with plain `git merge`, `git pull` or `git push`. gitta runs your gate
 - **Reads your code.** Python, TypeScript and JavaScript, Go, Rust, Java, C#, Kotlin, C and C++.
 - **Pull request checks.** The [GitHub Action](gitta-action) checks open pull requests against each other, so reviewers see which ones clash.
 - **A clear record.** `gitta watch` shows each step live, and `.gitta/gitta.log` keeps the same story as plain lines. A merge that removes tests or weakens a security check is named in the merge output.
-- **Safe agent workspaces on Linux.** [gitta-fs](gitta-fs) gives each agent a copy-on-write workspace, and [gitta-sandbox](gitta-sandbox) limits its file and network rights.
+- **Safe agent workspaces on Linux.** [gitta-fs](gitta-fs) gives each agent a copy-on-write workspace, and [gitta-sandbox](gitta-sandbox) runs the agent in a world built from only its worktree and the toolchain.
 - **One team policy.** The gate and the rules live in `.gitta.toml`, committed with your code, so every machine and the CI check use the same ones.
 
 ## Works with
@@ -171,7 +171,7 @@ The full documentation is at [gitta.io/docs](https://gitta.io/docs/), and its so
 | [`gitta-cli`](gitta-cli) | The `gitta` command |
 | [`gitta-core`](gitta-core) | Code reading and the cross-agent checks |
 | [`gitta-fs`](gitta-fs) | Copy-on-write agent workspaces on Linux (FUSE) |
-| [`gitta-sandbox`](gitta-sandbox) | Runs an agent with limited file and network rights on Linux (Landlock) |
+| [`gitta-sandbox`](gitta-sandbox) | Runs an agent in a sandbox built from only its worktree and the toolchain on Linux (bubblewrap) |
 | [`gitta-action`](gitta-action) | The GitHub Action for pull requests |
 | [`gitta-ci`](gitta-ci) | The pull request check for GitLab and Azure DevOps |
 | [`dist`](dist) | The install scripts and the Homebrew formula |

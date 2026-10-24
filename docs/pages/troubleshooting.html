@@ -69,8 +69,8 @@ $ git branch -D worktree-detect-language</term>
 <h2>Two pull requests fail the gitta check because of each other</h2>
 <p>Only the newer one should fail. If the older one fails too, it clashes with an even older pull request. Merge in order of age, or mark the one that should wait as draft or label it <code>gitta-skip</code>.</p>
 
-<h2>"network rules need Linux 6.7 or later"</h2>
-<p>The kernel cannot enforce <code>--no-net</code> or <code>--net-port</code>, so the sandbox refuses to start. Update the kernel, or run the agent in a container without a network.</p>
+<h2>The sandbox will not start</h2>
+<p>The sandbox needs the <code>bubblewrap</code> package and unprivileged user namespaces. Install <code>bubblewrap</code> if it is missing. If a host has unprivileged user namespaces turned off, a privileged user can enable them, for example <code>sysctl -w kernel.unprivileged_userns_clone=1</code> on Debian and Ubuntu.</p>
 
 <h2>"land refused: ... collides with work that already landed"</h2>
 <p>This comes from the optional <code>gitta land</code>. The agent's change and merged work change the same code in ways that cannot be combined. Run <code>gitta sync &lt;agent&gt;</code>. gitta names the file. The agent resolves it in its own worktree.</p>

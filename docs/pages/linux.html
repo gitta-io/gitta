@@ -36,19 +36,18 @@
 <div class="warning"><b>Cost on compile-heavy work</b>Reading through a layer is slower than reading a normal folder, and a compile-heavy test job shows it most. Use the shared checkout when disk space matters more than build time. Turn it off with <code>gitta init --no-cow</code>.</div>
 
 <h2>Sandbox</h2>
-<p>The sandbox uses Linux Landlock. The kernel enforces it for the agent and every process the agent starts. The agent can read and write its own worktree and read system folders. It cannot reach your home folder, SSH keys, cloud credentials, the main checkout or other agents' worktrees.</p>
+<p>The sandbox builds a fresh, minimal world for the agent with unprivileged Linux namespaces (bubblewrap) and runs the agent in it. Only the agent's worktree, the paths you allow and the toolchain are present. Your home folder, SSH keys, cloud credentials in the environment, the host's sockets, the main checkout and other agents' worktrees are not part of that world, so the agent and every process it starts cannot reach them. The agent keeps full read and write access to its worktree and reaches the network for its API.</p>
 <p>Start agents in the sandbox with <code>gitta run --sandbox</code>, or run any command in it directly:</p>
-<term>$ gitta-sandbox --workspace ../translate-api --no-net -- claude
-$ gitta-sandbox --workspace ../translate-api --net-port 443 --write ~/.cache/pip -- claude</term>
+<term>$ gitta-sandbox --workspace ../translate-api -- claude
+$ gitta-sandbox --workspace ../translate-api --write ~/.cache/pip -- claude</term>
 <table>
   <tr><th>Option</th><th>Effect</th></tr>
-  <tr><td><code>--read PATH</code></td><td>Also allow reading this path.</td></tr>
-  <tr><td><code>--write PATH</code></td><td>Also allow writing this path, for example a cache folder.</td></tr>
-  <tr><td><code>--no-net</code></td><td>No TCP connections and no TCP listening.</td></tr>
-  <tr><td><code>--net-port N</code></td><td>Allow TCP connections only to these ports.</td></tr>
+  <tr><td><code>--read PATH</code></td><td>Also make this path readable in the sandbox.</td></tr>
+  <tr><td><code>--write PATH</code></td><td>Also make this path writable, for example a cache folder.</td></tr>
+  <tr><td><code>--env NAME</code></td><td>Forward one environment variable into the sandbox; the rest of the environment is cleared. gitta forwards the agent's API key for you.</td></tr>
+  <tr><td><code>--no-net</code></td><td>Run with no network at all (an empty network namespace).</td></tr>
 </table>
-<p>Without <code>--no-net</code> or <code>--net-port</code>, the network stays open. Landlock's network rules cover TCP only. UDP, DNS lookups and raw sockets stay possible. For a complete network ban, run the agent in a network namespace as well, for example a container without a network or <code>unshare -n</code>.</p>
-<p>File rules need Linux 5.13 or later. Network rules need Linux 6.7 or later. On an older kernel, <code>--no-net</code> and <code>--net-port</code> refuse to start instead of running with the network open. Nothing sits between the agent and its files.</p>
+<p>The sandbox needs <a href="https://github.com/containers/bubblewrap">bubblewrap</a> and unprivileged user namespaces, which modern Linux distributions enable by default. Install the <code>bubblewrap</code> package if it is not already present.</p>
 <p>Keep secrets out of reach of agents in any case.</p>
 
 <p>To give each agent its own worktree, see <a href="agents.html">Agents</a>. For what gitta checks in agent changes, see <a href="https://gitta.io/docs/security.html">Security and data</a>.</p>

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 — 2026-10-24
+
+### Security
+
+- The agent sandbox (`gitta run --sandbox` and `gitta-sandbox`) is rebuilt on unprivileged Linux namespaces (bubblewrap). It builds a minimal world from only the agent's worktree, the paths passed with `--write`, and the toolchain, and runs the agent there. The home folder, the environment, host sockets (including the Docker socket and the ssh-agent socket) and other processes are not present in that world, so the agent and every process it starts cannot reach them. The agent keeps full read and write access to its worktree and reaches the network for its API; `--no-net` runs with no network. This replaces the earlier Landlock approach, which confined the agent inside the real host filesystem and had to exclude each host resource one by one. The sandbox now needs the `bubblewrap` package and unprivileged user namespaces (on by default on modern Linux). The underlying finding was reported by Joachim Bauernberger.
+
 ## 0.1.1 — 2026-10-24
 
 Security and correctness fixes. The security findings and most of the patches were reported by Joachim Bauernberger.
