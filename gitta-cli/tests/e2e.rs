@@ -458,12 +458,16 @@ fn csharp_and_kotlin_changed_meaning_is_reported() {
     assert!(o.status.success(), "an unrelated agent still lands: {}", text(&o));
 }
 
+/// What tells gitta that a process runs inside an agent session. A helper that plays a person removes all of them,
+/// so the tests also pass when they are run from an agent session.
+const AGENT_ENV: [&str; 6] = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CURSOR_AGENT", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "GITTA_AGENT"];
+
 /// `gitta approve` asks a person at a terminal: run it on a pseudo-terminal, outside any agent session.
 fn approve(e: &Env, agent: &str, reason: &str) -> Output {
     let bin = env!("CARGO_BIN_EXE_gitta");
     let mut c = if cfg!(target_os = "macos") { let mut c = Command::new("script"); c.args(["-q", "/dev/null", bin, "approve", agent, reason]); c }
                 else { let mut c = Command::new("script"); c.args(["-qec", &format!("{bin} approve {agent} '{reason}'"), "/dev/null"]); c };
-    for v in ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CURSOR_AGENT", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "GITTA_AGENT"] { c.env_remove(v); }
+    for v in AGENT_ENV { c.env_remove(v); }
     let mut ch = c.current_dir(&e.repo).env("HOME", &e.home).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     // Answer once the prompt is up, and keep the terminal open until it is read (an early end of input reads as no answer).
     let mut stdin = ch.stdin.take().unwrap();
@@ -1217,8 +1221,10 @@ fn a_credential_is_refused_by_git_merge_and_the_pull_request_check() {
 
 /// A plain `git` command, with the environment a person's terminal would have (no prompt in tests).
 fn git_run(e: &Env, dir: &Path, args: &[&str]) -> Output {
-    Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args)
-        .env("HOME", &e.home).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env_remove("CLAUDECODE").output().unwrap()
+    let mut c = Command::new("git");
+    for v in AGENT_ENV { c.env_remove(v); }
+    c.arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args)
+        .env("HOME", &e.home).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").output().unwrap()
 }
 
 /// `git_run` as an AI agent's tool call runs it (Claude Code sets CLAUDECODE).
