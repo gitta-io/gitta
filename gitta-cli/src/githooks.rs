@@ -272,7 +272,9 @@ fn fin(e: &str, state: &str) -> String {
 
 /// True when the command runs inside an AI agent's tool call: what gitta prints there enters the agent's context.
 pub(crate) fn in_agent() -> bool {
-    std::env::var_os("CLAUDECODE").is_some() || std::env::var_os("GITTA_AGENT").is_some() || std::env::var_os("CODEX_SANDBOX").is_some()
+    // The full agent-session list, the same one `gitta approve` uses: a Cursor or Claude Code entrypoint commit on
+    // the target branch must be checked too, not only CLAUDECODE/GITTA_AGENT/CODEX_SANDBOX.
+    AGENT_ENV.iter().any(|v| std::env::var_os(v).is_some())
 }
 
 /// The git subcommand that runs this hook (commit, cherry-pick, rebase, reset, update-ref ...), from the process tree.
