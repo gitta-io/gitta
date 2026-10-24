@@ -5,7 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/gitta-io/gitta"
 homepage = "https://gitta.io"
-description = "gitta core: symbol extraction and cross-agent hazard analysis for Python, TypeScript, Go, Java, Rust, C# and Kotlin"
+description = "gitta core: symbol extraction and cross-agent hazard analysis for Python, TypeScript and JavaScript, Go, Rust, Java, C#, Kotlin, C and C++"
 
 [dependencies]
 tree-sitter = "0.25"
