@@ -1,15 +1,10 @@
 [package]
 name = "gitta-sandbox"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
-license = "Apache-2.0"
-repository = "https://github.com/gitta-io/gitta"
-homepage = "https://gitta.io"
-description = "Run a coding agent with default-deny filesystem (and optionally network) rights, enforced by the Linux kernel (Landlock)"
+description = "Run a coding agent in a world built from only its worktree and the toolchain, using unprivileged Linux namespaces (bubblewrap) with outbound-only networking"
 
 [dependencies]
-landlock = "0.4"
-globset = "0.4"
 
 [profile.release]
 opt-level = 3

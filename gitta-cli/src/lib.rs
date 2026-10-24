@@ -3405,13 +3405,30 @@ fn cmd_run(args: &[String]) {
     for (a, t) in c.agents.iter().zip(&tasks) {
         let mut cmd = template.replace("{task}", &quote(&format!("{t}\n\nYou are agent {} in a team of AI agents working in parallel on this repository through Gitta. Other agents' changes will be merged with yours. Follow Gitta's notes; use the gitta MCP tools (status, claim, check, sync) when useful.", a.name)));
         if sandbox {
-            // Kernel-enforced default-deny: the agent and everything it starts can touch only its own workspace.
+            // Deny-by-construction: gitta-sandbox builds a world from only the worktree and the toolchain, so the
+            // host home, environment and sockets are not present. See gitta-sandbox (bubblewrap-based).
             let sb = std::env::var("GITTA_SANDBOX").unwrap_or("gitta-sandbox".into());
-            let netargs = if net.is_empty() { "--no-net".to_string() } else { net.iter().map(|p| format!("--net-port {p}")).collect::<Vec<_>>().join(" ") };
+            // Outbound network on by default (the agent needs its API). --net-port keeps net on.
+            let netargs = if net.is_empty() { String::new() } else { net.iter().map(|p| format!("--net-port {p}")).collect::<Vec<_>>().join(" ") };
             let home = std::env::var("HOME").unwrap_or_default();
-            // The agent tool's own config/cache directory stays writable (e.g. ~/.claude); nothing else in home is reachable.
-            let tool_dirs: Vec<String> = [".claude", ".codex", ".cache", ".npm", ".config/claude"].iter().map(|d| format!("--write {}", quote(&format!("{home}/{d}")))).collect();
-            cmd = format!("{sb} --workspace {} {} {netargs} -- sh -c {}", quote(&a.path), tool_dirs.join(" "), quote(&cmd));
+            // A throwaway HOME for the agent: its config is copied in, so a hook it writes is discarded with the run
+            // and never reaches the real ~/.claude, and the caches start empty. The real home is never bound.
+            let sbhome = root.join(".gitta").join(format!("sandbox-home-{}", a.name));
+            let _ = std::fs::remove_dir_all(&sbhome);
+            let _ = std::fs::create_dir_all(&sbhome);
+            for d in [".claude", ".codex", ".config/claude"] {
+                let src = Path::new(&home).join(d);
+                if src.exists() {
+                    let dst = sbhome.join(d);
+                    if let Some(p) = dst.parent() { let _ = std::fs::create_dir_all(p); }
+                    let _ = Command::new("cp").args(["-a", &src.to_string_lossy(), &dst.to_string_lossy()]).status();
+                }
+            }
+            for d in [".cache", ".npm"] { let _ = std::fs::create_dir_all(sbhome.join(d)); }
+            let keyvar = if tool == "codex" { "OPENAI_API_KEY" } else { "ANTHROPIC_API_KEY" };
+            let sbhome_q = quote(&sbhome.to_string_lossy());
+            cmd = format!("{sb} --workspace {} --write {sbhome_q} {netargs} --env {keyvar} -- sh -c {}",
+                quote(&a.path), quote(&format!("export HOME={sbhome_q}; {cmd}")));
         }
         let log = std::fs::File::create(logs.join(format!("{}.log", a.name))).unwrap();
         println!("gitta: {} -> {}", a.name, t);
