@@ -404,6 +404,27 @@ fn audit_trail_records_who_what_and_checks_and_shows_tampering() {
 }
 
 #[test]
+fn status_json_totals_count_landings_and_refusals() {
+    let e = env("totals");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let j: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["status", "--json"]).stdout).unwrap();
+    assert_eq!(j["landed_total"], 0);
+    assert_eq!(j["blocked_total"], 0);
+    // One clean landing.
+    let a = worktree(&e, "feat");
+    write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\n\ndef whisper(s):\n    return s.lower()\n");
+    assert!(gitta(&e, &e.repo, &["land", "feat"]).status.success());
+    // One refusal: the agent put a credential in the code.
+    let b = worktree(&e, "leaky");
+    write(&b.join("shop/text.py"), "API_KEY = \"sk-live-4f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c\"\n\ndef shout(s):\n    return s.upper()\n");
+    assert!(!gitta(&e, &e.repo, &["land", "leaky"]).status.success());
+    let j: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["status", "--json"]).stdout).unwrap();
+    assert_eq!(j["landed_total"], 1);
+    assert_eq!(j["blocked_total"], 1);
+}
+
+#[test]
 fn open_source_build_has_no_team_server() {
     let e = env("oss");
     let o = gitta(&e, &e.repo, &["server"]);

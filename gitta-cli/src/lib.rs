@@ -1438,8 +1438,13 @@ fn cmd_status(args: &[String]) {
     if args.iter().any(|a| a == "--json") {
         let v = view(&c);
         let skipped: Vec<_> = v.skipped.iter().map(|(n, why)| serde_json::json!({"name": n, "reason": why})).collect();
+        // Cumulative tallies from the audit trail.
+        let ev = audit::read(Path::new(&c.root));
+        let landed_total = ev.iter().filter(|e| e["event"] == "landed").count();
+        let blocked_total = ev.iter().filter(|e| e["event"] == "land_refused").count();
         println!("{}", serde_json::json!({"agents": c.agents.iter().filter(|a| !v.skipped.iter().any(|s| s.0 == a.name)).map(|a| serde_json::json!({"name": a.name, "path": a.path, "base": a.base, "changed": v.changes[&a.name]})).collect::<Vec<_>>(), "warnings": v.warnings, "skipped": skipped,
-            "security_notes": v.notes.iter().map(|(ag, n)| { let mut j = note_json(n); j["agent"] = serde_json::json!(ag); j }).collect::<Vec<_>>()}));
+            "security_notes": v.notes.iter().map(|(ag, n)| { let mut j = note_json(n); j["agent"] = serde_json::json!(ag); j }).collect::<Vec<_>>(),
+            "landed_total": landed_total, "blocked_total": blocked_total}));
         return;
     }
     let target = c.main.trim_start_matches("refs/heads/");
