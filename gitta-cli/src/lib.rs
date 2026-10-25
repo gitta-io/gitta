@@ -1986,8 +1986,8 @@ fn meaning_notes(c: &Config, a: &Agent, mine: &BTreeSet<String>, main: &str) -> 
 
 fn cmd_land(args: &[String]) {
     // gitta land runs every check itself: the git hooks stand aside for the branch moves it makes.
-    std::env::set_var("GITTA_LANDING", "1");
     let root = root();
+    githooks::mark_landing(&root);
     if args.first().map(String::as_str) == Some("--all") {
         let c = load(&root);
         let order = landing_order(&c);
@@ -2122,7 +2122,7 @@ fn cmd_land(args: &[String]) {
         // moved meanwhile or if uncommitted edits in that checkout would be overwritten.
         Some(wt) => {
             // gitta land already ran every check: the git hooks stand aside for this move.
-            let ff = Command::new("git").arg("-C").arg(wt).args(["merge", "--ff-only", "--quiet", &new]).env("GITTA_LANDING", "1").output().unwrap_or_else(|e| die(&format!("git: {e}")));
+            let ff = Command::new("git").arg("-C").arg(wt).args(["merge", "--ff-only", "--quiet", &new]).output().unwrap_or_else(|e| die(&format!("git: {e}")));
             if !ff.status.success() {
                 die(&format!("land stopped: {} could not move forward in {wt}. Either someone changed it meanwhile, or files there have uncommitted edits that the landed work touches. Commit or stash those edits, then run the same command again.", c.main.trim_start_matches("refs/heads/")))
             }
