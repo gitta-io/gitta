@@ -177,6 +177,20 @@ fn line(e: &Value) -> String {
         format!("{}@{}", e["actor"]["name"].as_str().unwrap_or(""), e["actor"]["machine"].as_str().unwrap_or("")), summary(e))
 }
 
+/// Cumulative counts: how many events landed, how many were refused, and which check refused them.
+fn stats(events: &[Value]) -> Value {
+    let (mut landed, mut blocked) = (0u64, 0u64);
+    let mut by: std::collections::BTreeMap<String, u64> = Default::default();
+    for e in events {
+        match e["event"].as_str().unwrap_or("") {
+            "landed" => landed += 1,
+            "land_refused" => { blocked += 1; *by.entry(e["data"]["check"].as_str().unwrap_or("gate").to_string()).or_default() += 1; }
+            _ => {}
+        }
+    }
+    json!({"landed_total": landed, "blocked_total": blocked, "blocked_by_check": by})
+}
+
 /// `gitta audit --follow`: prints each new event as it is written (one JSON line each with --json), so it can be
 /// piped into any log shipper. Starts at the end of the trail; with --since it first prints the matching history.
 /// Reads the file only, so it never holds up an agent or a merge.
@@ -240,6 +254,16 @@ pub fn cmd(root: &Path, args: &[String], team: Option<(String, String, String)>)
     if let Some(s) = get("--since") { events.retain(|e| e["time"].as_str().unwrap_or("") >= s.as_str()); }
     if let Some(a) = get("--agent") { events.retain(|e| e["agent"].as_str() == Some(a.as_str())); }
     if let Some(k) = get("--event") { events.retain(|e| e["event"].as_str() == Some(k.as_str())); }
+    if args.iter().any(|a| a == "--stats") {
+        let s = stats(&events);
+        if args.iter().any(|a| a == "--json") { println!("{s}"); }
+        else {
+            println!("landed: {}", s["landed_total"]);
+            println!("refused: {}", s["blocked_total"]);
+            for (k, v) in s["blocked_by_check"].as_object().into_iter().flatten() { println!("  {k}: {v}"); }
+        }
+        return;
+    }
     if args.iter().any(|a| a == "--follow" || a == "-f") { return follow(root, args, get("--since").is_some().then_some(events)); }
     if args.iter().any(|a| a == "--json") {
         for e in &events { println!("{e}"); }
@@ -290,5 +314,28 @@ mod tail_tests {
         record(&root, "warning", "a", &json!({}), json!({"findings": "y"}));
         assert_eq!(verify(&read(&root)), Ok(2));
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+    #[test]
+    fn stats_count_landed_and_group_refusals_by_check() {
+        let events = [
+            json!({"event": "agent_started"}),
+            json!({"event": "landed"}),
+            json!({"event": "landed"}),
+            json!({"event": "land_refused", "data": {"check": "tests", "reason": "failed"}}),
+            json!({"event": "land_refused", "data": {"check": "tests", "reason": "failed"}}),
+            json!({"event": "land_refused", "data": {"check": "credentials", "reason": "found"}}),
+            json!({"event": "land_refused", "data": {"reason": "no check named"}}),
+        ];
+        let s = stats(&events);
+        assert_eq!(s["landed_total"], 2);
+        assert_eq!(s["blocked_total"], 4);
+        assert_eq!(s["blocked_by_check"]["tests"], 2);
+        assert_eq!(s["blocked_by_check"]["credentials"], 1);
+        assert_eq!(s["blocked_by_check"]["gate"], 1);
     }
 }
