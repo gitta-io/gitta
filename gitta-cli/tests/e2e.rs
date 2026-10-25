@@ -97,6 +97,40 @@ fn land_never_overwrites_uncommitted_edits_in_the_checkout() {
 }
 
 #[test]
+fn the_gate_checkout_has_submodule_contents() {
+    // A gate that builds a project with a submodule must see the submodule in gitta's own
+    // checkout. `git worktree add`/`git checkout` leave submodule directories empty, so gitta
+    // populates them from objects already in the superproject (no network).
+    let e = env("submodule");
+
+    // A submodule repository holding a file the gate depends on.
+    let sub = e.dir.join("sub-origin");
+    std::fs::create_dir_all(&sub).unwrap();
+    git(&sub, &["init", "-q", "-b", "main"]);
+    write(&sub.join("flag.txt"), "ok\n");
+    git(&sub, &["add", "-A"]);
+    git(&sub, &["commit", "-qm", "sub"]);
+
+    // The superproject: the usual shop plus the submodule at `sub/`. A local-path submodule needs
+    // protocol.file.allow; set it on the repo so gitta's own submodule checkout inherits it too.
+    shop(&e);
+    git(&e.repo, &["config", "protocol.file.allow", "always"]);
+    git(&e.repo, &["-c", "protocol.file.allow=always", "submodule", "add", sub.to_str().unwrap(), "sub"]);
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "-qm", "add submodule"]);
+
+    // The gate reads a file that exists only when the submodule is checked out.
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", "test -f sub/flag.txt"]).status.success());
+
+    // An agent changes an unrelated file and lands. The gate runs in gitta's checkout, which must
+    // contain the submodule -- otherwise `test -f sub/flag.txt` fails and the land is refused.
+    let a = worktree(&e, "feat");
+    write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\n\ndef whisper(s):\n    return s.lower()\n");
+    let o = gitta(&e, &e.repo, &["land", "feat"]);
+    assert!(o.status.success(), "land should pass: the gate must see the submodule in the checkout: {}", text(&o));
+}
+
+#[test]
 fn changed_meaning_through_a_helper_is_reported() {
     let e = env("meaning");
     shop(&e);
