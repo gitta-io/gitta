@@ -2531,6 +2531,7 @@ impl Wt {
             let tmp = tempdir(&slot);
             git_ok(root, &["worktree", "add", "-q", "--detach", tmp.to_str().unwrap(), rev]);
             for l in gate_links(link) { let src = root.join(l); if src.exists() && !tmp.join(l).exists() { link_dir(&src, &tmp.join(l)); } }
+            setup_submodules(root, &tmp);
             return Wt { path: tmp, root: root.to_path_buf(), lock: None };
         }
         let ok = path.join(".git").exists()
@@ -2543,12 +2544,39 @@ impl Wt {
             git_ok(root, &["worktree", "add", "-q", "--detach", path.to_str().unwrap(), rev]);
         }
         for l in gate_links(link) { let src = root.join(l); if src.exists() && !path.join(l).exists() { link_dir(&src, &path.join(l)); } }
+        setup_submodules(root, &path);
         Wt { path, root: root.to_path_buf(), lock: Some(lock) }
     }
     fn release(&self) {
         match &self.lock {
             Some(l) => { std::fs::remove_file(l).ok(); }
             None => { git(&self.root, &["worktree", "remove", "--force", self.path.to_str().unwrap()]); }
+        }
+    }
+}
+
+/// Mirror submodule working trees into a gate checkout from the superproject's own checkout --
+/// no clone, no network. `git worktree add` and `git checkout` leave submodule directories empty,
+/// and `git submodule update` in a linked worktree re-clones (it needs the network, or hits a
+/// blocked file transport), so a gate that builds a project with submodules (for example a
+/// `framework/` of shared build rules) fails in the checkout though it builds in the main tree.
+/// The gate checkout is at the same commit as main, so main's already-checked-out submodule trees
+/// are the right contents, and a top-level link also carries any nested submodules. Only acts when
+/// the tree has submodules, so a repository without them pays nothing.
+fn setup_submodules(root: &Path, wt: &Path) {
+    if !wt.join(".gitmodules").exists() { return; }
+    let out = git(wt, &["config", "-f", ".gitmodules", "--get-regexp", "\\.path$"]);
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let Some((_, rel)) = line.split_once(' ') else { continue };
+        let rel = rel.trim();
+        if rel.is_empty() { continue; }
+        let (src, dst) = (root.join(rel), wt.join(rel));
+        let main_has = src.join(".git").exists()
+            || std::fs::read_dir(&src).map(|mut d| d.next().is_some()).unwrap_or(false);
+        let gate_empty = std::fs::read_dir(&dst).map(|mut d| d.next().is_none()).unwrap_or(true);
+        if main_has && gate_empty {
+            let _ = std::fs::remove_dir_all(&dst);
+            link_dir(&src, &dst);
         }
     }
 }
