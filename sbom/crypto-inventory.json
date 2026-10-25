@@ -1,30 +1,106 @@
 {
   "_doc": "Source of the Gitta CBOM. Every cryptographic algorithm, protocol, certificate and key Gitta uses, with where it is used. sbom/cbom.py turns this into CycloneDX 1.6 and reads library versions from Cargo.lock. `python3 sbom/cbom.py check` fails when a crypto crate is added to or removed from Cargo.lock, or its version moves past `reviewed`, without a change here.",
-  "product": {"name": "gitta", "description": "Gitta open-source CLI (gitta, gitta-fs, gitta-sandbox)"},
-  "locks": ["gitta-cli/Cargo.lock", "gitta-fs/Cargo.lock", "gitta-sandbox/Cargo.lock"],
+  "product": {
+    "name": "gitta",
+    "description": "Gitta open-source CLI (gitta, gitta-fs, gitta-sandbox)"
+  },
+  "locks": [
+    "gitta-cli/Cargo.lock",
+    "gitta-fs/Cargo.lock",
+    "gitta-sandbox/Cargo.lock"
+  ],
   "crates": {
-    "ring": {"reviewed": "0.17", "role": "SHA-256 for the audit hash chain"},
-    "getrandom": {"reviewed": "0.2", "role": "OS random source behind ring (pulled in by ring, not called by Gitta)"}
+    "sha2": {
+      "reviewed": "0.10",
+      "role": "SHA-256 for the audit hash chain and update verification"
+    },
+    "digest": {
+      "reviewed": "0.10",
+      "role": "Digest traits used by sha2 (no algorithm of its own)"
+    },
+    "crypto-common": {
+      "reviewed": "0.1",
+      "role": "Common block and output types used by sha2 and digest (no algorithm of its own)"
+    }
   },
   "external": {
     "curl": "System curl, not shipped with Gitta. The CLI calls it for HTTPS to a team server and the identity provider. TLS versions, cipher suites and the default CA store come from the operating system's curl and its TLS library."
   },
   "assets": [
-    {"id": "sha-256", "name": "SHA-256", "assetType": "algorithm", "oid": "2.16.840.1.101.3.4.2.1",
-     "algorithm": {"primitive": "hash", "parameterSetIdentifier": "256", "cryptoFunctions": ["digest"], "classicalSecurityLevel": 128, "nistQuantumSecurityLevel": 2},
-     "provider": "ring",
-     "usedIn": [{"component": "gitta (CLI)", "purpose": "Hash chain of the local audit trail: each record holds the SHA-256 of the previous record; `gitta audit verify` checks the chain", "location": "gitta-cli/src/audit.rs"}]},
-    {"id": "tls-client-cli", "name": "TLS (CLI client, via system curl)", "assetType": "protocol",
-     "protocol": {"type": "tls", "version": "as the system curl allows (curl's default minimum is TLS 1.2)"},
-     "provider": "curl",
-     "usedIn": [{"component": "gitta (CLI)", "purpose": "HTTPS to the team server (warnings, audit upload, team commands) and to the identity provider for `gitta login`. Plain http is allowed only when the server address says http", "location": "gitta-cli/src/team.rs, gitta-cli/src/lib.rs, gitta-cli/src/audit.rs"}]},
-    {"id": "x509-server-ca", "name": "X.509 CA certificate for the team server (GITTA_SERVER_CA)", "assetType": "certificate",
-     "certificate": {"certificateFormat": "X.509", "subjectName": "the customer's private CA", "issuerName": "the customer's private CA"},
-     "provider": "curl",
-     "usedIn": [{"component": "gitta (CLI)", "purpose": "Optional PEM file passed to curl --cacert so the CLI trusts a team server with a private certificate authority. Without it, the system CA store is used", "location": "gitta-cli/src/lib.rs, gitta-cli/src/team.rs, gitta-cli/src/audit.rs"}]},
-    {"id": "bearer-token-cli", "name": "Team server bearer token (GITTA_SERVER_TOKEN, GITTA_ADMIN_TOKEN)", "assetType": "related-crypto-material",
-     "material": {"type": "token", "format": "gt1_ personal token or admin token, sent as an HTTP Authorization: Bearer header"},
-     "provider": "curl",
-     "usedIn": [{"component": "gitta (CLI)", "purpose": "Authenticates the CLI to the team server. The CLI only sends it; the server checks it", "location": "gitta-cli/src/team.rs"}]}
+    {
+      "id": "sha-256",
+      "name": "SHA-256",
+      "assetType": "algorithm",
+      "oid": "2.16.840.1.101.3.4.2.1",
+      "algorithm": {
+        "primitive": "hash",
+        "parameterSetIdentifier": "256",
+        "cryptoFunctions": [
+          "digest"
+        ],
+        "classicalSecurityLevel": 128,
+        "nistQuantumSecurityLevel": 2
+      },
+      "provider": "sha2",
+      "usedIn": [
+        {
+          "component": "gitta (CLI)",
+          "purpose": "Hash chain of the local audit trail: each record holds the SHA-256 of the previous record; `gitta audit verify` checks the chain",
+          "location": "gitta-cli/src/audit.rs, gitta-cli/src/update.rs"
+        }
+      ]
+    },
+    {
+      "id": "tls-client-cli",
+      "name": "TLS (CLI client, via system curl)",
+      "assetType": "protocol",
+      "protocol": {
+        "type": "tls",
+        "version": "as the system curl allows (curl's default minimum is TLS 1.2)"
+      },
+      "provider": "curl",
+      "usedIn": [
+        {
+          "component": "gitta (CLI)",
+          "purpose": "HTTPS to the team server (warnings, audit upload, team commands) and to the identity provider for `gitta login`. Plain http is allowed only when the server address says http",
+          "location": "gitta-cli/src/team.rs, gitta-cli/src/lib.rs, gitta-cli/src/audit.rs"
+        }
+      ]
+    },
+    {
+      "id": "x509-server-ca",
+      "name": "X.509 CA certificate for the team server (GITTA_SERVER_CA)",
+      "assetType": "certificate",
+      "certificate": {
+        "certificateFormat": "X.509",
+        "subjectName": "the customer's private CA",
+        "issuerName": "the customer's private CA"
+      },
+      "provider": "curl",
+      "usedIn": [
+        {
+          "component": "gitta (CLI)",
+          "purpose": "Optional PEM file passed to curl --cacert so the CLI trusts a team server with a private certificate authority. Without it, the system CA store is used",
+          "location": "gitta-cli/src/lib.rs, gitta-cli/src/team.rs, gitta-cli/src/audit.rs"
+        }
+      ]
+    },
+    {
+      "id": "bearer-token-cli",
+      "name": "Team server bearer token (GITTA_SERVER_TOKEN, GITTA_ADMIN_TOKEN)",
+      "assetType": "related-crypto-material",
+      "material": {
+        "type": "token",
+        "format": "gt1_ personal token or admin token, sent as an HTTP Authorization: Bearer header"
+      },
+      "provider": "curl",
+      "usedIn": [
+        {
+          "component": "gitta (CLI)",
+          "purpose": "Authenticates the CLI to the team server. The CLI only sends it; the server checks it",
+          "location": "gitta-cli/src/team.rs"
+        }
+      ]
+    }
   ]
 }
