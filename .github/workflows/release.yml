@@ -113,7 +113,12 @@ jobs:
       - name: Publish release
         if: github.event_name == 'push'
         env: { GH_TOKEN: "${{ github.token }}" }
-        run: gh release create "$GITHUB_REF_NAME" dist-out/* --title "gitta $GITHUB_REF_NAME" --notes "Install with curl -fsSL https://gitta.io/install.sh | sh, on Windows with irm https://gitta.io/install.ps1 | iex, or brew install gitta-io/tap/gitta. Update with gitta update or brew upgrade gitta. SBOMs (CycloneDX 1.6, SPDX) and the CBOM are attached."
+        # The release notes are this version's section of CHANGELOG.md (from its heading to the next one).
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '/^## /{p = ($2 == v)} p' CHANGELOG.md | tail -n +2 > release-notes.md
+          test -s release-notes.md || { echo "CHANGELOG.md has no section for $v"; exit 1; }
+          gh release create "$GITHUB_REF_NAME" dist-out/* --title "gitta $GITHUB_REF_NAME" --notes-file release-notes.md
       # Homebrew tap: write this release's formula into gitta-io/homebrew-tap (Formula/gitta.rb), so
       # `brew install gitta-io/tap/gitta` and `brew upgrade gitta` find it. Needs the repository secret
       # HOMEBREW_TAP_TOKEN: a fine-grained token with Contents read and write on gitta-io/homebrew-tap only.
