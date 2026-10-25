@@ -12,6 +12,7 @@
 use crate::{body_node, children, is_trivia, key_of, lang_of, line_end, parser, Key, Lang};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tree_sitter::Node;
 
@@ -25,6 +26,16 @@ fn choose(b: &Option<Vec<u8>>, h: &Option<Vec<u8>>, s: &Option<Vec<u8>>) -> Opti
     if h == s { Some(h.clone()) } else if h == b { Some(s.clone()) } else if s == b { Some(h.clone()) } else { None }
 }
 
+/// Write the three sides to the scratch `b`/`h`/`s` files, each write checked: a failed or short write becomes an
+/// Unsupported error so the caller never feeds truncated inputs into a vacuous clean merge.
+fn write_inputs(dir: &Path, base: &[u8], head: &[u8], sub: &[u8]) -> Result<(PathBuf, PathBuf, PathBuf), MergeError> {
+    let (pb, ph, ps) = (dir.join("b"), dir.join("h"), dir.join("s"));
+    std::fs::write(&pb, base).map_err(|e| Unsupported(e.to_string()))?;
+    std::fs::write(&ph, head).map_err(|e| Unsupported(e.to_string()))?;
+    std::fs::write(&ps, sub).map_err(|e| Unsupported(e.to_string()))?;
+    Ok((pb, ph, ps))
+}
+
 /// Line-level three-way merge through `git merge-file` (no repository needed).
 pub fn line_merge(base: &[u8], head: &[u8], sub: &[u8]) -> Result<Vec<u8>, MergeError> {
     if base.contains(&0) || head.contains(&0) || sub.contains(&0) { return Err(Unsupported("BINARY".into())); }
@@ -34,8 +45,13 @@ pub fn line_merge(base: &[u8], head: &[u8], sub: &[u8]) -> Result<Vec<u8>, Merge
     let dir = std::env::temp_dir().join(format!("gitta-lm-{}-{}-{n}", std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
     std::fs::create_dir_all(&dir).map_err(|e| Unsupported(e.to_string()))?;
-    let (pb, ph, ps) = (dir.join("b"), dir.join("h"), dir.join("s"));
-    std::fs::write(&pb, base).ok(); std::fs::write(&ph, head).ok(); std::fs::write(&ps, sub).ok();
+    // A short or failed write (ENOSPC, a read-only scratch dir) must not be swallowed: `git merge-file` on the
+    // truncated/empty inputs would come back a vacuous clean merge and land content that was never really merged.
+    // Propagate the write error as Unsupported BEFORE invoking git, cleaning up the scratch dir first.
+    let (pb, ph, ps) = match write_inputs(&dir, base, head, sub) {
+        Ok(v) => v,
+        Err(e) => { let _ = std::fs::remove_dir_all(&dir); return Err(e); }
+    };
     let out = Command::new("git").args(["merge-file", "-p"]).arg(&ph).arg(&pb).arg(&ps).stdin(Stdio::null()).output();
     let _ = std::fs::remove_dir_all(&dir);
     let out = out.map_err(|e| Unsupported(format!("git merge-file: {e}")))?;
@@ -475,7 +491,7 @@ fn def_keys(lang: Lang, src: &[u8]) -> Option<Vec<Key>> {
         .filter(|k| matches!(k, Key::Def(_) | Key::Class(_))).collect())
 }
 
-fn has_dupes(v: &[Key]) -> bool { v.iter().collect::<BTreeSet<_>>().len() != v.len() }
+fn has_dupes<T: Ord>(v: &[T]) -> bool { v.iter().collect::<BTreeSet<_>>().len() != v.len() }
 
 /// JSON objects: disjoint keys combine recursively; same key changed differently conflicts.
 /// Numbers keep their exact text (arbitrary precision); key order follows base, then head, then submitted.
@@ -688,3 +704,43 @@ pub fn merge_json(path: &str, base: Option<&str>, head: Option<&str>, sub: Optio
 
 #[allow(dead_code)]
 fn _unused(_w: &mut dyn Write) {}
+
+#[cfg(test)]
+mod write_error_tests {
+    use super::*;
+
+    // A short/failed write (ENOSPC, a read-only scratch dir) must surface as Unsupported, never be swallowed: git
+    // merge-file on truncated/empty inputs would come back a vacuous clean merge. Before the fix the writes used
+    // `.ok()` and were discarded, so this path silently continued; now it returns Unsupported.
+    #[cfg(unix)]
+    #[test]
+    fn write_inputs_fails_loud_on_unwritable_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("gitta-wi-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Read + execute only: creating files inside must fail.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let r = write_inputs(&dir, b"base\n", b"head\n", b"sub\n");
+        // Restore so cleanup can remove it.
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::remove_dir_all(&dir);
+        match r {
+            Err(Unsupported(_)) => {}
+            other => panic!("expected Unsupported on an unwritable scratch dir, got {other:?}"),
+        }
+    }
+
+    // A good write round-trips the three sides.
+    #[test]
+    fn write_inputs_ok_round_trips() {
+        let dir = std::env::temp_dir().join(format!("gitta-wi-ok-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (pb, ph, ps) = write_inputs(&dir, b"b\n", b"h\n", b"s\n").unwrap();
+        assert_eq!(std::fs::read(&pb).unwrap(), b"b\n");
+        assert_eq!(std::fs::read(&ph).unwrap(), b"h\n");
+        assert_eq!(std::fs::read(&ps).unwrap(), b"s\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

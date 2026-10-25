@@ -14,6 +14,7 @@
 //!
 //! Deterministic text rules on the items the meaning analysis already parsed: no new parse, no repository scan.
 //! Comment lines are ignored, so a control that is commented out counts as removed.
+//! Mainframe code (JCL, REXX, COBOL, assembler) has its own single-agent rules in mainframe_security.rs.
 
 use crate::{Item, Key, Lang};
 use serde::Serialize;
@@ -247,6 +248,11 @@ fn count(lines: &[&str], m: &str) -> usize {
     lines.iter().map(|l| f.find_iter(l.as_bytes()).filter(|i| !word || !l[..*i].chars().next_back().map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false)).count()).sum()
 }
 
+/// How many of the lines refuse.
+fn denies(lines: &[&str]) -> usize {
+    lines_with(lines, DENIES)
+}
+
 fn lines_with(lines: &[&str], needles: &[&str]) -> usize { lines.iter().filter(|l| needles.iter().any(|n| l.contains(n))).count() }
 
 /// Parameter name -> default value, from a normalised signature `(a, verify=True) -> x`.
@@ -299,7 +305,7 @@ pub(crate) fn weakening(path: &str, module: &str, key: &Key, old: &Item, new: Op
     let c = cat?;
     // The first line is the signature.
     if lines_with(nl.get(1..).unwrap_or(&[]), ALLOWS) > lines_with(ol.get(1..).unwrap_or(&[]), ALLOWS) { return note("made it let callers through early, before the check, in".into(), c); }
-    if lines_with(&nl, DENIES) < lines_with(&ol, DENIES) { return note("removed a refusal (an error, raise or throw) from".into(), c); }
+    if denies(&nl) < denies(&ol) { return note("removed a refusal (an error, raise or throw) from".into(), c); }
     None
 }
 

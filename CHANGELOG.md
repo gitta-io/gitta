@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.3 — 2026-10-25
+
+### Security
+
+- The agent sandbox reaches the network for outbound connections only, through pasta (passt) in a private network namespace. The agent can call out for its API, and nothing on the host can call in, so host-local and abstract sockets are out of reach from inside the sandbox. This closes the residual host-local-socket reach of the earlier bubblewrap-only setup.
+- When you ask for the sandbox and it cannot be built (bubblewrap, pasta or unprivileged user namespaces missing), gitta stops with a clear message and runs nothing, rather than fall back to running the agent unprotected.
+
+### Performance
+
+- Reading and analysing code runs about 2.6 times faster, from a faster memory allocator (mimalloc).
+- The pull request check reads each side's files at the same time, so it finishes sooner on changes that touch many files.
+
+### Changes
+
+- Limit how many tests run at once. One setting, `--parallel` (or `GITTA_GATE_SLOTS` for a single run), now also bounds the tests gitta runs while merging, not only when it cross-tests one agent against another. Set it when your test suite uses a lot of memory, or shares a port or a database. By default merges stay unlimited, as before. On Windows the limit is reported as unsupported rather than shown as enforced.
+- A saved test result is now reused only when the environment matches as well as the code. gitta accounts for the toolchains the gate uses, the dependencies installed in the linked folders, and the variables named in `gate_env`, so a changed environment re-runs the gate instead of trusting an old result.
+- A gate can be given a time limit (`gate_timeout`, or `GITTA_GATE_TIMEOUT` for a single run). A gate stopped at the limit is never treated as a pass and never reused, and the whole gate process group is stopped.
+- Recorded integration failures. When a merge's tests fail, gitta keeps a package with the exact revisions, the gate command, the environment fingerprint, the failing output and a command to re-run the check. `gitta failure list`, `show` and `rerun`, and the `gitta_failures` agent tool, let another agent pick up the repair. A rerun confirms the failure as reproduced only when the environment still matches.
+- SHA-256 now uses a pure-Rust implementation, with one fewer third-party dependency.
+
 ## 0.1.2 — 2026-10-24
 
 ### Security

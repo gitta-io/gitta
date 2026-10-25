@@ -171,7 +171,7 @@ The full documentation is at [gitta.io/docs](https://gitta.io/docs/), and its so
 | [`gitta-cli`](gitta-cli) | The `gitta` command |
 | [`gitta-core`](gitta-core) | Code reading and the cross-agent checks |
 | [`gitta-fs`](gitta-fs) | Copy-on-write agent workspaces on Linux (FUSE) |
-| [`gitta-sandbox`](gitta-sandbox) | Runs an agent in a sandbox built from only its worktree and the toolchain on Linux (bubblewrap) |
+| [`gitta-sandbox`](gitta-sandbox) | Runs an agent in a sandbox built from only its worktree and the toolchain on Linux (bubblewrap, with pasta for outbound network) |
 | [`gitta-action`](gitta-action) | The GitHub Action for pull requests |
 | [`gitta-ci`](gitta-ci) | The pull request check for GitLab and Azure DevOps |
 | [`dist`](dist) | The install scripts and the Homebrew formula |

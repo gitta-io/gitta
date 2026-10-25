@@ -15,7 +15,7 @@ use std::process::Command;
 pub fn file(root: &Path) -> std::path::PathBuf { root.join(".gitta/audit.jsonl") }
 
 fn sha256_hex(b: &[u8]) -> String {
-    ring::digest::digest(&ring::digest::SHA256, b).as_ref().iter().map(|x| format!("{x:02x}")).collect()
+    { use sha2::{Digest, Sha256}; Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect() }
 }
 
 /// The hash of an event: SHA-256 over its JSON without the `hash` field (keys sorted, as serde_json's map is).
@@ -27,7 +27,7 @@ fn event_hash(ev: &Value) -> String {
     sha256_hex(e.to_string().as_bytes())
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     let s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
     let (days, rem) = (s.div_euclid(86400), s.rem_euclid(86400));
     // civil date from days since 1970-01-01 (Howard Hinnant's algorithm)
@@ -144,7 +144,7 @@ pub fn send_pending(root: &Path, urls: &str, token: &str, repo: &str) {
 // First ten characters, on a char boundary: audit events can come from a team server, so never slice mid-UTF-8.
 fn short(v: &str) -> String { v.chars().take(10).collect() }
 
-fn summary(e: &Value) -> String {
+pub(crate) fn summary(e: &Value) -> String {
     let d = &e["data"];
     let s = |k: &str| d[k].as_str().unwrap_or("").to_string();
     match e["event"].as_str().unwrap_or("") {
@@ -161,7 +161,7 @@ fn summary(e: &Value) -> String {
 }
 
 /// The whole team's events from the first team server that answers.
-fn fetch_team(team: Option<(String, String, String)>) -> Vec<Value> {
+pub(crate) fn fetch_team(team: Option<(String, String, String)>) -> Vec<Value> {
     let Some((urls, token, repo)) = team else { eprintln!("gitta: no team server configured (gitta init --server URL --token T)"); std::process::exit(1) };
     for url in urls.split(',').map(|u| u.trim().trim_end_matches('/')).filter(|u| !u.is_empty()) {
         let mut curl = Command::new("curl");

@@ -152,7 +152,7 @@ pub fn remove_old(bin_dir: &Path) {
     }
 }
 
-fn sha256_hex(b: &[u8]) -> String { ring::digest::digest(&ring::digest::SHA256, b).as_ref().iter().map(|x| format!("{x:02x}")).collect() }
+fn sha256_hex(b: &[u8]) -> String { { use sha2::{Digest, Sha256}; Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect() } }
 
 /// Download, verify and unpack a release into `work` (in the binary's folder), then rename each file over.
 /// Returns the names that were replaced.

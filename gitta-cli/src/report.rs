@@ -166,8 +166,76 @@ pub fn within(events: Vec<Value>, since: Option<&str>, until: Option<&str>) -> V
     }).collect()
 }
 
+/// The recorded failure packages (`.gitta/failures/*.json`), for the integration report.
+pub fn read_failures(root: &std::path::Path) -> Vec<Value> {
+    std::fs::read_dir(root.join(".gitta/failures")).into_iter().flatten().flatten()
+        .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok()).filter_map(|s| serde_json::from_str(&s).ok()).collect()
+}
+
+/// Follow work through to correct integration, including repair. Every figure is MEASURED from this
+/// repository's audit trail and failure records; nothing here is estimated. Comparison with a team's existing
+/// Git/CI workflow is left to their own baseline, which this does not invent.
+pub fn integration(events: &[Value], failures: &[Value]) -> Value {
+    let kind = |e: &Value| e["event"].as_str().unwrap_or("").to_string();
+    let f64of = |e: &Value, path: &[&str]| { let mut v = e; for k in path { v = &v[k]; } v.as_f64() };
+    let (mut integrated, mut stopped, mut validations, mut reused, mut gate_seconds) = (0u64, 0u64, 0u64, 0u64, 0f64);
+    let (mut env_failures, mut skipped, mut warnings, mut approvals) = (0u64, 0u64, 0u64, 0u64);
+    for e in events {
+        match kind(e).as_str() {
+            "landed" | "reached_main" => integrated += 1,
+            "merge_stopped" => stopped += 1,
+            "gate_environment" => env_failures += 1,
+            "checks_skipped" => skipped += 1,
+            "warning" => warnings += 1,
+            "approved" => approvals += 1,
+            _ => {}
+        }
+        if kind(e) == "merge_checked" {
+            validations += 1;
+            if e["data"]["tests"]["tested_at_commit"].as_bool() == Some(true) { reused += 1; }
+            if let Some(s) = f64of(e, &["data", "tests", "seconds"]) { gate_seconds += s; }
+        }
+    }
+    let recorded = failures.len() as u64;
+    let rerun_attempts: u64 = failures.iter().map(|f| f["attempts"].as_array().map(|a| a.len() as u64).unwrap_or(0)).sum();
+    let reproduced = failures.iter().filter(|f| f["reproduced"].as_bool() == Some(true)).count() as u64;
+    let env_mismatches = failures.iter().filter(|f| f["status"].as_str() == Some("environment mismatch")).count() as u64;
+    json!({
+        "measured": true,
+        "integration": {"integrated": integrated, "merges_stopped_before_main": stopped},
+        "validation": {"gate_runs_recorded": validations, "results_reused": reused, "gate_seconds": (gate_seconds * 10.0).round() / 10.0},
+        "repair": {"failures_recorded": recorded, "rerun_attempts": rerun_attempts, "reproduced": reproduced, "environment_mismatches": env_mismatches},
+        "checks": {"environment_failures": env_failures, "skipped": skipped, "warnings": warnings, "approvals": approvals},
+        "note": "All figures are measured from this repository's audit trail and failure records; none are estimated. Compare against your own Git/CI baseline."
+    })
+}
+
+pub fn render_integration(v: &Value, fmt: &str) -> String {
+    if fmt == "json" { return serde_json::to_string_pretty(v).unwrap() + "\n"; }
+    let g = |a: &str, b: &str| v[a][b].as_f64().map(|x| if x.fract() == 0.0 { format!("{}", x as i64) } else { format!("{x}") }).unwrap_or_else(|| "0".into());
+    let (i, val, rep, ch) = (&v["integration"], &v["validation"], &v["repair"], &v["checks"]);
+    let n = |x: &Value, k: &str| x[k].as_u64().unwrap_or(0);
+    format!("gitta integration report (measured, not estimated)\n\n\
+        Integration\n  integrated into main        {}\n  merges stopped before main  {}\n\n\
+        Validation\n  gate runs recorded          {}\n  results reused (saved runs) {}\n  gate seconds                {}\n\n\
+        Repair\n  failures recorded           {}\n  rerun attempts              {}\n  reproduced                  {}\n  environment mismatches      {}\n\n\
+        Checks\n  environment failures        {}\n  checks skipped              {}\n  warnings                    {}\n  approvals                   {}\n\n{}\n",
+        n(i, "integrated"), n(i, "merges_stopped_before_main"),
+        n(val, "gate_runs_recorded"), n(val, "results_reused"), g("validation", "gate_seconds"),
+        n(rep, "failures_recorded"), n(rep, "rerun_attempts"), n(rep, "reproduced"), n(rep, "environment_mismatches"),
+        n(ch, "environment_failures"), n(ch, "skipped"), n(ch, "warnings"), n(ch, "approvals"),
+        v["note"].as_str().unwrap_or(""))
+}
+
 /// `gitta report`: this repository from the local audit trail, or the whole team from a team server.
 pub fn cmd(root: &std::path::Path, args: &[String], team: Option<(String, String, String)>) {
+    if args.iter().any(|a| a == "--integration") {
+        let o = parse_args(args).unwrap_or(Opts { period: Period::All, by: By::Agent, since: None, until: None, fmt: "text".into(), team: false });
+        let events = within(crate::audit::read(root), o.since.as_deref(), o.until.as_deref());
+        print!("{}", render_integration(&integration(&events, &read_failures(root)), &o.fmt));
+        return;
+    }
     let o = match parse_args(args) { Ok(o) => o, Err(e) => { eprintln!("gitta: {e}"); std::process::exit(2) } };
     if o.team {
         let Some((urls, token, _)) = team else { eprintln!("gitta: no team server configured (gitta init --server URL --token T)"); std::process::exit(1) };
@@ -241,6 +309,36 @@ mod tests {
         let r = rows(&t, "shop", Period::All, By::Repo);
         assert_eq!(r.iter().filter(|x| x["repo"] != "all").count(), 2);
         assert_eq!(within(trail(), Some("2026-10-20"), Some("2026-10-20")).len(), 2);
+    }
+
+    #[test]
+    fn integration_report_counts_from_trail_and_failures() {
+        let events = vec![
+            ev("2026-10-20T10:00:00Z", "merge_checked", "a1", json!({"tests": {"result": "passed", "seconds": 3.0, "tested_at_commit": false}})),
+            ev("2026-10-20T10:01:00Z", "merge_checked", "a1", json!({"tests": {"result": "passed", "seconds": 0.0, "tested_at_commit": true}})),
+            ev("2026-10-20T10:02:00Z", "landed", "a1", json!({})),
+            ev("2026-10-20T10:03:00Z", "merge_stopped", "a2", json!({"failing": ["t"]})),
+            ev("2026-10-20T10:04:00Z", "gate_environment", "a2", json!({"missing": "tsc"})),
+            ev("2026-10-20T10:05:00Z", "warning", "a1", json!({})),
+        ];
+        let failures = vec![
+            json!({"status": "reproduced", "reproduced": true, "attempts": [{"result": "reproduced"}]}),
+            json!({"status": "environment mismatch", "reproduced": false, "attempts": [{"result": "environment mismatch"}, {"result": "environment mismatch"}]}),
+        ];
+        let v = integration(&events, &failures);
+        assert_eq!(v["integration"]["integrated"], 1);
+        assert_eq!(v["integration"]["merges_stopped_before_main"], 1);
+        assert_eq!(v["validation"]["gate_runs_recorded"], 2);
+        assert_eq!(v["validation"]["results_reused"], 1);
+        assert_eq!(v["validation"]["gate_seconds"], 3.0);
+        assert_eq!(v["repair"]["failures_recorded"], 2);
+        assert_eq!(v["repair"]["rerun_attempts"], 3);
+        assert_eq!(v["repair"]["reproduced"], 1);
+        assert_eq!(v["repair"]["environment_mismatches"], 1);
+        assert_eq!(v["checks"]["environment_failures"], 1);
+        assert_eq!(v["checks"]["warnings"], 1);
+        // text render carries the "measured" framing
+        assert!(render_integration(&v, "text").contains("measured, not estimated"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Gitta core: symbol extraction and cross-agent hazard analysis (Python, TypeScript, TSX, Go, Rust, Java, C#, Kotlin, C, C++).
+//! Gitta core: symbol extraction and cross-agent hazard analysis (Python, TypeScript, TSX, Go, Rust, Java, C#, Kotlin, C, C++, COBOL, JCL).
 //!
 //! Given a base snapshot and the current states of two agents, report
 //!   OVERLAP  both agents changed the same symbol (or the same non-code file)
@@ -21,7 +21,9 @@ pub type Snapshot = BTreeMap<String, Vec<u8>>;
 pub const ATTR: &str = "<attribute>";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, serde::Deserialize)]
-pub enum Lang { Python, TypeScript, Tsx, Go, Rust, Java, CSharp, Kotlin, C, Cpp }
+pub enum Lang {
+    Python, TypeScript, Tsx, Go, Rust, Java, CSharp, Kotlin, C, Cpp,
+}
 
 pub fn lang_of(path: &str) -> Option<Lang> {
     if path.ends_with(".py") { Some(Lang::Python) }
@@ -32,8 +34,12 @@ pub fn lang_of(path: &str) -> Option<Lang> {
     else if path.ends_with(".kt") || path.ends_with(".kts") { Some(Lang::Kotlin) }
     else if path.ends_with(".tsx") || path.ends_with(".jsx") { Some(Lang::Tsx) }
     else if [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].iter().any(|e| path.ends_with(e)) { Some(Lang::TypeScript) }
-    else { c_cpp::lang_of(path) }
+    else { abap_lang(path).or_else(|| other_lang_of(path)) }
 }
+
+fn abap_lang(_path: &str) -> Option<Lang> { None }
+
+fn other_lang_of(path: &str) -> Option<Lang> { c_cpp::lang_of(path) }
 
 /// The language a file is read in, with its text: a `.h` file may be C or C++ (see c_cpp.rs).
 pub fn lang_for(path: &str, src: &[u8]) -> Option<Lang> {
@@ -76,7 +82,8 @@ pub struct Refs {
     pub members: BTreeSet<(String, String)>, // (object identifier, property)
     pub props: BTreeSet<String>,             // every `.prop` used, any object
     pub paths: BTreeSet<(String, String)>,   // Rust `a::b::name` paths: (raw path, name)
-    /// References the parser already resolved to (module, name): C++ names looked up in their scope.
+    /// References the parser already resolved to (module, name): COBOL names of a nested program's own scope,
+    /// GLOBAL items of an enclosing program, EXTERNAL data, INVOKE on a known class.
     pub qual: BTreeSet<(String, String)>,
 }
 
@@ -103,8 +110,8 @@ pub struct FileInfo {
     pub module: String,
     /// Modules whose names are all in scope: C# `using N;` and enclosing namespaces, Kotlin `import a.b.*`.
     pub opens: BTreeSet<String>,
-    /// The symbol (module, name) of a key whose symbol is not (`module`, its name): C and C++ items, whose
-    /// symbols are global or the translation unit's own.
+    /// The symbol (module, name) of a key whose symbol is not (`module`, its name): the items of the second and
+    /// later programs of a COBOL source file, and EXTERNAL data, which every program that declares it shares.
     /// The bare names such a key uses are not in `module`'s scope (they are resolved in `Refs::qual`).
     pub symbols: BTreeMap<Key, (String, String)>,
 }
@@ -1099,7 +1106,7 @@ fn side_changes(base: &Snapshot, x: &Snapshot) -> Side {
             if let Some(lang) = bi.lang {
                 // Security controls: the same keys as `changed`, so a hit on the symbol finds the note.
                 let skey = match k { _ if bi.symbols.contains_key(k) => bi.symbols.get(k).cloned(), Key::Member(c, inner) => inner.bound().map(|n| (format!("{module}.{c}"), n.to_string())), _ => k.bound().map(|n| (module.clone(), n.to_string())) };
-                // A key with its own symbol (a C or C++ item) is judged under that symbol.
+                // A key with its own symbol (a nested COBOL program's paragraph) is judged under that symbol.
                 let (smod, sk) = match bi.symbols.get(k) { Some((m, n)) => (m.clone(), k.renamed(n)), None => (module.clone(), k.clone()) };
                 if let Some(skey) = skey {
                     match security::weakening(path, &smod, &sk, item, new, lang) {
@@ -1200,9 +1207,9 @@ fn propagate(x: &Snapshot, side: &mut Side) {
         // The changed names, plus the class for class members (a module's own name would match far too much).
         let names: BTreeSet<&str> = high.iter().flat_map(|(m, n)| [Some(text_name(m, n)), side.classes.contains(m).then(|| m.rsplit('.').next().unwrap_or(m))]).flatten().collect();
         // One prepared substring search per name: the text of every file is searched for every name.
-        let finders: Vec<memchr::memmem::Finder> = names.iter().filter(|n| !n.is_empty()).map(|n| memchr::memmem::Finder::new(n.as_bytes())).collect();
+        let finders: Vec<(&str, memchr::memmem::Finder)> = names.iter().filter(|n| !n.is_empty()).map(|n| (*n, memchr::memmem::Finder::new(n.as_bytes()))).collect();
         let todo: Vec<(&String, &Vec<u8>)> = x.iter().filter(|(p, _)| lang_of(p).is_some() && !parsed.contains_key(*p))
-            .filter(|(_, v)| finders.iter().any(|f| f.find(v).is_some())).collect();
+            .filter(|(p, v)| { let ci = caseless(p); finders.iter().any(|(n, f)| if ci { v.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n.as_bytes())) } else { f.find(v).is_some() }) }).collect();
         for (p, v) in todo { parsed.insert(p.clone(), analyze_file(p, v)); }
         let infos: Vec<(&String, &FileInfo)> = parsed.iter().filter_map(|(p, i)| i.as_ref().map(|i| (p, i))).collect();
         let mut added = false;
@@ -1239,6 +1246,8 @@ fn propagate(x: &Snapshot, side: &mut Side) {
         if !added { break; }
     }
 }
+
+fn caseless(_: &str) -> bool { false }
 
 /// The part of a changed symbol's name that the text of code using it contains (C++ `ns::W::f` is called as `f`).
 fn text_name<'a>(m: &str, n: &'a str) -> &'a str { if c_cpp::display(m, n).is_some() { c_cpp::search_name(n) } else { n } }
@@ -1333,8 +1342,9 @@ fn analyze_with(base: &Snapshot, a: (&str, &Snapshot), b: (&str, &Snapshot), tra
             if let Some(binfo) = base.get(path).and_then(|s| analyze_file(path, s)) {
                 // Only NEW references are hazards: base callers were exercised by the changing side's own checks.
                 let (ob, oq) = references(&binfo, keys);
-                bare.retain(|n| !ob.contains(n));
-                qual.retain(|q| !oq.contains(q));
+                let grown: BTreeSet<String> = BTreeSet::new();
+                bare.retain(|n| !ob.contains(n) || grown.contains(n));
+                qual.retain(|q| !oq.contains(q) || grown.contains(&q.1));
             }
             let module = info.module.clone();
             let own: BTreeSet<&str> = keys.iter().filter_map(|k| k.bound()).collect();
@@ -1346,7 +1356,8 @@ fn analyze_with(base: &Snapshot, a: (&str, &Snapshot), b: (&str, &Snapshot), tra
                 // (another part of a C# partial class, say) that names a changed member uses it.
                 let own_class = info.lang.map(|l| matches!(l, Lang::Java | Lang::CSharp | Lang::Kotlin)).unwrap_or(false) && bare.contains(name)
                     && keys.iter().any(|k| matches!(k, Key::Member(kc, _) if cm == &format!("{module}.{kc}")));
-                let hit = class_member || own_class || (cm == &module && bare.contains(name) && !own.contains(name.as_str())) || qual.contains(&(cm.clone(), name.clone()))
+                let mf = false;
+                let hit = class_member || own_class || mf || (cm == &module && bare.contains(name) && !own.contains(name.as_str())) || qual.contains(&(cm.clone(), name.clone()))
                     || (!cm.is_empty() && qual.iter().any(|(m, n)| n == name && m.strip_prefix("go:").map(|r| r == cm || r.ends_with(&format!("/{cm}"))).unwrap_or(false)));
                 if hit {
                     let key = (cm.clone(), name.clone());

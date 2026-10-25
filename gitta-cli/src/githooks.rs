@@ -177,12 +177,27 @@ fn check_from(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incom
     // The target moves back or sideways to an older commit (reset, update-ref): compare with where it was.
     if base == git_ok(root, &["rev-parse", incoming]) { base = git_ok(root, &["rev-parse", onto]); }
     let all: BTreeSet<String> = git_ok(root, &["diff", "--name-only", "--no-renames", &base, incoming]).lines().map(String::from).collect();
+    let changed = all.len();
     // What the merge brings to the target: files that already match it there are not new.
     let (on, inc) = (blobs(root, onto, &all), blobs(root, incoming, &all));
     let paths: BTreeSet<String> = all.into_iter().filter(|p| s(&on, p) != s(&inc, p)).collect();
-    if paths.is_empty() { return Ok(()); }
+    if paths.is_empty() {
+        // git named changed files, yet nothing read as different and we read NO content on either side. A genuine
+        // no-op merge (onto already holds incoming's content) leaves `on`/`inc` populated with equal content; both
+        // coming back empty is a blob-read regression, and returning Ok() here would silently re-open the approve
+        // path (a merge allowed with no checks). Fail loud instead -- never approve on content we could not read.
+        if vacuous_read(changed, &on, &inc) {
+            die(&format!("gitta read no content for {changed} changed file(s) between {onto} and {incoming}; refusing to approve the {how} on data it could not read"));
+        }
+        return Ok(());
+    }
     // Removed tests, weakened checks and security rules: the person's merge command is the approval.
     let (b, n) = (blobs(root, &base, &paths), blobs(root, incoming, &paths));
+    // Same guard for the reads that feed the safety-net and security checks: `paths` is non-empty here, so reading
+    // nothing at all on both sides is a read regression, not a real change -- never run the checks on empty content.
+    if vacuous_read(paths.len(), &b, &n) {
+        die(&format!("gitta read no content at {base} or {incoming} for {} changed file(s); refusing to run the safety-net and security checks on data it could not read", paths.len()));
+    }
     let list: Vec<String> = paths.iter().cloned().collect();
     // A credential on a line the merge adds is refused on every route, as `gitta land` refuses it.
     let txt = |s: &gitta_core::Snapshot, p: &str| s.get(p).map(|x| String::from_utf8_lossy(x).to_string()).unwrap_or_default();
@@ -242,10 +257,18 @@ fn check_from(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incom
     };
     let secs = (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0;
     if ok {
+        // A gate that exits 0 having run NO tests (pytest collected nothing, `go test` with no test files, a
+        // placeholder script) has verified nothing: do not credit it as a pass. Conservative -- only well-known
+        // "ran nothing" signatures, so a genuine pass is never downgraded.
+        if let Some(sig) = zero_tests(&out) {
+            log(root, "warning", &who, &format!("The test command exited 0 but ran no tests ({sig}); gitta is not treating that as a verified pass."));
+            audit::record(root, "merge_stopped", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "tests": {"command": gate, "result": "no_tests_ran", "signature": sig}, "features": gitta_core::guard::features()}));
+            return Err(format!("the test command ran no tests ({sig}), so nothing was verified; {{state}}. Point .gitta.toml's gate at the test suite and run the same git command again."));
+        }
         // Silent when the combined tests pass: git's own output is all the agent needs; the story is in the log.
         let _ = (&what, &noted);
         log(root, "landed", &who, &format!("Tests passed on {target} combined with {} changes. {who} was merged into {target} with {how}.", poss(&who)));
-        audit::record(root, "merge_checked", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "files": paths.iter().map(|p| serde_json::json!({"path": p})).collect::<Vec<_>>(), "tests": {"command": gate, "result": "passed", "seconds": secs, "tested_at_commit": cached}}));
+        audit::record(root, "merge_checked", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "files": paths.iter().map(|p| serde_json::json!({"path": p})).collect::<Vec<_>>(), "tests": {"command": gate, "result": "passed", "seconds": secs, "tested_at_commit": cached}, "features": gitta_core::guard::features()}));
         return Ok(());
     }
     if let Some(tool) = missing_tool(&out, code) {
@@ -256,8 +279,9 @@ fn check_from(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incom
     let errs = first_errors(&out, 6);
     let defs = landed_definitions(root, &base, onto, &hz);
     if let Some(a) = &ag { save_test_hold(root, a, &changed_paths(a, &c.link), &main_commit(c), &failing, &out, &defs); }
+    write_failure_package(root, c, onto, incoming, at, &tree, &failing, &out);
     log(root, "refused", &who, &format!("gitta stopped the {how}: tests fail on {target} combined with {who}{}.", failing.first().map(|t| format!(" ({t})")).unwrap_or_default()));
-    audit::record(root, "merge_stopped", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "failing": failing}));
+    audit::record(root, "merge_stopped", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "failing": failing, "features": gitta_core::guard::features()}));
     // One line for the agent, the first error as evidence, and the new form of a function its code relies on.
     Err(format!("tests fail on {target} with {who}{}; {{state}}. Fix it and merge again.{}",
         match failing.len() { 0 => String::new(), 1 => format!(" ({})", failing[0]), k => format!(" ({k} tests: {})", failing.iter().take(3).cloned().collect::<Vec<_>>().join(", ")) },
@@ -273,12 +297,26 @@ fn fin(e: &str, state: &str) -> String {
 /// True when the command runs inside an AI agent's tool call: what gitta prints there enters the agent's context.
 pub(crate) fn in_agent() -> bool {
     // The full agent-session list, the same one `gitta approve` uses: a Cursor or Claude Code entrypoint commit on
-    // the target branch must be checked too, not only CLAUDECODE/GITTA_AGENT/CODEX_SANDBOX.
+    // main must be checked too, not only CLAUDECODE/GITTA_AGENT/CODEX_SANDBOX.
     AGENT_ENV.iter().any(|v| std::env::var_os(v).is_some())
 }
 
 /// The git subcommand that runs this hook (commit, cherry-pick, rebase, reset, update-ref ...), from the process tree.
 fn git_command() -> String { git_cmdline().0 }
+
+/// A changed-file set whose blob reads came back empty on BOTH sides: git named changed files, yet we read no
+/// content anywhere. Post the blobs() fix a tree-present blob never reads empty, so this only trips on a read
+/// regression -- and it must fail loud, never fall through to the approve / no-check path. A genuine no-op merge
+/// (one side already holds the other's content) leaves the snapshots populated with equal content, so it does not
+/// trip this. With no changed files it is an ordinary empty diff, also not vacuous.
+fn vacuous_read(changed: usize, a: &Snapshot, b: &Snapshot) -> bool { changed > 0 && a.is_empty() && b.is_empty() }
+
+/// Parent count from a `git rev-list --parents -n1` line: the commit id followed by its parent ids. `None` when the
+/// output is empty (unexpected state) so the caller bails -- `count - 1` on 0 underflows to usize::MAX in release
+/// and would be read as a merge commit, skipping the post-merge check.
+fn parent_count(rev_list_line: &str) -> Option<usize> {
+    rev_list_line.split_whitespace().count().checked_sub(1)
+}
 
 /// The git subcommand that runs this hook and its whole command line.
 fn git_cmdline() -> (String, String) {
@@ -369,7 +407,12 @@ pub(crate) fn run(args: &[String]) {
         "post-merge" => {
             if branch != c.main { return; }
             let head = rev(&here, "HEAD");
-            let parents = git_ok(&here, &["rev-list", "--parents", "-n", "1", "HEAD"]).split_whitespace().count() - 1;
+            let Some(parents) = parent_count(&git_ok(&here, &["rev-list", "--parents", "-n", "1", "HEAD"])) else {
+                // rev-list named nothing (unexpected: unborn/detached/odd state). `count - 1` would wrap to a huge
+                // number in release and be read as a merge commit -- skipping the post-merge check. Bail instead.
+                log(&root, "warning", "", &format!("post-merge on {target}: `git rev-list --parents` returned nothing; gitta is not recording this commit as checked."));
+                return;
+            };
             if parents >= 2 {
                 // A merge commit: pre-merge-commit checked it, unless it was skipped with --no-verify.
                 let second = rev(&here, "HEAD^2");
@@ -525,19 +568,192 @@ fn soft(dir: &Path, args: &[&str]) -> Option<String> {
 
 fn gate_cache(root: &Path, tree: &str) -> PathBuf { root.join(".gitta/gate-cache").join(tree) }
 
-/// The kept result of `gate` on `tree`, when that exact test command ran on that exact code before.
-pub(crate) fn cached_gate(root: &Path, gate: &str, tree: &str) -> Option<(bool, String, Option<i32>)> {
+/// A short FNV-1a hex digest. Used for change detection, not security.
+fn fnv_hex(s: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.bytes() { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); }
+    format!("{h:016x}")
+}
+
+/// A digest of a file's bytes, or a definite marker when it is absent. `None` means "present but could not be
+/// read" -- an uncertain state the caller treats as unreliable.
+fn file_sig(p: &Path) -> Option<String> {
+    match std::fs::read(p) { Ok(b) => Some(fnv_hex(&String::from_utf8_lossy(&b))), Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some("absent".into()), Err(_) => None }
+}
+
+/// The installed Python packages under a project's virtualenv, by the version-bearing dist-info/egg-info dir
+/// names. "absent" when there is no venv. This reflects what is actually installed, which can drift from a
+/// committed lockfile.
+fn venv_sig(root: &Path) -> String {
+    let mut names: Vec<String> = vec![];
+    for base in [root.join(".venv"), root.join("venv")] {
+        if let Ok(libs) = std::fs::read_dir(base.join("lib")) {
+            for py in libs.flatten() {
+                if let Ok(pk) = std::fs::read_dir(py.path().join("site-packages")) {
+                    for e in pk.flatten() {
+                        if let Some(n) = e.file_name().to_str() { if n.ends_with(".dist-info") || n.ends_with(".egg-info") { names.push(n.to_string()); } }
+                    }
+                }
+            }
+        }
+    }
+    if names.is_empty() { return "absent".into(); }
+    names.sort(); fnv_hex(&names.join("\n"))
+}
+
+/// A fingerprint of the gate's inputs that are NOT in the git tree, and whether it is reliable. The candidate
+/// tree already covers every tracked file, committed lockfiles included; this covers what the tree cannot: the
+/// toolchains the gate uses (detected from the command), the installed dependencies in the linked dep dirs
+/// (which can drift from a committed lockfile), and the environment variables the project names in `gate_env`.
+///
+/// `reliable` is false when an input cannot be read with confidence -- a toolchain the gate names but whose
+/// version will not run, or an installed-dependency marker that is present but unreadable. The caller then
+/// bypasses reuse (runs the gate, caches nothing) rather than assume equivalence. An *absent* dependency dir is
+/// a definite state, not an unreliable one. Env var values are only hashed, never returned or stored; an unset
+/// variable is distinguished from one set to the empty string.
+fn gate_fingerprint(root: &Path, c: &Config, gate: &str) -> (String, bool) {
+    let mut parts: Vec<String> = vec!["gate-fp-v1".into()];
+    let mut reliable = true;
+    let g = gate.to_lowercase();
+    let has = |needles: &[&str]| needles.iter().any(|n| g.contains(n));
+    let ver = |cmd: &str, args: &[&str]| -> Option<String> {
+        let o = Command::new(cmd).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).output().ok()?;
+        let s = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+        s.lines().next().map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
+    };
+    let tool = |label: &str, cmd: &str, args: &[&str], parts: &mut Vec<String>, reliable: &mut bool| {
+        match ver(cmd, args) { Some(v) => parts.push(format!("{label}={v}")), None => { parts.push(format!("{label}=unresolved")); *reliable = false; } }
+    };
+    if has(&["node", "npm", "npx", "pnpm", "yarn", "jest", "vitest", "tsc", "eslint", "ts-node"]) {
+        tool("node", "node", &["--version"], &mut parts, &mut reliable);
+        match file_sig(&root.join("node_modules/.package-lock.json")) { Some(s) => parts.push(format!("node_modules={s}")), None => { parts.push("node_modules=unreadable".into()); reliable = false; } }
+    }
+    if has(&["python", "pytest", "pip", "tox", "ruff", "mypy", "poetry"]) {
+        tool("python", "python3", &["--version"], &mut parts, &mut reliable);
+        parts.push(format!("site-packages={}", venv_sig(root)));
+    }
+    if has(&["cargo", "rustc", "clippy"]) { tool("rust", "rustc", &["--version"], &mut parts, &mut reliable); }
+    if g.split(|c: char| c.is_whitespace()).any(|w| w == "go") { tool("go", "go", &["version"], &mut parts, &mut reliable); }
+    if has(&["java", "mvn", "maven", "gradle"]) { tool("java", "java", &["-version"], &mut parts, &mut reliable); }
+    if has(&["deno"]) { tool("deno", "deno", &["--version"], &mut parts, &mut reliable); }
+    if has(&["bun"]) { tool("bun", "bun", &["--version"], &mut parts, &mut reliable); }
+    for name in &c.gate_env {
+        match std::env::var(name) { Ok(v) => parts.push(format!("env:{name}=set:{}", fnv_hex(&v))), Err(_) => parts.push(format!("env:{name}=unset")) }
+    }
+    (fnv_hex(&parts.join("\n")), reliable)
+}
+
+/// The kept result of `gate` on `tree`, when that exact test command ran on that exact code and the same
+/// out-of-tree environment (`env`, the gate fingerprint) before.
+pub(crate) fn cached_gate(root: &Path, gate: &str, tree: &str, env: &str) -> Option<(bool, String, Option<i32>)> {
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(gate_cache(root, tree)).ok()?).ok()?;
     if v["gate"].as_str() != Some(gate) { return None; }
+    if v["env"].as_str() != Some(env) { return None; }
     Some((v["ok"].as_bool()?, v["out"].as_str().unwrap_or("").to_string(), v["code"].as_i64().map(|x| x as i32)))
 }
 
-pub(crate) fn save_gate(root: &Path, gate: &str, tree: &str, ok: bool, out: &str, code: Option<i32>) {
+pub(crate) fn save_gate(root: &Path, gate: &str, tree: &str, env: &str, ok: bool, out: &str, code: Option<i32>) {
     let p = gate_cache(root, tree);
     let _ = std::fs::create_dir_all(p.parent().unwrap());
     let out: String = out.chars().take(200_000).collect();
     let tmp = p.with_extension(format!("tmp{}", std::process::id()));
-    if std::fs::write(&tmp, serde_json::json!({"gate": gate, "ok": ok, "code": code, "out": out}).to_string()).is_ok() { let _ = std::fs::rename(&tmp, &p); }
+    if std::fs::write(&tmp, serde_json::json!({"gate": gate, "env": env, "ok": ok, "code": code, "out": out}).to_string()).is_ok() { let _ = std::fs::rename(&tmp, &p); }
+}
+
+// ---- Failure packages (item B): a failed landing turned into a reproducible, handoff-ready task. ----
+// One JSON format under .gitta/failures/<id>.json, shared by the CLI (`gitta failure ...`) and the agent
+// tool (gitta_failures). Immutable revisions, the gate, the out-of-tree fingerprint (a hash, never raw env
+// values), bounded diagnostics and a rerun command. "rerun_available" is set when instructions exist;
+// "reproduced" is set only after a rerun confirms the same failure against a matching fingerprint.
+
+fn failures_dir(root: &Path) -> PathBuf { root.join(".gitta/failures") }
+fn now_secs() -> f64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0) }
+fn short(sha: &str) -> &str { &sha[..sha.len().min(12)] }
+
+/// Record (or refresh) the failure package for a gate failure on the merge path. Keyed by the candidate tree,
+/// so one failing candidate is one package. Prior rerun attempts are preserved.
+pub(crate) fn write_failure_package(root: &Path, c: &Config, base: &str, incoming: &str, candidate_commit: &str, candidate_tree: &str, failing: &[String], out: &str) {
+    let Some(gate) = c.gate.as_deref() else { return };
+    if candidate_tree.is_empty() { return; }
+    let id = short(candidate_tree);
+    let (fp, reliable) = gate_fingerprint(root, c, gate);
+    let tail: Vec<&str> = out.lines().rev().take(40).collect::<Vec<_>>().into_iter().rev().collect();
+    let dir = failures_dir(root); let _ = std::fs::create_dir_all(&dir);
+    let p = dir.join(format!("{id}.json"));
+    let attempts = std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()).and_then(|v| v["attempts"].as_array().cloned()).unwrap_or_default();
+    let pkg = serde_json::json!({
+        "id": id, "recorded_at": now_secs(), "status": "recorded", "reproduced": false, "rerun_available": true,
+        "base": base, "incoming": incoming, "candidate_commit": candidate_commit, "candidate_tree": candidate_tree,
+        "gate": gate, "fingerprint": fp, "fingerprint_reliable": reliable,
+        "failing": failing.iter().take(10).collect::<Vec<_>>(), "errors": first_errors(out, 8), "output": tail.join("\n"),
+        "rerun": format!("gitta failure rerun {id}"), "attempts": attempts });
+    let tmp = p.with_extension(format!("tmp{}", std::process::id()));
+    if std::fs::write(&tmp, serde_json::to_string_pretty(&pkg).unwrap()).is_ok() { let _ = std::fs::rename(&tmp, &p); }
+}
+
+fn failure_list(root: &Path) -> Vec<serde_json::Value> {
+    let mut v: Vec<serde_json::Value> = std::fs::read_dir(failures_dir(root)).into_iter().flatten().flatten()
+        .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok()).filter_map(|s| serde_json::from_str(&s).ok()).collect();
+    v.sort_by(|a, b| b["recorded_at"].as_f64().unwrap_or(0.0).total_cmp(&a["recorded_at"].as_f64().unwrap_or(0.0)));
+    v
+}
+fn failure_get(root: &Path, id: &str) -> Option<serde_json::Value> {
+    serde_json::from_str(&std::fs::read_to_string(failures_dir(root).join(format!("{}.json", short(id)))).ok()?).ok()
+}
+
+/// Re-run the recorded candidate's gate. Only claims "reproduced" when the out-of-tree environment still
+/// matches AND the gate fails the same way; a changed environment is recorded as a mismatch, not a reproduction.
+fn failure_rerun(root: &Path, c: &Config, id: &str) -> Result<String, String> {
+    let mut pkg = failure_get(root, id).ok_or_else(|| format!("no failure package {id}; see `gitta failure list`"))?;
+    let gate = c.gate.clone().ok_or("no gate is set, so nothing can be re-run")?;
+    let commit = pkg["candidate_commit"].as_str().unwrap_or_default().to_string();
+    let recorded_fp = pkg["fingerprint"].as_str().unwrap_or_default().to_string();
+    let (now_fp, reliable) = gate_fingerprint(root, c, &gate);
+    let mut attempts = pkg["attempts"].as_array().cloned().unwrap_or_default();
+    let (status, outcome) = if now_fp != recorded_fp {
+        ("environment mismatch".to_string(), format!("the environment differs from when this failure was recorded, so this is not a clean reproduction (recorded fingerprint {}, now {}). Re-create the environment, or treat it as a new run.", short(&recorded_fp), short(&now_fp)))
+    } else if !reliable {
+        ("environment unverified".to_string(), "the environment could not be fingerprinted reliably, so a reproduction cannot be confirmed.".to_string())
+    } else {
+        let w = Wt::open(root, "gate", &commit, &c.link);
+        let (ok, _out, _code, timed) = run_gate(&gate, &w.path, None, gate_timeout(c));
+        w.release();
+        if timed { ("could not run".into(), "the gate was stopped at its time limit before a result; not confirmed.".into()) }
+        else if ok { pkg["reproduced"] = serde_json::json!(false); ("not reproduced".into(), "the gate passed on the recorded candidate; the failure did not reproduce.".into()) }
+        else { pkg["reproduced"] = serde_json::json!(true); ("reproduced".into(), "the gate failed again on the recorded candidate; the failure is confirmed.".into()) }
+    };
+    attempts.push(serde_json::json!({"at": now_secs(), "result": status, "fingerprint": short(&now_fp)}));
+    pkg["attempts"] = serde_json::json!(attempts);
+    pkg["status"] = serde_json::json!(status);
+    let p = failures_dir(root).join(format!("{}.json", short(id)));
+    let _ = std::fs::write(&p, serde_json::to_string_pretty(&pkg).unwrap());
+    Ok(outcome)
+}
+
+/// `gitta failure [list|show <id>|rerun <id>]`.
+pub(crate) fn run_failure(args: &[String]) {
+    let root = root();
+    let c = load(&root);
+    match args.first().map(String::as_str) {
+        None | Some("list") => {
+            let v = failure_list(&root);
+            if v.is_empty() { println!("gitta: no recorded integration failures."); return; }
+            for f in &v {
+                let first = f["failing"].as_array().and_then(|a| a.first()).and_then(|x| x.as_str()).unwrap_or("");
+                println!("{}  {:20}  {}", f["id"].as_str().unwrap_or(""), f["status"].as_str().unwrap_or(""), first);
+            }
+        }
+        Some("show") => { match args.get(1).and_then(|id| failure_get(&root, id)) { Some(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap()), None => die("usage: gitta failure show <id>") } }
+        Some("rerun") => { let id = args.get(1).cloned().unwrap_or_else(|| die("usage: gitta failure rerun <id>")); match failure_rerun(&root, &c, &id) { Ok(m) => println!("gitta: {m}"), Err(e) => die(&e) } }
+        Some(x) => die(&format!("unknown: gitta failure {x} (try list, show <id>, rerun <id>)")),
+    }
+}
+
+/// The failure packages as JSON, for the agent tool. `id` None lists them; Some shows one.
+pub(crate) fn failures_json(root: &Path, id: Option<&str>) -> String {
+    match id { Some(id) => failure_get(root, id).map(|v| serde_json::to_string_pretty(&v).unwrap()).unwrap_or_else(|| format!("no failure package {id}")),
+               None => serde_json::to_string_pretty(&failure_list(root)).unwrap() }
 }
 
 fn gate_running(root: &Path, tree: &str) -> PathBuf { root.join(".gitta/gate-cache").join(format!("{tree}.running")) }
@@ -560,16 +776,27 @@ fn wait_running(root: &Path, tree: &str) {
 /// The last value says whether the result was kept from before. None: the code could not be checked out.
 fn gate_result(root: &Path, c: &Config, gate: &str, tree: &str, at: &str) -> Option<(bool, String, Option<i32>, bool)> {
     if tree.is_empty() { return None; }
-    if let Some((ok, out, code)) = cached_gate(root, gate, tree) { return Some((ok, out, code, true)); }
-    wait_running(root, tree);
-    if let Some((ok, out, code)) = cached_gate(root, gate, tree) { return Some((ok, out, code, true)); }
+    // The out-of-tree environment fingerprint. When it cannot be read reliably, reuse is bypassed entirely:
+    // the gate runs and nothing is cached, rather than trust or write a result keyed on an uncertain identity.
+    let (fp, reliable) = gate_fingerprint(root, c, gate);
+    if reliable {
+        if let Some((ok, out, code)) = cached_gate(root, gate, tree, &fp) { return Some((ok, out, code, true)); }
+        wait_running(root, tree);
+        if let Some((ok, out, code)) = cached_gate(root, gate, tree, &fp) { return Some((ok, out, code, true)); }
+    }
     let run = gate_running(root, tree);
     let _ = std::fs::create_dir_all(run.parent().unwrap());
     let _ = std::fs::write(&run, std::process::id().to_string());
+    // Bound how many gates run at once across all gitta processes (land, merge-path, precheck share the pool).
+    let _slot = acquire_gate_slot(root, gate_cap(c));
     let w = Wt::open(root, "gate", at, &c.link);
-    let (ok, out, code) = run_gate(gate, &w.path);
+    let (ok, out, code, timed_out) = run_gate(gate, &w.path, _slot.path(), gate_timeout(c));
     w.release();
-    if missing_tool(&out, code).is_none() { save_gate(root, gate, tree, ok, &out, code); }
+    drop(_slot);
+    // Cache only a trustworthy result keyed on a reliable fingerprint: never a run stopped at the time limit,
+    // never a no-test pass, never a missing-tool run (already excluded), and never when the environment could
+    // not be fingerprinted.
+    if reliable && !timed_out && missing_tool(&out, code).is_none() && !(ok && zero_tests(&out).is_some()) { save_gate(root, gate, tree, &fp, ok, &out, code); }
     let _ = std::fs::remove_file(&run);
     Some((ok, out, code, false))
 }
@@ -624,4 +851,144 @@ fn precheck(root: &Path, c: &Config, gate: &str, tip: &str, main: &str) {
 fn parent_pid() -> String {
     #[cfg(unix)] { std::os::unix::process::parent_id().to_string() }
     #[cfg(not(unix))] { "0".to_string() }
+}
+
+#[cfg(test)]
+mod hook_guard_tests {
+    use super::*;
+
+    // `git rev-list --parents -n1` prints the commit id then its parent ids. Empty output must be None (the caller
+    // bails), never 0 which would underflow `count - 1` to usize::MAX in release and read as a merge commit.
+    #[test]
+    fn parent_count_handles_empty_and_normal() {
+        assert_eq!(parent_count(""), None, "empty output must bail, not underflow");
+        assert_eq!(parent_count("   "), None);
+        assert_eq!(parent_count("abc123"), Some(0), "a root/normal commit: id only, no parents");
+        assert_eq!(parent_count("abc p1"), Some(1), "an ordinary commit: one parent");
+        assert_eq!(parent_count("abc p1 p2"), Some(2), "a merge commit: two parents");
+        assert_eq!(parent_count("abc p1 p2 p3"), Some(3), "an octopus merge");
+    }
+
+    // git named changed files but every blob read empty on both sides -> a read regression that must fail loud,
+    // not fall through to the approve/no-check path. Populated snapshots (a real no-op merge) do not trip it, and
+    // an empty diff (no changed files) is not vacuous.
+    #[test]
+    fn vacuous_read_only_on_empty_both_sides_with_changes() {
+        let empty = Snapshot::new();
+        let mut full = Snapshot::new();
+        full.insert("a.txt".into(), b"x".to_vec());
+        assert!(vacuous_read(2, &empty, &empty), "changes named but nothing read -> fail loud");
+        assert!(!vacuous_read(0, &empty, &empty), "no changed files is an ordinary empty diff");
+        assert!(!vacuous_read(2, &full, &empty), "one side has content -> a real change, not vacuous");
+        assert!(!vacuous_read(2, &full, &full), "a populated no-op merge is not vacuous");
+    }
+}
+
+#[cfg(test)]
+mod gate_fingerprint_tests {
+    use super::*;
+
+    fn cfg(root: &Path, gate_env: &[&str]) -> Config {
+        serde_json::from_value(serde_json::json!({
+            "root": root.to_string_lossy(), "main": "refs/heads/main", "agents": [],
+            "gate": null, "link": [], "auto_sync": true,
+            "gate_env": gate_env.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        })).unwrap()
+    }
+    fn tmp(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("gitta-fp-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d); std::fs::create_dir_all(&d).unwrap(); d
+    }
+
+    // Reuse when inputs are unchanged: the fingerprint is stable across calls.
+    #[test]
+    fn fingerprint_is_stable_when_nothing_changes() {
+        let root = tmp("stable"); let c = cfg(&root, &[]);
+        let (a, ra) = gate_fingerprint(&root, &c, "true");
+        let (b, rb) = gate_fingerprint(&root, &c, "true");
+        assert_eq!(a, b); assert_eq!(ra, rb); assert!(ra, "a gate naming no toolchain is reliable");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // An unset variable, an empty one and a set one are three distinct states.
+    #[test]
+    fn fingerprint_distinguishes_unset_empty_and_set_env() {
+        let root = tmp("env"); let name = format!("GITTA_FP_TEST_{}", std::process::id()); let c = cfg(&root, &[&name]);
+        std::env::remove_var(&name);
+        let (unset, _) = gate_fingerprint(&root, &c, "true");
+        std::env::set_var(&name, "");
+        let (empty, _) = gate_fingerprint(&root, &c, "true");
+        std::env::set_var(&name, "value");
+        let (set, _) = gate_fingerprint(&root, &c, "true");
+        std::env::remove_var(&name);
+        assert_ne!(unset, empty, "unset must differ from empty");
+        assert_ne!(empty, set, "empty must differ from a value");
+        assert_ne!(unset, set, "unset must differ from a value");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Installed node dependencies (npm's recorded state) change the fingerprint even when the tree does not.
+    #[test]
+    fn fingerprint_changes_with_installed_node_deps() {
+        let root = tmp("node"); let c = cfg(&root, &[]);
+        std::fs::create_dir_all(root.join("node_modules")).unwrap();
+        std::fs::write(root.join("node_modules/.package-lock.json"), "{\"v\":1}").unwrap();
+        let (a, _) = gate_fingerprint(&root, &c, "npm test");
+        std::fs::write(root.join("node_modules/.package-lock.json"), "{\"v\":2}").unwrap();
+        let (b, _) = gate_fingerprint(&root, &c, "npm test");
+        assert_ne!(a, b, "a change in installed node deps must change the fingerprint");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // An input that is present but cannot be read is unreliable, so reuse is bypassed.
+    #[test]
+    fn fingerprint_unreliable_when_a_marker_is_unreadable() {
+        let root = tmp("unreadable"); let c = cfg(&root, &[]);
+        // A directory where the marker file is expected: reading it as a file fails with a non-NotFound error.
+        std::fs::create_dir_all(root.join("node_modules/.package-lock.json")).unwrap();
+        let (_, reliable) = gate_fingerprint(&root, &c, "npm test");
+        assert!(!reliable, "an unreadable installed-deps marker must make the fingerprint unreliable");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod failure_package_tests {
+    use super::*;
+    #[test]
+    fn records_reruns_and_distinguishes_environment_mismatch() {
+        let root = std::env::temp_dir().join(format!("gitta-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root); std::fs::create_dir_all(&root).unwrap();
+        let g = |args: &[&str]| Command::new("git").arg("-C").arg(&root)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@t").env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@t")
+            .args(args).output().unwrap();
+        g(&["init", "-q", "-b", "main"]);
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+        g(&["add", "-A"]); g(&["commit", "-qm", "base"]);
+        let head = String::from_utf8_lossy(&g(&["rev-parse", "HEAD"]).stdout).trim().to_string();
+        let tree = String::from_utf8_lossy(&g(&["rev-parse", "HEAD^{tree}"]).stdout).trim().to_string();
+        let envname = format!("GITTA_FAIL_ENV_{}", std::process::id());
+        let c: Config = serde_json::from_value(serde_json::json!({
+            "root": root.to_string_lossy(), "main": "refs/heads/main", "agents": [],
+            "gate": "false", "link": [], "auto_sync": true, "gate_env": [envname.clone()] })).unwrap();
+        std::env::remove_var(&envname);
+        write_failure_package(&root, &c, &head, &head, &head, &tree, &["t_x".into()], "boom\n");
+        let id = short(&tree).to_string();
+        let v = failure_get(&root, &id).expect("package written");
+        assert_eq!(v["rerun_available"], serde_json::json!(true));
+        assert_eq!(v["reproduced"], serde_json::json!(false));
+        assert!(!failure_list(&root).is_empty());
+        // Same environment: the gate ("false") fails again, so the failure is confirmed reproduced.
+        let msg = failure_rerun(&root, &c, &id).unwrap();
+        assert!(msg.contains("confirmed"), "{msg}");
+        assert_eq!(failure_get(&root, &id).unwrap()["reproduced"], serde_json::json!(true));
+        // Changed environment: reported as a mismatch, not a reproduction.
+        std::env::set_var(&envname, "changed");
+        let msg2 = failure_rerun(&root, &c, &id).unwrap();
+        std::env::remove_var(&envname);
+        assert!(msg2.contains("differs"), "{msg2}");
+        assert_eq!(failure_get(&root, &id).unwrap()["status"], serde_json::json!("environment mismatch"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

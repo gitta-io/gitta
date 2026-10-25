@@ -1,6 +1,6 @@
 [package]
 name = "gitta-sandbox"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "Run a coding agent in a world built from only its worktree and the toolchain, using unprivileged Linux namespaces (bubblewrap) with outbound-only networking"
 

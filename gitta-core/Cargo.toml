@@ -1,6 +1,6 @@
 [package]
 name = "gitta-core"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/gitta-io/gitta"
@@ -31,3 +31,8 @@ strip = "symbols"
 panic = "unwind"   # the MCP server catches tool panics with catch_unwind; "abort" would kill the session
 incremental = false
 overflow-checks = false
+
+[features]
+# Enterprise builds enable these; the open-source build leaves them off and ships none of their code.
+mainframe = []
+abap = []

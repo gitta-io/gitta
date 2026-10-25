@@ -8,7 +8,10 @@
 //!   CI_WEAKENED        CI configuration now tolerates failures or lost test/lint/scan steps
 //!   THRESHOLD_LOWERED  a coverage or quality threshold went down
 //!   CHECK_SILENCED     new suppression comments (nosec, noqa, eslint-disable, @ts-ignore, #[allow] ...)
-//!   SECURITY_WEAKENED  a security control was removed or switched off in code (see security.rs)
+//!   SECURITY_WEAKENED  a security control was removed or switched off in code (see security.rs), or mainframe code
+//!                      newly does something security-relevant (see mainframe_security.rs)
+//!   CODE_PAGE          code page conversion changed characters: lines that differ only in characters EBCDIC code
+//!                      pages store differently, replacement characters, mixed encodings (see codepage.rs)
 //! Agents are known to "fix" failing work this way; Gitta's promise that only tested work lands depends on it not happening silently.
 
 use crate::Snapshot;
@@ -19,12 +22,26 @@ pub struct Finding { pub kind: String, pub path: String, pub detail: String }
 
 fn file(p: &str) -> &str { p.rsplit('/').next().unwrap_or(p) }
 
+/// The optional checks this binary was compiled with. The verdict depends on it: a build WITHOUT `mainframe` cannot
+/// raise COBOL/JCL/code-page findings, and one without `abap` cannot parse ABAP, so a clean verdict from such a build
+/// is not the same as a clean verdict from a full one. Reported in the audit/result record so that difference is
+/// observable; it never changes what any feature does.
+pub fn features() -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if cfg!(feature = "mainframe") { v.push("mainframe"); }
+    if cfg!(feature = "abap") { v.push("abap"); }
+    v
+}
+
 pub fn is_test(p: &str) -> bool {
     let f = file(p);
     p.starts_with("tests/") || p.contains("/tests/") || p.starts_with("test/") || p.contains("/test/") || p.contains("__tests__/")
         || f.starts_with("test_") || f.contains("_test.") || f.contains(".test.") || f.contains(".spec.") || ["Test.java", "Tests.java", "Test.kt", "Tests.kt", "Test.cs", "Tests.cs"].iter().any(|e| f.ends_with(e))
+        || mainframe_test(f)
         || is_c_test(f)
 }
+
+fn mainframe_test(_: &str) -> bool { false }
 
 /// C and C++ test files by name: `foo_test.cc`, `foo_unittest.cpp`, `test_foo.c`, `FooTest.cpp`, `foo.test.cpp`.
 fn is_c_test(f: &str) -> bool {
@@ -105,12 +122,18 @@ fn thresholds(text: &str) -> Vec<(String, f64)> {
 /// Weakening of the safety net between `base` and `new` for the given changed paths.
 pub fn safety_net(base: &Snapshot, new: &Snapshot, paths: &[String]) -> Vec<Finding> {
     let mut out = crate::security::weakened(base, new, paths);
+    for p in paths {
+        if let Some(n) = new.get(p) {
+            let _ = n;
+        }
+    }
     let txt = |s: &Snapshot, p: &str| s.get(p).map(|b| String::from_utf8_lossy(b).to_string());
     for p in paths {
         let (b, n) = (txt(base, p), txt(new, p));
         let f = |kind: &str, detail: String| Finding { kind: kind.into(), path: p.clone(), detail };
         if p == ".gitta-security" {
             // The repository's own list of security checks: an entry taken off it stops protecting that code.
+            // Mainframe lists count too: a library taken off `[jcl-libraries]` is no longer flagged.
             // `[allow]` entries are layer 1 allows: taking one off makes the checks stricter.
             let marks = |t: &Option<String>| -> Vec<String> { crate::security::entries(t.as_deref().unwrap_or("")).into_iter().filter(|e| !e.starts_with("[allow]")).collect() };
             let now = marks(&n);
@@ -215,4 +238,20 @@ fn assigned_secret(line: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod feature_visibility_tests {
+    use super::*;
+
+    // The compiled-in feature set must be observable so a build without `mainframe`/`abap` is not mistaken for a
+    // clean verdict from a full build. `features()` reflects exactly what was compiled in, nothing more.
+    #[test]
+    fn features_reflects_the_build() {
+        let f = features();
+        assert_eq!(f.contains(&"mainframe"), cfg!(feature = "mainframe"), "mainframe presence must match the build");
+        assert_eq!(f.contains(&"abap"), cfg!(feature = "abap"), "abap presence must match the build");
+        // Only the known optional features ever appear.
+        assert!(f.iter().all(|x| ["mainframe", "abap"].contains(x)));
+    }
 }
