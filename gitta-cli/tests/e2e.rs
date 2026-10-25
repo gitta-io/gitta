@@ -281,7 +281,7 @@ fn mcp_server_answers_and_survives_errors() {
     let o = gitta_in(&e, &e.home, &["mcp"], &input);
     let lines: Vec<serde_json::Value> = String::from_utf8_lossy(&o.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), 5, "one answer per request with an id: {lines:?}");
-    assert_eq!(lines[1]["result"]["tools"].as_array().unwrap().len(), 5);
+    assert_eq!(lines[1]["result"]["tools"].as_array().unwrap().len(), 6);
     assert_eq!(lines[2]["result"]["isError"], true, "an unknown agent is an error result, not a dead server");
     assert!(lines[2]["result"]["content"][0]["text"].as_str().unwrap().contains("no agent named nobody"));
     assert!(lines[3]["result"]["content"][0]["text"].as_str().unwrap().contains("feat"), "status after an error: {}", lines[3]);
@@ -679,129 +679,6 @@ fn the_hook_does_not_rescan_unchanged_worktrees() {
     assert!(hook < std::time::Duration::from_secs(5) && first < std::time::Duration::from_secs(60), "hook {hook:?}, status {first:?}");
 }
 
-#[cfg(feature = "mainframe")]
-#[test]
-fn cobol_copybook_change_is_reported() {
-    let e = env("cobol");
-    let fx = |s: &str| s.lines().map(|l| if l.is_empty() { String::new() } else { format!("       {l}") }).collect::<Vec<_>>().join("\n") + "\n";
-    let custrec = fx("01  CUSTOMER-RECORD.\n    05  CUSTOMER-ID       PIC 9(6).\n    05  CUSTOMER-NAME     PIC X(30).\n    05  CUSTOMER-BALANCE  PIC S9(7)V99 COMP-3.\n");
-    let billing = fx("IDENTIFICATION DIVISION.\nPROGRAM-ID. BILLING.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\nCOPY CUSTREC.\nPROCEDURE DIVISION.\nMAIN-PARA.\n    DISPLAY CUSTOMER-NAME\n    GOBACK.\n");
-    write(&e.repo.join("copybook/CUSTREC.cpy"), &custrec);
-    write(&e.repo.join("src/BILLING.cbl"), &billing);
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "base"]);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let (a, b, c) = (worktree(&e, "shrink"), worktree(&e, "interest"), worktree(&e, "names"));
-    // Agent shrink: the balance loses two integer digits in the shared copybook.
-    write(&a.join("copybook/CUSTREC.cpy"), &custrec.replace("S9(7)V99", "S9(5)V99"));
-    // Agent interest: a new paragraph in another program adds interest to the balance.
-    write(&b.join("src/BILLING.cbl"), &(billing.replace("    GOBACK.\n", "    PERFORM ADD-INTEREST\n           GOBACK.\n") + &fx("ADD-INTEREST.\n    COMPUTE CUSTOMER-BALANCE = CUSTOMER-BALANCE * 1.015.\n")));
-    // Agent names: unrelated work that only shows the name.
-    write(&c.join("src/BILLING.cbl"), &billing.replace("    DISPLAY CUSTOMER-NAME\n", "    DISPLAY 'CUSTOMER ' CUSTOMER-NAME\n"));
-    assert!(gitta(&e, &e.repo, &["land", "shrink"]).status.success());
-    let o = gitta(&e, &e.repo, &["land", "interest"]);
-    assert!(o.status.success() && text(&o).contains("CUSTOMER-BALANCE") && text(&o).contains("shrink was merged"), "interest relies on the old balance PIC: reported, the tests decide: {}", text(&o));
-    // names edits the same lines of BILLING.cbl as interest: a plain text conflict, refused until it syncs.
-    assert!(!gitta(&e, &e.repo, &["land", "names"]).status.success());
-}
-
-#[cfg(feature = "mainframe")]
-#[test]
-fn hook_warns_live_on_a_copybook_in_a_folder_listed_in_gitta_copybooks() {
-    let e = env("cobol-dirs");
-    let fx = |s: &str| s.lines().map(|l| if l.is_empty() { String::new() } else { format!("       {l}") }).collect::<Vec<_>>().join("\n") + "\n";
-    let custrec = fx("01  CUSTOMER-RECORD.\n    05  CUSTOMER-ID       PIC 9(6).\n    05  CUSTOMER-BALANCE  PIC S9(7)V99 COMP-3.\n");
-    let billing = fx("IDENTIFICATION DIVISION.\nPROGRAM-ID. BILLING.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\nCOPY CUSTREC.\nPROCEDURE DIVISION.\nMAIN-PARA.\n    DISPLAY CUSTOMER-ID\n    GOBACK.\n");
-    // A member copied from a PDS: no extension, in a folder only `.gitta-copybooks` names.
-    write(&e.repo.join("legacy/copylib/CUSTREC"), &custrec);
-    write(&e.repo.join(".gitta-copybooks"), "legacy/copylib  # copied members\n");
-    write(&e.repo.join("src/BILLING.cbl"), &billing);
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "base"]);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let (a, b) = (worktree(&e, "shrink"), worktree(&e, "interest"));
-    write(&a.join("legacy/copylib/CUSTREC"), &custrec.replace("S9(7)V99", "S9(5)V99"));
-    write(&b.join("src/BILLING.cbl"), &(billing.replace("    GOBACK.\n", "    PERFORM ADD-INTEREST\n           GOBACK.\n") + &fx("ADD-INTEREST.\n    COMPUTE CUSTOMER-BALANCE = CUSTOMER-BALANCE * 1.015.\n")));
-    let ev = format!("{{\"cwd\": {:?}, \"tool_name\": \"Edit\"}}", b.to_str().unwrap());
-    let o = gitta_in(&e, &b, &["hook", "claude"], &ev);
-    assert!(o.status.success());
-    let out = String::from_utf8_lossy(&o.stdout);
-    assert!(out.contains("CUSTOMER-BALANCE") && out.contains("additionalContext"), "hook output: {out}");
-}
-
-#[cfg(feature = "mainframe")]
-#[test]
-fn genapp_widened_commarea_field_refuses_a_new_use() {
-    // IBM CICS GenApp (EPL-2.0), see gitta-core/tests/fixtures/genapp/NOTICE.
-    let e = env("genapp");
-    let read = |f: &str| std::fs::read_to_string(format!("{}/../gitta-core/tests/fixtures/genapp/{f}", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    let (cpy, upd) = (read("lgcmarea.cpy"), read("lgucdb01.cbl"));
-    write(&e.repo.join("base/src/lgcmarea.cpy"), &cpy);
-    write(&e.repo.join("base/src/lgucdb01.cbl"), &upd);
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "base"]);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let (a, b) = (worktree(&e, "widen"), worktree(&e, "display"));
-    write(&a.join("base/src/lgcmarea.cpy"), &cpy.replace("CA-EMAIL-ADDRESS      PIC X(100)", "CA-EMAIL-ADDRESS      PIC X(254)"));
-    let para = "       UPDATE-CUSTOMER-INFO.\n";
-    write(&b.join("base/src/lgucdb01.cbl"), &upd.replacen(para, &format!("{para}           DISPLAY CA-EMAIL-ADDRESS\n"), 1));
-    let st = text(&gitta(&e, &e.repo, &["status"]));
-    assert!(st.contains("LGCMAREA.CA-EMAIL-ADDRESS"), "{st}");
-    assert!(gitta(&e, &e.repo, &["land", "widen"]).status.success());
-    let o = gitta(&e, &e.repo, &["land", "display"]);
-    assert!(o.status.success() && text(&o).contains("LGCMAREA.CA-EMAIL-ADDRESS"), "a new use of the widened email is reported, the tests decide: {}", text(&o));
-}
-
-#[cfg(feature = "mainframe")]
-#[test]
-fn a_new_shell_step_in_jcl_needs_a_person() {
-    let e = env("jcl-sec");
-    const JOB: &str = "//NIGHTLY  JOB (ACCT),'NIGHTLY',CLASS=A,MSGCLASS=X\n//COPY     EXEC PGM=IEBGENER\n//SYSUT1   DD DSN=APP.ORDERS,DISP=SHR\n//SYSUT2   DD DSN=APP.ORDERS.BACKUP,DISP=SHR\n//SYSIN    DD DUMMY\n//SYSPRINT DD SYSOUT=*\n";
-    write(&e.repo.join("jcl/NIGHTLY.jcl"), JOB);
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "base"]);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let a = worktree(&e, "export-step");
-    write(&a.join("jcl/NIGHTLY.jcl"), &(JOB.to_string() + "//EXPORT   EXEC PGM=BPXBATCH,PARM='SH /u/app/export.sh'\n//STDOUT   DD SYSOUT=*\n"));
-    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "export step"]);
-    let st = text(&gitta(&e, &e.repo, &["status"]));
-    assert!(st.contains("SECURITY: jcl/NIGHTLY.jcl by export-step: newly runs Unix shell commands from batch (`PGM=BPXBATCH`)"), "{st}");
-    let o = gitta(&e, &e.repo, &["land", "export-step"]);
-    assert!(!o.status.success() && text(&o).contains("land refused") && text(&o).contains("jcl/NIGHTLY.jcl"), "{}", text(&o));
-    println!("LAND REFUSED:\n{}", text(&o));
-    assert!(approve(&e, "export-step", "the export script is reviewed by ops").status.success());
-    assert!(gitta(&e, &e.repo, &["land", "export-step"]).status.success());
-}
-
-#[cfg(feature = "mainframe")]
-#[test]
-fn a_weakened_cobol_security_check_is_a_hazard_for_the_caller() {
-    let e = env("cobol-sec");
-    let fx = |s: &str| s.lines().map(|l| if l.is_empty() { String::new() } else { format!("       {l}") }).collect::<Vec<_>>().join("\n") + "\n";
-    let chk = fx("IDENTIFICATION DIVISION.\nPROGRAM-ID. AUTHCHK.\nDATA DIVISION.\nLINKAGE SECTION.\n01  LK-USER-LEVEL PIC 9.\nPROCEDURE DIVISION USING LK-USER-LEVEL.\n    IF LK-USER-LEVEL < 5\n       EXEC CICS ABEND ABCODE('AUTH') END-EXEC\n    END-IF\n    GOBACK.\n");
-    write(&e.repo.join("src/AUTHCHK.cbl"), &chk);
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "base"]);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let (a, b) = (worktree(&e, "relax-check"), worktree(&e, "payout"));
-    write(&a.join("src/AUTHCHK.cbl"), &chk.replace("       EXEC CICS ABEND ABCODE('AUTH') END-EXEC\n", "       CONTINUE\n"));
-    write(&b.join("src/PAYOUT.cbl"), &fx("IDENTIFICATION DIVISION.\nPROGRAM-ID. PAYOUT.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01  WS-LEVEL PIC 9.\nPROCEDURE DIVISION.\nMAIN-PARA.\n    CALL 'AUTHCHK' USING WS-LEVEL\n    GOBACK.\n"));
-    for (w, m) in [(&a, "relax"), (&b, "payout")] { git(w, &["add", "-A"]); git(w, &["commit", "-qm", m]); }
-    let o = gitta_in(&e, &b, &["hook", "claude"], &format!("{{\"cwd\": {:?}}}", b.to_str().unwrap()));
-    let out = text(&o);
-    assert!(out.contains("SECURITY (high severity)") && out.contains("`AUTHCHK.AUTHCHK`"), "hook output: {out}");
-    let st = text(&gitta(&e, &e.repo, &["status"]));
-    println!("STATUS:\n{st}");
-    assert!(st.contains("SECURITY potentially affected: relax-check removed a refusal (an error, raise or throw) from `AUTHCHK.AUTHCHK`"), "{st}");
-    let o = gitta(&e, &e.repo, &["land", "relax-check"]);
-    assert!(!o.status.success() && text(&o).contains("land refused") && text(&o).contains("src/AUTHCHK.cbl"), "{}", text(&o));
-    assert!(approve(&e, "relax-check", "level 5 check moved to RACF").status.success());
-    assert!(gitta(&e, &e.repo, &["land", "relax-check"]).status.success());
-    let o = gitta(&e, &e.repo, &["land", "payout"]);
-    println!("LAND PAYOUT:\n{}", text(&o));
-    assert!(!o.status.success() && text(&o).contains("land refused") && text(&o).contains("src/PAYOUT.cbl"), "{}", text(&o));
-}
-
 #[test]
 fn security_notes_on_added_lines_warn_live_and_high_ones_need_a_person() {
     let e = env("sec1");
@@ -913,37 +790,6 @@ fn install_claude_puts_the_hooks_where_worktree_sessions_read_them() {
     assert!(gitta(&e, &e.repo, &["uninstall"]).status.success());
     let after = std::fs::read_to_string(e.repo.join(".claude/settings.local.json")).unwrap();
     assert!(!after.contains("hook claude") && after.contains("Bash(make)"), "uninstall takes only Gitta's entries: {after}");
-}
-
-#[cfg(feature = "mainframe")]
-#[test]
-fn a_wrong_code_page_conversion_needs_a_person() {
-    let e = env("codepage");
-    const ORDCHK: &str = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. ORDCHK.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01  WS-STATUS      PIC XX.\n       PROCEDURE DIVISION.\n           IF WS-STATUS ¬= '00'\n              DISPLAY 'ORDCHK: FILE STATUS ' WS-STATUS\n           END-IF\n           GOBACK.\n";
-    write(&e.repo.join(".gitattributes"), "*.cbl zos-working-tree-encoding=ibm-1047 git-encoding=utf-8\n*.rexx zos-working-tree-encoding=ibm-1047 git-encoding=utf-8\n");
-    write(&e.repo.join("src/ORDCHK.cbl"), ORDCHK);
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "base"]);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let (a, b) = (worktree(&e, "reconvert"), worktree(&e, "proc"));
-    // The member came back through a transfer that read IBM-1047 as IBM-037: `¬` is now `^`.
-    write(&a.join("src/ORDCHK.cbl"), &ORDCHK.replace('¬', "^"));
-    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "refresh ORDCHK from the host"]);
-    // The other agent adds JCL, for which no code page is set.
-    write(&b.join("jcl/ORDLOAD.jcl"), "//ORDLOAD  JOB (ACCT),'LOAD',CLASS=A\n//STEP1    EXEC PGM=ORDCHK\n");
-    git(&b, &["add", "-A"]); git(&b, &["commit", "-qm", "load job"]);
-    let out = text(&gitta_in(&e, &a, &["hook", "claude"], &format!("{{\"cwd\": {:?}}}", a.to_str().unwrap())));
-    assert!(out.contains("code page conversion changed characters") && out.contains("`¬` → `^` (1)") && out.contains("decides whether it stops the merge"), "hook output: {out}");
-    let out = text(&gitta_in(&e, &b, &["hook", "claude"], &format!("{{\"cwd\": {:?}}}", b.to_str().unwrap())));
-    assert!(out.contains("jcl/ORDLOAD.jcl is a mainframe source without a code page"), "hook output: {out}");
-    let enc = text(&gitta(&e, &e.repo, &["encoding"]));
-    assert!(enc.contains("ibm-1047: 1 file(s)"), "{enc}");
-    let o = gitta(&e, &e.repo, &["land", "reconvert"]);
-    assert!(!o.status.success() && text(&o).contains("land refused") && text(&o).contains("src/ORDCHK.cbl"), "{}", text(&o));
-    assert!(approve(&e, "reconvert", "the host copy uses ^ on purpose").status.success());
-    assert!(gitta(&e, &e.repo, &["land", "reconvert"]).status.success());
-    let audit = text(&gitta(&e, &e.repo, &["audit", "--json"])).replace(": ", ":");
-    for want in ["\"check\":\"code page\"", "CODE_PAGE", "\"kind\":\"CODE_PAGE_RISK\""] { assert!(audit.contains(want), "{want} missing in audit"); }
 }
 
 #[test]

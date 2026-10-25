@@ -401,7 +401,8 @@ int Curl_ssl_init(void)
 
 #[test]
 fn damaged_and_odd_sources_never_panic() {
-    let samples = [SERVER_H, DB_H, NETWORKING_C, DB_IMPL_CC];
+    #[allow(unused_mut)]
+    let mut samples = vec![SERVER_H, DB_H, NETWORKING_C, DB_IMPL_CC];
     for s in samples {
         let b = s.as_bytes();
         // Every prefix cut at a line end, and every 97th byte cut: never a panic.
@@ -410,7 +411,7 @@ fn damaged_and_odd_sources_never_panic() {
             let _ = analyze_file("src/cut.cc", &b[..i]);
         }
     }
-    for odd in ["#if\n", "#endif\n#endif\n", "#else\n}\n", "\\\n\\\n", "#define A(\n", "}}}}{{{{", "template <", "namespace {", "\u{feff}int x;", "struct { int a; } ;", "#include\n", "extern \"C\" {\n", "??", "??/", "%:%", "<:", "'1'2'"] {
+    for odd in ["#if\n", "#endif\n#endif\n", "#else\n}\n", "\\\n\\\n", "#define A(\n", "}}}}{{{{", "template <", "namespace {", "\u{feff}int x;", "struct { int a; } ;", "#include\n", "extern \"C\" {\n", "EXEC SQL", "EXEC SQL SELECT :", "int f() { EXEC CICS LINK PROGRAM(", "??", "??/", "%:%", "<:", "#pragma map(", "#pragma linkage(f", "_Packed", "'1'2'"] {
         let _ = analyze_file("src/odd.c", odd.as_bytes());
         let _ = analyze_file("src/odd.cpp", odd.as_bytes());
     }
@@ -536,7 +537,6 @@ fn c_cpp_tests_recognised_and_weakening_found() {
     assert!(f.iter().any(|x| x.kind == "TEST_DELETED"), "{f:?}");
 }
 
-
 #[test]
 fn invalid_utf8_near_a_parameter_name_does_not_crash_the_analyzer() {
     // A C/C++ file reaches analyze_file through the hooks and the merge hazard check, which (unlike the structural
@@ -556,3 +556,4 @@ fn invalid_utf8_near_a_parameter_name_does_not_crash_the_analyzer() {
     let mut b = base.clone(); b.insert("n.cpp".into(), b"int g(int\xff y){return y;}\n".to_vec());
     let _ = merge_hazards(&base, &a, &b);   // must return, not panic
 }
+

@@ -42,7 +42,6 @@ fn csharp_and_kotlin_tests_are_guarded() {
     assert_eq!(kinds(&base, &snap(&[("src/test/kotlin/shop/VatTest.kt", &kt.replace("    @Test\n", "    @Test\n    @Disabled\n"))])), vec!["TEST_SKIPPED"]);
 }
 
-
 #[test]
 fn credential_names_inside_strings_are_not_credentials() {
     use gitta_core::guard::find_secret;
