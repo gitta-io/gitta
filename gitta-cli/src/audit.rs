@@ -84,6 +84,14 @@ pub fn read(root: &Path) -> Vec<Value> {
     std::io::BufReader::new(f).lines().map_while(Result::ok).filter_map(|l| serde_json::from_str(&l).ok()).collect()
 }
 
+/// `--last N`: drop all but the most recent N events, applied after the other filters. Does nothing without it.
+fn keep_last(events: &mut Vec<Value>, args: &[String]) {
+    if let Some(n) = args.iter().position(|a| a == "--last").and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse::<usize>().ok()).filter(|&n| n > 0) {
+        if events.len() > n { events.drain(..events.len() - n); }
+    }
+}
+
 /// Checks the chain. Ok(number of events) or Err(where it breaks and how).
 pub fn verify(events: &[Value]) -> Result<usize, String> {
     let mut prev = String::new();
@@ -265,6 +273,7 @@ pub fn cmd(root: &Path, args: &[String], team: Option<(String, String, String)>)
         return;
     }
     if args.iter().any(|a| a == "--follow" || a == "-f") { return follow(root, args, get("--since").is_some().then_some(events)); }
+    keep_last(&mut events, args);
     if args.iter().any(|a| a == "--json") {
         for e in &events { println!("{e}"); }
     } else if args.iter().any(|a| a == "--csv") {
@@ -314,6 +323,18 @@ mod tail_tests {
         record(&root, "warning", "a", &json!({}), json!({"findings": "y"}));
         assert_eq!(verify(&read(&root)), Ok(2));
         let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn last_keeps_only_the_most_recent_n() {
+        let mut events: Vec<Value> = (1..=5).map(|seq| json!({"seq": seq})).collect();
+        keep_last(&mut events, &["--last".into(), "2".into()]);
+        assert_eq!(events.iter().map(|e| e["seq"].as_u64().unwrap()).collect::<Vec<_>>(), vec![4, 5]);
+    }
+    #[test]
+    fn last_leaves_a_shorter_trail_whole() {
+        let mut events: Vec<Value> = (1..=3).map(|seq| json!({"seq": seq})).collect();
+        keep_last(&mut events, &["--last".into(), "9".into()]);
+        assert_eq!(events.len(), 3);
     }
 }
 
