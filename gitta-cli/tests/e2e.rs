@@ -1008,6 +1008,26 @@ fn the_gate_finds_installed_dependencies_of_the_main_checkout() {
 }
 
 #[test]
+fn a_failed_landing_records_the_tree_it_tested() {
+    let e = env("pkgtree");
+    shop(&e);
+    // The gate fails once shop/text.py defines loud, which only the agent's work does.
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", "sh -c '! grep -q loud shop/text.py'"]).status.success());
+    let a = worktree(&e, "loud");
+    write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\n\ndef loud(s):\n    return s.upper() + '!'\n");
+    let o = gitta(&e, &e.repo, &["land", "loud"]);
+    assert!(!o.status.success(), "{}", text(&o));
+    let pkg = std::fs::read_dir(e.repo.join(".gitta/failures")).unwrap().flatten().find(|f| f.path().extension().map(|x| x == "json").unwrap_or(false)).unwrap();
+    let pkg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(pkg.path()).unwrap()).unwrap();
+    let tree = pkg["candidate_tree"].as_str().unwrap().to_string();
+    assert_ne!(tree, git(&e.repo, &["rev-parse", "main^{tree}"]), "the package names main's tree, not the tested candidate");
+    assert!(git(&e.repo, &["show", &format!("{tree}:shop/text.py")]).contains("def loud"));
+    // A rerun tests that candidate again, so it confirms the failure.
+    let r = text(&gitta(&e, &e.repo, &["failure", "rerun", pkg["id"].as_str().unwrap()]));
+    assert!(r.contains("confirmed"), "{r}");
+}
+
+#[test]
 fn a_failed_gate_names_the_test_and_its_first_error_lines() {
     let e = env("firsterr");
     shop(&e);
