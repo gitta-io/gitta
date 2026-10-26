@@ -1,0 +1,17 @@
+#!/bin/sh
+# One-shot gitta state as a line; with --toast, also send a desktop notification
+# (for people who DO want a toast). Reads the audit file; never runs the gitta
+# binary. Pair with `gitta watch`/a file-watch to fire on change.
+#   gitta-notify [--toast] /path/to/repo
+set -u
+toast=0
+[ "${1:-}" = "--toast" ] && { toast=1; shift; }
+repo="${1:-${GITTA_REPO:-$PWD}}"
+D=$(cd -- "$(dirname -- "$0")" && pwd)
+line=$("$D/gitta-feed" "$repo" | jq -r '
+  if (.on|not) then "gitta: off"
+  elif .refused>0 then "gitta: \(.refused) refused" + (if .serious>0 then " (\(.serious) serious)" else "" end) + ", \(.landed) landed"
+  else "gitta: \(.landed) landed, clear" end')
+echo "$line"
+[ "$toast" = 1 ] && command -v notify-send >/dev/null 2>&1 && notify-send "gitta" "$line"
+exit 0

@@ -1,0 +1,14 @@
+#!/bin/sh
+# tmux status segment for gitta. In ~/.tmux.conf, e.g.:
+#   set -g status-interval 2
+#   set -ga status-right '#(~/path/gitta-integrations/gitta-tmux ~/src/myrepo) '
+# Blank when the repo has no gitta, so it only shows when there is something.
+# Refused and landed get different colours — a refusal is an alert, a landing is
+# good. Colours are tmux names; change to taste.
+set -u
+D=$(cd -- "$(dirname -- "$0")" && pwd)
+"$D/gitta-feed" "${1:-$PWD}" | jq -r '
+  if (.on|not) then ""
+  elif .refused>0 then
+    "#[fg=\(if .serious>0 then "red" else "yellow" end)]\(.refused) refused#[default] · #[fg=green]\(.landed) ok#[default]"
+  else "#[fg=green]\(.landed) ok#[default]" end'

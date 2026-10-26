@@ -1,0 +1,49 @@
+#!/bin/sh
+# Core gitta event reader. Point it at ONE repo, or at a ROOT directory (e.g.
+# ~/src): if the path is not itself a gitta repo, it aggregates every repo's
+# .gitta/audit.jsonl found under it, so you set it once and never repoint — new
+# gitta repos are picked up automatically. Emits a neutral JSON summary, so every
+# frontend (waybar, tmux, i3blocks, notify, dashboard) formats the SAME thing and
+# stays agnostic to editor/agent/AI. Reads the trail only; never runs the gitta
+# binary. Requires jq.
+#   gitta-feed ~/src          # aggregate every gitta repo under ~/src
+#   gitta-feed ~/src/myrepo   # a single repo   (or $GITTA_REPO, or the cwd)
+set -u
+target="${1:-${GITTA_REPO:-$PWD}}"
+
+if [ -f "$target/.gitta/audit.jsonl" ]; then
+  nrepos=1
+  trails="$target/.gitta/audit.jsonl"
+else
+  # Treat as a root. The directory scan is slow on big trees, so cache the list
+  # of trails and refresh it at most every GITTA_SCAN_TTL seconds; the trails
+  # themselves are always read fresh below.
+  key=$(printf '%s' "$target" | cksum | cut -d' ' -f1)
+  dir="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/gitta-integrations"
+  mkdir -p "$dir" 2>/dev/null
+  cache="$dir/trails-$key"
+  mt=$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null || echo 0)
+  if [ "$(( $(date +%s) - mt ))" -ge "${GITTA_SCAN_TTL:-60}" ]; then
+    find "$target" -maxdepth "${GITTA_SCAN_DEPTH:-6}" \
+      \( -name node_modules -o -name target -o -name .git -o -name _dogfood_target -o -name .cache -o -name vendor \) -prune -o \
+      -type f -path '*/.gitta/audit.jsonl' -print > "$cache.$$" 2>/dev/null && mv "$cache.$$" "$cache"
+  fi
+  trails=$(cat "$cache" 2>/dev/null)
+  [ -n "$trails" ] || { printf '{"on":false}\n'; exit 0; }
+  nrepos=$(printf '%s\n' "$trails" | grep -c .)
+fi
+
+printf '%s\n' "$trails" | while IFS= read -r f; do [ -n "$f" ] && cat "$f"; done | jq -cs --argjson nrepos "$nrepos" '
+  (["credentials","weakened checks","security","code page","policy"]) as $serious
+  | map(select(.event=="landed" or .event=="land_refused" or .event=="agent_started")) as $evs
+  | ($evs|map(select(.event=="landed"))|length) as $landed
+  | ($evs|map(select(.event=="land_refused"))) as $ref
+  | {
+      on: true,
+      repos: $nrepos,
+      landed: $landed,
+      refused: ($ref|length),
+      serious: ($ref|map(select(.data.check as $c|$serious|any(.==$c)))|length),
+      by_check: ($ref|group_by(.data.check // "gate")|map({(.[0].data.check // "gate"): length})|add // {}),
+      last: (($evs|sort_by(.time)|last) as $e | if $e==null then null else {event:$e.event, agent:($e.agent//""), time:($e.time//"")} end)
+    }'

@@ -1,0 +1,11 @@
+/* The module colours its own text (Pango) — refused in an alert colour, landed
+   in a good one, red + ⚠ when a refusal was serious. Set those colours with the
+   GITTA_COLOR_* env vars in your waybar config, NOT here. This CSS only gives the
+   module the same background, padding and margin as your other modules, so it
+   sits in the bar like one of them. Background below is Catppuccin Mocha; match
+   yours. */
+#custom-gitta {
+    background-color: #313244;
+    padding: 0 10px;
+    margin: 0 4px;
+}
