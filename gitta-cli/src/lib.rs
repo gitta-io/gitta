@@ -2712,8 +2712,11 @@ fn acquire_gate_slot(root: &Path, cap: usize) -> GateSlot {
         for i in 0..cap {
             let p = dir.join(format!("{i}.lock"));
             if let Ok(pid) = std::fs::read_to_string(&p) { if !pid_is_live(&pid) { let _ = std::fs::remove_file(&p); } }
-            // Write the pid first, then hard-link it in: the link is atomic and fails if the slot is taken.
-            let tmp = dir.join(format!(".{i}.{}.tmp", std::process::id()));
+            // Write the pid first, then hard-link it in: the link is atomic and fails if the slot is taken. The
+            // temporary name is unique per claim: threads of one process share the pid, and a thread rewriting a
+            // file another thread just linked in would leave that slot empty, so a third thread reclaims it.
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let tmp = dir.join(format!(".{i}.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
             if std::fs::write(&tmp, std::process::id().to_string()).is_ok() {
                 let linked = std::fs::hard_link(&tmp, &p).is_ok();
                 let _ = std::fs::remove_file(&tmp);
@@ -4340,6 +4343,34 @@ mod gate_slot_tests {
         let _ = std::fs::remove_dir_all(&root);
         assert!(peak.load(Ordering::SeqCst) <= cap, "peak concurrency {} exceeded cap {cap}", peak.load(Ordering::SeqCst));
         assert_eq!(live.load(Ordering::SeqCst), 0, "a slot leaked");
+    }
+    /// Threads of one process share its pid, so their claims must not share a temporary file: a thread that rewrites
+    /// the file another thread just linked in empties that slot, and a third thread takes it as a crashed holder's.
+    #[test]
+    fn gate_slots_bound_concurrency_between_threads() {
+        let root = std::env::temp_dir().join(format!("gitta-slots-t-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let (cap, contenders) = (2usize, 16usize);
+        let live = std::sync::Arc::new(AtomicUsize::new(0));
+        let peak = std::sync::Arc::new(AtomicUsize::new(0));
+        for _ in 0..4 {
+            std::thread::scope(|s| {
+                for _ in 0..contenders {
+                    let (root, live, peak) = (root.clone(), live.clone(), peak.clone());
+                    s.spawn(move || {
+                        let slot = acquire_gate_slot(&root, cap);
+                        let n = live.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(n, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        live.fetch_sub(1, Ordering::SeqCst);
+                        drop(slot);
+                    });
+                }
+            });
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(peak.load(Ordering::SeqCst) <= cap, "peak concurrency {} exceeded cap {cap}", peak.load(Ordering::SeqCst));
     }
     /// cap 0 is unbounded: a slot is handed out with no lock file and no waiting.
     #[test]
