@@ -404,13 +404,13 @@ fn audit_trail_records_who_what_and_checks_and_shows_tampering() {
 }
 
 #[test]
-fn status_json_totals_count_landings_and_refusals() {
+fn status_json_and_audit_stats_count_landings_and_refusals() {
     let e = env("totals");
     shop(&e);
     gitta(&e, &e.repo, &["init", "--no-claude"]);
     let j: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["status", "--json"]).stdout).unwrap();
     assert_eq!(j["landed_total"], 0);
-    assert_eq!(j["blocked_total"], 0);
+    assert_eq!(j["refused_total"], 0);
     // One clean landing.
     let a = worktree(&e, "feat");
     write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\n\ndef whisper(s):\n    return s.lower()\n");
@@ -421,7 +421,12 @@ fn status_json_totals_count_landings_and_refusals() {
     assert!(!gitta(&e, &e.repo, &["land", "leaky"]).status.success());
     let j: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["status", "--json"]).stdout).unwrap();
     assert_eq!(j["landed_total"], 1);
-    assert_eq!(j["blocked_total"], 1);
+    assert_eq!(j["refused_total"], 1);
+    let o = gitta(&e, &e.repo, &["audit", "--stats"]);
+    assert!(o.status.success(), "{}", text(&o));
+    assert_eq!(String::from_utf8_lossy(&o.stdout), "landed: 1\nrefused: 1\n  credentials: 1\n");
+    let s: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["audit", "--stats", "--json"]).stdout).unwrap();
+    assert_eq!(s, serde_json::json!({"landed_total": 1, "refused_total": 1, "refused_by_check": {"credentials": 1}}));
 }
 
 #[test]

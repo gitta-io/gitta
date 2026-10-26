@@ -185,18 +185,19 @@ fn line(e: &Value) -> String {
         format!("{}@{}", e["actor"]["name"].as_str().unwrap_or(""), e["actor"]["machine"].as_str().unwrap_or("")), summary(e))
 }
 
-/// Cumulative counts: how many events landed, how many were refused, and which check refused them.
-fn stats(events: &[Value]) -> Value {
-    let (mut landed, mut blocked) = (0u64, 0u64);
+/// Cumulative counts: how many events landed, how many `gitta land` refused, and which check refused them. A merge
+/// stopped by a git hook is a `blocked` event and is not counted: on the land path it comes with a `land_refused`.
+pub(crate) fn stats(events: &[Value]) -> Value {
+    let (mut landed, mut refused) = (0u64, 0u64);
     let mut by: std::collections::BTreeMap<String, u64> = Default::default();
     for e in events {
         match e["event"].as_str().unwrap_or("") {
             "landed" => landed += 1,
-            "land_refused" => { blocked += 1; *by.entry(e["data"]["check"].as_str().unwrap_or("gate").to_string()).or_default() += 1; }
+            "land_refused" => { refused += 1; *by.entry(e["data"]["check"].as_str().unwrap_or("gate").to_string()).or_default() += 1; }
             _ => {}
         }
     }
-    json!({"landed_total": landed, "blocked_total": blocked, "blocked_by_check": by})
+    json!({"landed_total": landed, "refused_total": refused, "refused_by_check": by})
 }
 
 /// `gitta audit --follow`: prints each new event as it is written (one JSON line each with --json), so it can be
@@ -267,8 +268,8 @@ pub fn cmd(root: &Path, args: &[String], team: Option<(String, String, String)>)
         if args.iter().any(|a| a == "--json") { println!("{s}"); }
         else {
             println!("landed: {}", s["landed_total"]);
-            println!("refused: {}", s["blocked_total"]);
-            for (k, v) in s["blocked_by_check"].as_object().into_iter().flatten() { println!("  {k}: {v}"); }
+            println!("refused: {}", s["refused_total"]);
+            for (k, v) in s["refused_by_check"].as_object().into_iter().flatten() { println!("  {k}: {v}"); }
         }
         return;
     }
@@ -351,12 +352,13 @@ mod stats_tests {
             json!({"event": "land_refused", "data": {"check": "tests", "reason": "failed"}}),
             json!({"event": "land_refused", "data": {"check": "credentials", "reason": "found"}}),
             json!({"event": "land_refused", "data": {"reason": "no check named"}}),
+            json!({"event": "blocked", "data": {"setting": "credentials"}}),
         ];
         let s = stats(&events);
         assert_eq!(s["landed_total"], 2);
-        assert_eq!(s["blocked_total"], 4);
-        assert_eq!(s["blocked_by_check"]["tests"], 2);
-        assert_eq!(s["blocked_by_check"]["credentials"], 1);
-        assert_eq!(s["blocked_by_check"]["gate"], 1);
+        assert_eq!(s["refused_total"], 4);
+        assert_eq!(s["refused_by_check"]["tests"], 2);
+        assert_eq!(s["refused_by_check"]["credentials"], 1);
+        assert_eq!(s["refused_by_check"]["gate"], 1);
     }
 }
