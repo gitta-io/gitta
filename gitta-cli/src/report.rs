@@ -70,8 +70,9 @@ pub fn counts(e: &Value) -> Counts {
         // work that reached main: through gitta land, a checked git merge, or plain git
         "landed" | "merge_checked" | "reached_main" => c.changes = 1,
         "warning" if d["kind"].as_str() != Some("SECURITY_NOTE") => c.clashes = 1,
-        "merge_stopped" => { c.merges_stopped = 1; c.broken_mains_prevented = 1; }
-        "land_refused" => { c.merges_stopped = 1; if d["check"].as_str() == Some("tests") { c.broken_mains_prevented = 1; } }
+        // a main that already fails its tests alone was not kept working by the stop
+        "merge_stopped" => { c.merges_stopped = 1; if d["base_fails"] != true { c.broken_mains_prevented = 1; } }
+        "land_refused" => { c.merges_stopped = 1; if d["check"].as_str() == Some("tests") && d["base_fails"] != true { c.broken_mains_prevented = 1; } }
         "blocked" => c.merges_stopped = 1,
         _ => {}
     }
@@ -273,6 +274,8 @@ mod tests {
             ev("2026-10-19T10:00:00Z", "merge_stopped", "a2", json!({"failing": ["t"]})),
             ev("2026-10-19T10:05:00Z", "land_refused", "a2", json!({"check": "credentials"})),
             ev("2026-10-19T10:06:00Z", "land_refused", "a2", json!({"check": "tests"})),
+            ev("2026-10-19T10:07:00Z", "land_refused", "a2", json!({"check": "tests", "base_fails": true})),
+            ev("2026-10-19T10:08:00Z", "merge_stopped", "a2", json!({"failing": ["t"], "base_fails": true})),
             ev("2026-10-20T11:00:00Z", "landed", "a1", json!({})),
             ev("2026-10-20T11:00:00Z", "merge_checked", "a2", json!({})),
             ev("2026-10-26T08:00:00Z", "reached_main", "", json!({})),
@@ -286,9 +289,9 @@ mod tests {
         let a1 = find("2026-W43", "shop", "a1");
         assert_eq!((a1["changes"].as_u64(), a1["clashes_found"].as_u64(), a1["agents_run"].as_u64()), (Some(1), Some(1), Some(1)));
         let a2 = find("2026-W43", "shop", "a2");
-        assert_eq!((a2["merges_stopped"].as_u64(), a2["broken_mains_prevented"].as_u64(), a2["changes"].as_u64()), (Some(3), Some(2), Some(1)));
+        assert_eq!((a2["merges_stopped"].as_u64(), a2["broken_mains_prevented"].as_u64(), a2["changes"].as_u64()), (Some(5), Some(2), Some(1)));
         let tot = find("2026-W43", "all", "all");
-        assert_eq!((tot["agents_run"].as_u64(), tot["changes"].as_u64(), tot["merges_stopped"].as_u64()), (Some(2), Some(2), Some(3)));
+        assert_eq!((tot["agents_run"].as_u64(), tot["changes"].as_u64(), tot["merges_stopped"].as_u64()), (Some(2), Some(2), Some(5)));
         let w44 = find("2026-W44", "shop", "(plain git)");
         assert_eq!((w44["changes"].as_u64(), w44["agents_run"].as_u64()), (Some(1), Some(0)));
         // the total row comes last in its period
@@ -348,7 +351,7 @@ mod tests {
         assert!(text.starts_with("period") && text.contains("total") && text.contains("broken mains prevented"), "{text}");
         let csv = render(&r, By::Agent, "csv");
         assert_eq!(csv.lines().next().unwrap(), "period,repo,agent,agents_run,changes,clashes_found,merges_stopped,broken_mains_prevented");
-        assert!(csv.contains("2026-10,all,all,2,3,1,3,2"), "{csv}");
+        assert!(csv.contains("2026-10,all,all,2,3,1,5,2"), "{csv}");
         let j: Value = serde_json::from_str(&render(&r, By::Agent, "json")).unwrap();
         assert_eq!(j["rows"].as_array().unwrap().len(), r.len());
         assert!(render(&[], By::Agent, "text").contains("nothing"));

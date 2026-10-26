@@ -1023,6 +1023,64 @@ fn a_failed_gate_names_the_test_and_its_first_error_lines() {
     assert!(t.contains("First failing test: tests/test_text.py::test_whisper") && t.contains("E       AssertionError: assert 1 == 2") && t.contains("tests/test_text.py:7"), "{t}");
 }
 
+/// The failure package `gitta land` or a git merge recorded last.
+fn failure_package(e: &Env) -> serde_json::Value {
+    let id = text(&gitta(e, &e.repo, &["failure", "list"])).split_whitespace().next().unwrap_or("").to_string();
+    serde_json::from_str(&text(&gitta(e, &e.repo, &["failure", "show", &id]))).unwrap()
+}
+
+fn audit_event(e: &Env, kind: &str) -> serde_json::Value {
+    text(&gitta(e, &e.repo, &["audit", "--json"])).lines().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).find(|v| v["event"] == kind).unwrap()
+}
+
+#[test]
+fn land_onto_a_main_that_already_fails_says_so_and_does_not_blame_the_agent() {
+    let e = env("redmain");
+    shop(&e);
+    // A person broke main. The gate counts its runs.
+    write(&e.repo.join("shop/cart.py"), &format!("{CART}\n\n# BROKEN\n"));
+    git(&e.repo, &["commit", "-qam", "broken"]);
+    let runs = e.repo.join(".git/gate-runs");
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", &format!("echo x >> {runs:?}; {FAILING_GATE}")]).status.success());
+    let a = worktree(&e, "docs");
+    write(&a.join("README.md"), "# shop\n");
+    let o = gitta(&e, &e.repo, &["land", "docs"]);
+    let t = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(!o.status.success());
+    assert!(t.contains("the tests already fail on main without docs' work") && t.contains("not in docs' work") && t.contains("Fix main first"), "{t}");
+    assert!(!t.contains("Fix the code"), "{t}");
+    let pkg = failure_package(&e);
+    assert_eq!((&pkg["base_fails"], pkg["base"].as_str()), (&serde_json::json!(true), Some(git(&e.repo, &["rev-parse", "main"]).as_str())), "{pkg}");
+    assert_eq!(audit_event(&e, "land_refused")["data"]["base_fails"], true);
+    // The agent's Stop hook does not send it back to fix main.
+    let stop = gitta_in(&e, &a, &["hook", "claude-stop"], &format!("{{\"cwd\": {:?}}}", a.to_str().unwrap()));
+    assert_eq!(String::from_utf8_lossy(&stop.stdout), "");
+    // gitta status says main is red, from the cached result, and does not call the work just ready.
+    let st = text(&gitta(&e, &e.repo, &["status"]));
+    assert!(st.contains("The tests failed on main alone when gitta last ran them") && st.contains("docs 1 file changed, ready to merge once main passes its tests"), "{st}");
+    // main alone ran once: the next attempt finds its result in the cache.
+    assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 2);
+    assert!(!gitta(&e, &e.repo, &["land", "docs"]).status.success());
+    assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 3);
+}
+
+#[test]
+fn land_that_breaks_a_passing_main_is_the_agents_to_fix() {
+    let e = env("greenmain");
+    shop(&e);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", FAILING_GATE]).status.success());
+    let a = worktree(&e, "totals");
+    write(&a.join("shop/cart.py"), &format!("{CART}\n\n# BROKEN\n"));
+    let o = gitta(&e, &e.repo, &["land", "totals"]);
+    let t = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(!o.status.success());
+    assert!(t.contains("the tests failed on totals' work combined with what is already merged") && t.contains("Fix the code"), "{t}");
+    assert!(!t.contains("already fail"), "{t}");
+    assert_eq!(failure_package(&e)["base_fails"], false);
+    assert_eq!(audit_event(&e, "land_refused")["data"]["base_fails"], false);
+    assert!(!text(&gitta(&e, &e.repo, &["status"])).contains("failed on main alone"));
+}
+
 #[test]
 fn a_credential_name_already_in_a_file_does_not_stop_an_unrelated_edit() {
     let e = env("flynt");
@@ -1183,6 +1241,28 @@ fn a_fast_forward_that_fails_the_tests_is_refused_before_main_moves() {
     let o = git_run(&e, &e.repo, &["merge", "--no-verify", "--no-edit", "totals"]);
     assert!(o.status.success(), "{}", text(&o));
     assert!(text(&gitta(&e, &e.repo, &["audit", "--json"])).contains("git merge --no-verify"));
+}
+
+#[test]
+fn a_merge_onto_a_main_that_already_fails_says_so_and_does_not_blame_the_branch() {
+    let e = env("redmerge");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude", "--gate", FAILING_GATE]);
+    // A person's own commit breaks main: it is not checked.
+    write(&e.repo.join("shop/cart.py"), &format!("{CART}\n\n# BROKEN\n"));
+    assert!(git_run(&e, &e.repo, &["commit", "-qam", "broken"]).status.success());
+    let before = git(&e.repo, &["rev-parse", "main"]);
+    let a = worktree(&e, "docs");
+    write(&a.join("README.md"), "# shop\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "docs"]);
+    let o = git_run(&e, &e.repo, &["merge", "--no-edit", "docs"]);
+    let t = text(&o);
+    assert!(!o.status.success() && t.contains("tests already fail on main without docs") && t.contains("not in docs' work; main did not move. Fix main first"), "{t}");
+    assert!(!t.contains("Fix it and merge again"), "{t}");
+    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before);
+    let pkg = failure_package(&e);
+    assert_eq!((&pkg["base_fails"], pkg["base"].as_str()), (&serde_json::json!(true), Some(before.as_str())), "{pkg}");
+    assert_eq!(audit_event(&e, "merge_stopped")["data"]["base_fails"], true);
 }
 
 #[test]
