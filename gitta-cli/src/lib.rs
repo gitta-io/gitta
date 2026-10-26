@@ -2083,10 +2083,13 @@ fn cmd_land(args: &[String]) {
             let defs = landed_definitions(&root, &a.base, &main, &mh);
             save_test_hold(&root, &a, &mine, &main, &failing, &out, &defs);
             // Record the failure package for the exact candidate that was tested, so it can be reproduced and
-            // handed off. The tested tree is committed (dangling) so a rerun can check it out.
+            // handed off. The tested tree is committed (dangling) so a rerun can check it out. The merged files are only
+            // on disk: stage exactly the agent's paths, as a landing does, or write-tree records main's tree.
+            let mut add = vec!["add", "-A", "--"]; add.extend(mine.iter().map(String::as_str));
+            git_ok(&tmp, &add);
             let ctree = git_ok(&tmp, &["write-tree"]);
             if !ctree.is_empty() {
-                let ccommit = String::from_utf8_lossy(&git(&tmp, &["commit-tree", &ctree, "-p", &main, "-m", "gitta candidate"]).stdout).trim().to_string();
+                let ccommit = String::from_utf8_lossy(&git(&tmp, &["-c", "user.name=gitta", "-c", "user.email=gitta@localhost", "commit-tree", &ctree, "-p", &main, "-m", "gitta candidate"]).stdout).trim().to_string();
                 let tip = git_ok(Path::new(&a.path), &["rev-parse", "HEAD"]);
                 githooks::write_failure_package(&root, &c, &main, &tip, &ccommit, &ctree, &failing, &out);
             }
