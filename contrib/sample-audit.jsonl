@@ -1,0 +1,11 @@
+{"seq":1,"time":"2026-10-26T09:02:11Z","event":"agent_started","agent":"alice","data":{"tool":"Claude Code","branch":"feat/parser","base":"main","path":".claude/worktrees/alice"}}
+{"seq":2,"time":"2026-10-26T09:41:50Z","event":"landed","agent":"alice","data":{"tool":"gitta up","onto":"main","files":3,"commits":2,"checks":[{"check":"tests","result":"passed","seconds":4.2}]}}
+{"seq":3,"time":"2026-10-26T10:15:03Z","event":"agent_started","agent":"bob","data":{"tool":"Cursor","branch":"fix/retry","base":"main","path":".cursor/worktrees/bob"}}
+{"seq":4,"time":"2026-10-26T10:48:27Z","event":"land_refused","agent":"bob","data":{"check":"tests","reason":"the tests failed on bob's work combined with what is already merged, so nothing was merged"}}
+{"seq":5,"time":"2026-10-26T11:20:14Z","event":"landed","agent":"carol","data":{"tool":"gitta up","onto":"main","files":1,"commits":1,"checks":[{"check":"tests","result":"passed","seconds":3.6}]}}
+{"seq":6,"time":"2026-10-26T11:52:40Z","event":"agent_started","agent":"dave","data":{"tool":"Codex","branch":"feat/upload","base":"main","path":".codex/worktrees/dave"}}
+{"seq":7,"time":"2026-10-26T12:09:55Z","event":"land_refused","agent":"dave","data":{"check":"credentials","reason":"config.py:12 looks like it contains a credential (AWS access key); remove it and use configuration or a secret store"}}
+{"seq":8,"time":"2026-10-26T13:04:18Z","event":"landed","agent":"erin","data":{"tool":"gitta up","onto":"main","files":5,"commits":3,"checks":[{"check":"tests","result":"passed","seconds":5.1}]}}
+{"seq":9,"time":"2026-10-26T13:37:02Z","event":"agent_started","agent":"frank","data":{"tool":"Claude Code","branch":"refactor/auth","base":"main","path":".claude/worktrees/frank"}}
+{"seq":10,"time":"2026-10-26T14:01:36Z","event":"land_refused","agent":"frank","data":{"check":"weakened checks","reason":"frank removed an assertion in tests/test_auth.py; weakened_checks is block"}}
+{"seq":11,"time":"2026-10-26T14:46:09Z","event":"landed","agent":"grace","data":{"tool":"gitta up","onto":"main","files":2,"commits":1,"checks":[{"check":"tests","result":"passed","seconds":2.9}]}}

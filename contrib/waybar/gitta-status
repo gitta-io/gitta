@@ -1,0 +1,61 @@
+#!/bin/sh
+# Waybar custom module for gitta — editor/agent/AI-frontend agnostic.
+#
+# It reads a repo's own event stream, .gitta/audit.jsonl, and shows gitta's
+# impact: how many merges it BLOCKED (bad code kept off the branch) vs how many
+# passed and landed. Blocked and landed get different colours — a block is an
+# alert, a landing is good — and a credential / weakened-check / policy block is
+# serious, so it turns red and adds ⚠. It never runs the gitta binary, so it is
+# safe to poll and works the same whoever drives gitta; the same stream feeds
+# polybar, tmux, an editor plugin or a one-shot notify-send.
+# Point it at a repo:  gitta-status /path/to/repo   (or $GITTA_REPO, or cwd).
+# Requires: jq. Colours use Pango markup; override the GITTA_COLOR_* env vars to
+# match your bar (defaults below are Catppuccin Mocha).
+set -u
+repo="${1:-${GITTA_REPO:-$PWD}}"
+log="$repo/.gitta/audit.jsonl"
+
+if [ ! -f "$log" ]; then
+  # No gitta here: empty text so Waybar hides the module (visible only when on).
+  printf '{"text":""}\n'
+  exit 0
+fi
+
+icon="${GITTA_ICON:-$(printf '\357\207\223')}"   # U+F1D3 git glyph (Nerd Font)
+warn="${GITTA_WARN_ICON:-$(printf '\357\201\261')}"  # U+F071 warning (Nerd Font, matches other module icons)
+ci="${GITTA_COLOR_ICON:-#89b4fa}"   # module identity
+cok="${GITTA_COLOR_OK:-#a6e3a1}"    # landed — good
+cw="${GITTA_COLOR_WARN:-#f9e2af}"   # blocked, routine (tests, merge)
+cb="${GITTA_COLOR_BAD:-#f38ba8}"    # blocked, serious
+cm="${GITTA_COLOR_MUTE:-#6c7086}"   # separators, "clear"
+
+jq -cs --arg icon "$icon" --arg warn "$warn" --arg ci "$ci" --arg cok "$cok" --arg cw "$cw" --arg cb "$cb" --arg cm "$cm" '
+  def span($c; $t): "<span foreground=\"\($c)\">\($t)</span>";
+  (["credentials","weakened checks","security","code page","policy"]) as $serious
+  | map(select(.event=="landed" or .event=="land_refused" or .event=="agent_started")) as $evs
+  | ($evs | map(select(.event=="landed")) | length) as $landed
+  | ($evs | map(select(.event=="land_refused"))) as $ref
+  | ($ref | length) as $blocked
+  | ($ref | map(select(.data.check as $c | $serious | any(. == $c))) | length) as $scary
+  | ($ref | group_by(.data.check // "gate")
+          | map((length|tostring) + " × " + (.[0].data.check // "gate"))) as $byreason
+  | ($evs | last) as $e
+  | (if $scary > 0 then $cb else $cw end) as $cblock
+  | ( span($ci; $icon)
+      + (if $blocked > 0 then " " + span($cblock; (if $scary > 0 then ($warn + " ") else "" end) + ($blocked|tostring) + " blocked") else "" end)
+      + (if $landed > 0 then " " + span($cm; "·") + " " + span($cok; ($landed|tostring) + " ok")
+         elif $blocked == 0 then " " + span($cm; "clear") else "" end)
+    ) as $text
+  | {
+      text: $text,
+      class: (if ($scary > 0 or ($e.event // "") == "land_refused") then "refused"
+              elif $blocked > 0 then "caught" else "ok" end),
+      tooltip: (
+        (if $blocked > 0
+           then "gitta blocked " + ($blocked|tostring) + " merge(s):\n  " + ($byreason | join("\n  "))
+                + (if $scary > 0 then "\n⚠ includes serious blocks (credentials, security, weakened checks, policy)" else "" end)
+           else "gitta has blocked nothing yet" end)
+        + "\n" + ($landed|tostring) + " merge(s) passed the gate and landed"
+        + (if $e != null then "\nlast: " + $e.event + " " + ($e.agent // "") + " at " + $e.time else "" end)
+      )
+    }' "$log"

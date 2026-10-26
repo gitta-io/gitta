@@ -1,0 +1,24 @@
+// Add "custom/gitta" to a modules list (e.g. "modules-right"), then this block.
+// Poll mode: re-reads the repo's audit stream every 2s. Point exec at your repo.
+//
+// Colours: the module uses Pango markup and takes its colours from GITTA_COLOR_*
+// env vars (blocked, landed, serious, separator, icon). Set them in the exec line
+// to match your bar — below are Tokyo Night Storm values. Defaults are Catppuccin.
+"custom/gitta": {
+    "exec": "GITTA_COLOR_ICON=#7aa2f7 GITTA_COLOR_OK=#9ece6a GITTA_COLOR_WARN=#e0af68 GITTA_COLOR_BAD=#f7768e GITTA_COLOR_MUTE=#565f89 ~/.config/waybar/gitta-status ~/src/myproject",
+    "return-type": "json",
+    "interval": 2,
+    "on-click": "foot -e sh -c 'cd ~/src/myproject && gitta watch'"
+}
+
+// Icons: the label starts with a git glyph (U+F1D3) and adds a warning glyph
+// (U+F071) when a block was serious. Both are Nerd Font glyphs, so set a Nerd
+// Font in your style (e.g. "JetBrainsMono Nerd Font"). Override with GITTA_ICON
+// and GITTA_WARN_ICON if your font places them elsewhere.
+//
+// Stream mode (instant, no polling): instead of the block above, run a tiny
+// tailer and feed each new audit line through the same formatter:
+// "custom/gitta": {
+//     "exec": "tail -F -n1 ~/src/myproject/.gitta/audit.jsonl | while read -r l; do printf '%s\\n' \"$l\" | GITTA_COLOR_BAD=#f7768e jq -c '...same shaping...'; done",
+//     "return-type": "json"
+// }

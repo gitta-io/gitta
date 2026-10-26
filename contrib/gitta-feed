@@ -1,0 +1,23 @@
+#!/bin/sh
+# Core gitta event reader. Emits a neutral JSON summary of a repo's audit trail,
+# so every frontend (waybar, tmux, notify, dashboard, editor) formats the SAME
+# thing and stays agnostic to editor/agent/AI. Reads .gitta/audit.jsonl only;
+# it never runs the gitta binary. Requires jq.
+#   gitta-feed /path/to/repo      (or $GITTA_REPO, or run from inside a repo)
+set -u
+repo="${1:-${GITTA_REPO:-$PWD}}"
+log="$repo/.gitta/audit.jsonl"
+[ -f "$log" ] || { printf '{"on":false}\n'; exit 0; }
+jq -cs '
+  (["credentials","weakened checks","security","code page","policy"]) as $serious
+  | map(select(.event=="landed" or .event=="land_refused" or .event=="agent_started")) as $evs
+  | ($evs|map(select(.event=="landed"))|length) as $landed
+  | ($evs|map(select(.event=="land_refused"))) as $ref
+  | {
+      on: true,
+      landed: $landed,
+      blocked: ($ref|length),
+      serious: ($ref|map(select(.data.check as $c|$serious|any(.==$c)))|length),
+      by_check: ($ref|group_by(.data.check // "gate")|map({(.[0].data.check // "gate"): length})|add // {}),
+      last: (($evs|last) as $e | if $e==null then null else {event:$e.event, agent:($e.agent//""), time:($e.time//"")} end)
+    }' "$log"

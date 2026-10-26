@@ -1,0 +1,130 @@
+#!/bin/sh
+# Generate a self-contained HTML dashboard from a repo's gitta audit trail.
+# No server: one HTML file with the data baked in; re-run to refresh.
+#   gitta-dashboard /path/to/repo > dashboard.html
+# Reads .gitta/audit.jsonl only; never runs the gitta binary. Requires jq.
+set -u
+repo="${1:-${GITTA_REPO:-$PWD}}"
+log="$repo/.gitta/audit.jsonl"
+name=$(basename "$(cd "$repo" 2>/dev/null && pwd || echo "$repo")")
+if [ -f "$log" ]; then
+  events=$(jq -cs 'map(select(.event=="landed" or .event=="land_refused" or .event=="agent_started"))
+    | map({event, agent:(.agent//""), time:(.time//""), check:(.data.check//null), reason:(.data.reason//null),
+           seconds:((.data.checks//[])|map(select(.check=="tests"))|.[0].seconds//null)})' "$log")
+else
+  events='[]'
+fi
+
+cat <<'HEAD'
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gitta dashboard</title>
+<meta name="description" content="What gitta blocked and landed in a repository, from its audit trail.">
+<style>
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --fg:#1b1f24; --muted:#687078; --border:#e6e8eb;
+  --blue:#2563eb; --green:#16a34a; --amber:#d97706; --red:#dc2626; --grey:#9aa1a9;
+  --shadow:0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#15171a; --panel:#1d2024; --fg:#e8eaed; --muted:#9aa1a9; --border:#2a2e33;
+    --blue:#60a5fa; --green:#4ade80; --amber:#fbbf24; --red:#f87171; --grey:#6b7280;
+    --shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15171a; --panel:#1d2024; --fg:#e8eaed; --muted:#9aa1a9; --border:#2a2e33;
+  --blue:#60a5fa; --green:#4ade80; --amber:#fbbf24; --red:#f87171; --grey:#6b7280;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+main{max-width:860px;margin:0 auto;padding:28px 16px 48px}
+header{display:flex;align-items:baseline;gap:10px;margin-bottom:22px;flex-wrap:wrap}
+h1{font-size:19px;font-weight:650;margin:0;letter-spacing:.2px}
+.repo{color:var(--muted);font-size:13px}
+.repo b{color:var(--fg);font-weight:600}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:26px}
+.tile{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.tile .n{font-size:30px;font-weight:680;line-height:1.1}
+.tile .l{color:var(--muted);font-size:12.5px;margin-top:3px;text-transform:uppercase;letter-spacing:.5px}
+.tile.green .n{color:var(--green)} .tile.amber .n{color:var(--amber)}
+.tile.red .n{color:var(--red)} .tile.blue .n{color:var(--blue)}
+h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 10px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:var(--shadow);margin-bottom:26px}
+.row{display:flex;align-items:center;gap:10px;margin:7px 0}
+.row .k{width:140px;flex:none;font-size:13.5px}
+.row .bar{height:9px;border-radius:5px;flex:1;background:color-mix(in srgb,var(--border) 70%,transparent)}
+.row .bar i{display:block;height:100%;border-radius:5px;background:var(--amber)}
+.row.sev .bar i{background:var(--red)} .row .c{width:28px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+ul.tl{list-style:none;margin:0;padding:0}
+ul.tl li{display:flex;gap:11px;padding:9px 0;border-top:1px solid var(--border)}
+ul.tl li:first-child{border-top:0}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;margin-top:6px;background:var(--grey)}
+.dot.landed{background:var(--green)} .dot.refused{background:var(--amber)} .dot.sev{background:var(--red)}
+.ev{flex:1;min-width:0}
+.ev .t{font-size:14px} .ev .t b{font-weight:620}
+.ev .m{color:var(--muted);font-size:12.5px;margin-top:1px}
+.empty{color:var(--muted);text-align:center;padding:40px 0}
+</style>
+</head>
+<body>
+<main>
+<header><h1>gitta</h1><span class="repo">in <b id="repo"></b></span></header>
+<section id="tiles" class="tiles"></section>
+<section id="bd"></section>
+<section id="tl"></section>
+</main>
+<script>
+HEAD
+
+printf 'const DATA=%s;const REPO=%s;\n' "$events" "$(printf '%s' "$name" | jq -R .)"
+
+cat <<'TAIL'
+const SERIOUS = new Set(['credentials','weakened checks','security','code page','policy']);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const refused = DATA.filter(e=>e.event==='land_refused');
+const landed  = DATA.filter(e=>e.event==='landed').length;
+const serious = refused.filter(e=>SERIOUS.has(e.check)).length;
+const byCheck = {}; refused.forEach(e=>{const k=e.check||'gate';byCheck[k]=(byCheck[k]||0)+1;});
+document.getElementById('repo').textContent = REPO;
+
+const tiles = [
+  {n:refused.length, l:'blocked',  c: serious?'red':(refused.length?'amber':'blue')},
+  {n:landed,         l:'landed',   c:'green'},
+  {n:serious,        l:'serious',  c: serious?'red':'blue'},
+];
+document.getElementById('tiles').innerHTML = tiles.map(t=>
+  `<div class="tile ${t.c}"><div class="n">${t.n}</div><div class="l">${t.l}</div></div>`).join('');
+
+const keys = Object.keys(byCheck).sort((a,b)=>byCheck[b]-byCheck[a]);
+const max = Math.max(1,...keys.map(k=>byCheck[k]));
+document.getElementById('bd').innerHTML = keys.length ? (
+  `<h2>Blocked by reason</h2><div class="panel">` + keys.map(k=>
+    `<div class="row${SERIOUS.has(k)?' sev':''}"><span class="k">${esc(k)}</span>`+
+    `<span class="bar"><i style="width:${byCheck[k]/max*100}%"></i></span>`+
+    `<span class="c">${byCheck[k]}</span></div>`).join('') + `</div>`
+) : '';
+
+const when = t => t ? new Date(t).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+const rows = DATA.slice().reverse().map(e=>{
+  let cls='', title='', meta=[];
+  if(e.event==='landed'){cls='landed';title=`<b>landed</b> ${esc(e.agent)}`;if(e.seconds!=null)meta.push(`gate ${(+e.seconds).toFixed(1)}s`);}
+  else if(e.event==='land_refused'){const sev=SERIOUS.has(e.check);cls=sev?'sev':'refused';title=`<b>blocked</b> ${esc(e.agent)}`;if(e.check)meta.push(esc(e.check));if(sev)meta.push('serious');}
+  else {title=`${esc(e.agent)} <b>started</b>`;}
+  if(e.time)meta.unshift(when(e.time));
+  return `<li><span class="dot ${cls}"></span><div class="ev"><div class="t">${title}</div>`+
+         (meta.length?`<div class="m">${meta.join(' · ')}</div>`:'')+`</div></li>`;
+}).join('');
+document.getElementById('tl').innerHTML = DATA.length
+  ? `<h2>Timeline</h2><div class="panel"><ul class="tl">${rows}</ul></div>`
+  : `<div class="empty">No gitta activity in this repository yet.</div>`;
+</script>
+</body>
+</html>
+TAIL
