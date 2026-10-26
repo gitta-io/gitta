@@ -1438,8 +1438,11 @@ fn cmd_status(args: &[String]) {
     if args.iter().any(|a| a == "--json") {
         let v = view(&c);
         let skipped: Vec<_> = v.skipped.iter().map(|(n, why)| serde_json::json!({"name": n, "reason": why})).collect();
+        // Cumulative tallies from the audit trail, the same as `gitta audit --stats`.
+        let t = audit::stats(&audit::read(Path::new(&c.root)));
         println!("{}", serde_json::json!({"agents": c.agents.iter().filter(|a| !v.skipped.iter().any(|s| s.0 == a.name)).map(|a| serde_json::json!({"name": a.name, "path": a.path, "base": a.base, "changed": v.changes[&a.name]})).collect::<Vec<_>>(), "warnings": v.warnings, "skipped": skipped,
-            "security_notes": v.notes.iter().map(|(ag, n)| { let mut j = note_json(n); j["agent"] = serde_json::json!(ag); j }).collect::<Vec<_>>()}));
+            "security_notes": v.notes.iter().map(|(ag, n)| { let mut j = note_json(n); j["agent"] = serde_json::json!(ag); j }).collect::<Vec<_>>(),
+            "landed_total": t["landed_total"], "refused_total": t["refused_total"]}));
         return;
     }
     let target = c.main.trim_start_matches("refs/heads/");
@@ -4046,8 +4049,8 @@ const SPECS: &[Spec] = &[
         values: &["--name", "--email", "--days"], flags: &["--runner"], text_after: None },
     Spec { name: "report", usage: "gitta report [--period day|week|month|all] [--by agent|person|repo] [--since DATE] [--until DATE] [--csv|--json] [--team] [--integration]\n  Agents run, changes, clashes found, merges stopped and broken mains prevented, from the audit trail. --integration follows work to correct integration, including repair.",
         values: &["--period", "--by", "--since", "--until"], flags: &["--json", "--csv", "--team", "--integration"], text_after: None },
-    Spec { name: "audit", usage: "gitta audit [verify] [--since DATE] [--agent A] [--event E] [--json|--csv] [--team] [--follow]\n  The audit trail. --follow prints new events as they are written.",
-        values: &["--since", "--agent", "--event"], flags: &["--json", "--csv", "--team", "--follow"], text_after: None },
+    Spec { name: "audit", usage: "gitta audit [verify] [--since DATE] [--agent A] [--event E] [--last N] [--json|--csv] [--stats] [--team] [--follow]\n  The audit trail. --last keeps the most recent N events. --follow prints new events as they are written. --stats sums what landed and what was refused, as text or --json.",
+        values: &["--since", "--agent", "--event", "--last"], flags: &["--json", "--csv", "--stats", "--team", "--follow"], text_after: None },
     Spec { name: "update", usage: "gitta update [--check]\n  Install the latest release over this gitta; --check only reports.", values: &[], flags: &["--check"], text_after: None },
     Spec { name: "down", usage: "gitta down\n  Remove the workspaces Gitta made.", values: &[], flags: &[], text_after: None },
     Spec { name: "uninstall", usage: "gitta uninstall [--everywhere]\n  Remove Gitta from this repository (or every repository).", values: &[], flags: &["--everywhere"], text_after: None },

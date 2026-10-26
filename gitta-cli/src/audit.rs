@@ -3,8 +3,9 @@
 //! a changed, removed or reordered line is found by `gitta audit verify`. Events are also sent to the team servers,
 //! which keep a copy for the whole team (a lost or wiped laptop does not lose the record).
 //!
-//!   gitta audit [--since 2026-10-01] [--agent NAME] [--event landed] [--json|--csv] [--team]
-//!   gitta audit --follow [--json] [--agent NAME] [--event landed]   new events as they are written, until stopped
+//!   gitta audit [--since 2026-10-01] [--agent NAME] [--event landed] [--last N] [--json|--csv] [--team]
+//!   gitta audit --stats [--json] [--since 2026-10-01] [--last N]   how many landed, how many were refused
+//!   gitta audit --follow [--json] [--agent NAME] [--event landed] [--last N]   new events as they are written, until stopped
 //!   gitta audit verify
 
 use serde_json::{json, Value};
@@ -82,6 +83,17 @@ pub fn record(root: &Path, event: &str, agent: &str, actor: &Value, data: Value)
 pub fn read(root: &Path) -> Vec<Value> {
     let Ok(f) = std::fs::File::open(file(root)) else { return vec![] };
     std::io::BufReader::new(f).lines().map_while(Result::ok).filter_map(|l| serde_json::from_str(&l).ok()).collect()
+}
+
+/// `--last N`: how many of the most recent events to keep. Err when N is not a number above 0.
+fn last(args: &[String]) -> Result<Option<usize>, String> {
+    let Some(v) = args.iter().position(|a| a == "--last").and_then(|i| args.get(i + 1)) else { return Ok(None) };
+    v.parse::<usize>().ok().filter(|&n| n > 0).map(Some).ok_or(format!("--last is a number above 0, not {v}"))
+}
+
+/// Drop all but the most recent `n` events, applied after the other filters.
+fn keep_last(events: &mut Vec<Value>, n: Option<usize>) {
+    if let Some(n) = n { if events.len() > n { events.drain(..events.len() - n); } }
 }
 
 /// Checks the chain. Ok(number of events) or Err(where it breaks and how).
@@ -177,8 +189,23 @@ fn line(e: &Value) -> String {
         format!("{}@{}", e["actor"]["name"].as_str().unwrap_or(""), e["actor"]["machine"].as_str().unwrap_or("")), summary(e))
 }
 
+/// Cumulative counts: how many events landed, how many `gitta land` refused, and which check refused them. A merge
+/// stopped by a git hook is a `blocked` event and is not counted: on the land path it comes with a `land_refused`.
+pub(crate) fn stats(events: &[Value]) -> Value {
+    let (mut landed, mut refused) = (0u64, 0u64);
+    let mut by: std::collections::BTreeMap<String, u64> = Default::default();
+    for e in events {
+        match e["event"].as_str().unwrap_or("") {
+            "landed" => landed += 1,
+            "land_refused" => { refused += 1; *by.entry(e["data"]["check"].as_str().unwrap_or("gate").to_string()).or_default() += 1; }
+            _ => {}
+        }
+    }
+    json!({"landed_total": landed, "refused_total": refused, "refused_by_check": by})
+}
+
 /// `gitta audit --follow`: prints each new event as it is written (one JSON line each with --json), so it can be
-/// piped into any log shipper. Starts at the end of the trail; with --since it first prints the matching history.
+/// piped into any log shipper. Starts at the end of the trail; with --since or --last it first prints that history.
 /// Reads the file only, so it never holds up an agent or a merge.
 fn follow(root: &Path, args: &[String], history: Option<Vec<Value>>) {
     let get = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
@@ -235,12 +262,28 @@ pub fn cmd(root: &Path, args: &[String], team: Option<(String, String, String)>)
         return;
     }
     let get = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
+    let n = last(args).unwrap_or_else(|e| { eprintln!("gitta: {e}"); std::process::exit(2) });
+    let (totals, following) = (args.iter().any(|a| a == "--stats"), args.iter().any(|a| a == "--follow" || a == "-f"));
+    if let Some(a) = args.iter().find(|a| totals && ["--csv", "--follow", "-f"].contains(&a.as_str())) {
+        eprintln!("gitta: audit --stats prints the totals once, as text or --json; it does not take {a}"); std::process::exit(2)
+    }
     let mut events = if args.iter().any(|a| a == "--team") { fetch_team(team.clone()) } else { read(root) };
     if args.iter().any(|a| a == "--team") { events.sort_by(|a, b| a["time"].as_str().cmp(&b["time"].as_str())); }
     if let Some(s) = get("--since") { events.retain(|e| e["time"].as_str().unwrap_or("") >= s.as_str()); }
     if let Some(a) = get("--agent") { events.retain(|e| e["agent"].as_str() == Some(a.as_str())); }
     if let Some(k) = get("--event") { events.retain(|e| e["event"].as_str() == Some(k.as_str())); }
-    if args.iter().any(|a| a == "--follow" || a == "-f") { return follow(root, args, get("--since").is_some().then_some(events)); }
+    keep_last(&mut events, n);
+    if totals {
+        let s = stats(&events);
+        if args.iter().any(|a| a == "--json") { println!("{s}"); }
+        else {
+            println!("landed: {}", s["landed_total"]);
+            println!("refused: {}", s["refused_total"]);
+            for (k, v) in s["refused_by_check"].as_object().into_iter().flatten() { println!("  {k}: {v}"); }
+        }
+        return;
+    }
+    if following { return follow(root, args, (get("--since").is_some() || n.is_some()).then_some(events)); }
     if args.iter().any(|a| a == "--json") {
         for e in &events { println!("{e}"); }
     } else if args.iter().any(|a| a == "--csv") {
@@ -290,5 +333,48 @@ mod tail_tests {
         record(&root, "warning", "a", &json!({}), json!({"findings": "y"}));
         assert_eq!(verify(&read(&root)), Ok(2));
         let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn last_keeps_only_the_most_recent_n() {
+        let mut events: Vec<Value> = (1..=5).map(|seq| json!({"seq": seq})).collect();
+        keep_last(&mut events, last(&["--last".into(), "2".into()]).unwrap());
+        assert_eq!(events.iter().map(|e| e["seq"].as_u64().unwrap()).collect::<Vec<_>>(), vec![4, 5]);
+    }
+    #[test]
+    fn last_leaves_a_shorter_trail_whole() {
+        let mut events: Vec<Value> = (1..=3).map(|seq| json!({"seq": seq})).collect();
+        keep_last(&mut events, last(&["--last".into(), "9".into()]).unwrap());
+        assert_eq!(events.len(), 3);
+    }
+    #[test]
+    fn last_takes_only_a_number_above_zero() {
+        assert_eq!(last(&["--json".into()]), Ok(None));
+        for bad in ["0", "abc", "-3", "2.5", ""] {
+            assert_eq!(last(&["--last".into(), bad.into()]), Err(format!("--last is a number above 0, not {bad}")));
+        }
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+    #[test]
+    fn stats_count_landed_and_group_refusals_by_check() {
+        let events = [
+            json!({"event": "agent_started"}),
+            json!({"event": "landed"}),
+            json!({"event": "landed"}),
+            json!({"event": "land_refused", "data": {"check": "tests", "reason": "failed"}}),
+            json!({"event": "land_refused", "data": {"check": "tests", "reason": "failed"}}),
+            json!({"event": "land_refused", "data": {"check": "credentials", "reason": "found"}}),
+            json!({"event": "land_refused", "data": {"reason": "no check named"}}),
+            json!({"event": "blocked", "data": {"setting": "credentials"}}),
+        ];
+        let s = stats(&events);
+        assert_eq!(s["landed_total"], 2);
+        assert_eq!(s["refused_total"], 4);
+        assert_eq!(s["refused_by_check"]["tests"], 2);
+        assert_eq!(s["refused_by_check"]["credentials"], 1);
+        assert_eq!(s["refused_by_check"]["gate"], 1);
     }
 }

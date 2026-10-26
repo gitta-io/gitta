@@ -404,6 +404,79 @@ fn audit_trail_records_who_what_and_checks_and_shows_tampering() {
 }
 
 #[test]
+fn status_json_and_audit_stats_count_landings_and_refusals() {
+    let e = env("totals");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let j: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["status", "--json"]).stdout).unwrap();
+    assert_eq!(j["landed_total"], 0);
+    assert_eq!(j["refused_total"], 0);
+    // One clean landing.
+    let a = worktree(&e, "feat");
+    write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\n\ndef whisper(s):\n    return s.lower()\n");
+    assert!(gitta(&e, &e.repo, &["land", "feat"]).status.success());
+    // One refusal: the agent put a credential in the code.
+    let b = worktree(&e, "leaky");
+    write(&b.join("shop/text.py"), "API_KEY = \"sk-live-4f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c\"\n\ndef shout(s):\n    return s.upper()\n");
+    assert!(!gitta(&e, &e.repo, &["land", "leaky"]).status.success());
+    let j: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["status", "--json"]).stdout).unwrap();
+    assert_eq!(j["landed_total"], 1);
+    assert_eq!(j["refused_total"], 1);
+    let o = gitta(&e, &e.repo, &["audit", "--stats"]);
+    assert!(o.status.success(), "{}", text(&o));
+    assert_eq!(String::from_utf8_lossy(&o.stdout), "landed: 1\nrefused: 1\n  credentials: 1\n");
+    let s: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["audit", "--stats", "--json"]).stdout).unwrap();
+    assert_eq!(s, serde_json::json!({"landed_total": 1, "refused_total": 1, "refused_by_check": {"credentials": 1}}));
+    // With --last, only the events after the landing are counted.
+    let trail: Vec<serde_json::Value> = String::from_utf8_lossy(&gitta(&e, &e.repo, &["audit", "--json"]).stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let after = (trail.len() - 1 - trail.iter().position(|ev| ev["event"] == "landed").unwrap()).to_string();
+    let s: serde_json::Value = serde_json::from_slice(&gitta(&e, &e.repo, &["audit", "--stats", "--json", "--last", &after]).stdout).unwrap();
+    assert_eq!((s["landed_total"].as_u64(), s["refused_total"].as_u64()), (Some(0), Some(1)), "--last {after}: {s}");
+}
+
+#[test]
+fn audit_rejects_a_bad_last_and_stats_with_csv_or_follow() {
+    let e = env("auditargs");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    for args in [&["audit", "--last", "0"][..], &["audit", "--last", "abc"], &["audit", "--stats", "--last", "0"]] {
+        let o = gitta(&e, &e.repo, args);
+        assert_eq!(o.status.code(), Some(2), "{args:?}: {}", text(&o));
+        assert!(text(&o).contains("--last is a number above 0"), "{args:?}: {}", text(&o));
+    }
+    for flag in ["--csv", "--follow"] {
+        let o = gitta(&e, &e.repo, &["audit", "--stats", flag]);
+        assert_eq!(o.status.code(), Some(2), "{flag}: {}", text(&o));
+        assert!(text(&o).contains(&format!("does not take {flag}")), "{flag}: {}", text(&o));
+    }
+}
+
+#[test]
+fn audit_follow_with_last_prints_the_last_events_then_new_ones() {
+    let e = env("follow");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let a = worktree(&e, "feat");
+    write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\n\ndef whisper(s):\n    return s.lower()\n");
+    assert!(gitta(&e, &e.repo, &["land", "feat"]).status.success());
+    let trail: Vec<String> = String::from_utf8_lossy(&gitta(&e, &e.repo, &["audit", "--json"]).stdout).lines().map(String::from).collect();
+    assert!(trail.len() > 2, "{trail:?}");
+    let mut c = gitta_cmd().env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("HOME", &e.home).args(["audit", "--follow", "--json", "--last", "2"])
+        .current_dir(&e.repo).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = c.stdout.take().unwrap();
+    std::thread::spawn(move || for l in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) { if tx.send(l).is_err() { break } });
+    let next = || rx.recv_timeout(std::time::Duration::from_secs(20)).ok();
+    let history = [next(), next()];
+    std::fs::OpenOptions::new().append(true).open(e.repo.join(".gitta/audit.jsonl")).unwrap().write_all(b"{\"seq\":999,\"event\":\"x\"}\n").unwrap();
+    let new = next();
+    let _ = c.kill();
+    let _ = c.wait();
+    assert_eq!(history, [Some(trail[trail.len() - 2].clone()), Some(trail[trail.len() - 1].clone())]);
+    assert_eq!(new.map(|l| serde_json::from_str::<serde_json::Value>(&l).unwrap()["seq"].clone()), Some(serde_json::json!(999)));
+}
+
+#[test]
 fn open_source_build_has_no_team_server() {
     let e = env("oss");
     let o = gitta(&e, &e.repo, &["server"]);
