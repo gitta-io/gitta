@@ -316,7 +316,7 @@ fn refresh(root: &Path, c: &mut Config) {
 }
 
 /// One-time setup: coordinate every worktree of this repository from now on, and hook up Claude Code.
-///   gitta init [--onto BRANCH] [--gate "test command"] [--parallel N] [--no-claude]
+///   gitta init [--onto BRANCH] [--gate "test command"] [--parallel N] [--no-claude] [--no-mcp]
 /// --parallel N bounds how many gates run at once (cross-testing and the merge path); 0 (default) is automatic
 /// for cross-testing and unbounded for the merge path. Raise it only to cap a memory-heavy or port/DB-bound suite.
 fn cmd_init(args: &[String]) {
@@ -375,7 +375,7 @@ fn cmd_init(args: &[String]) {
     let cow = if args.iter().any(|a| a == "--no-cow") { None } else { install_claude_worktree_hooks(&root) };
     let cursor_cow = if args.iter().any(|a| a == "--no-cow") { None } else { install_cursor_worktree_setup(&root) };
     let chained = githooks::install(&root);
-    let mcp = install_mcp_user_configs();
+    let mcp = if args.iter().any(|a| a == "--no-mcp") { vec![] } else { install_mcp_user_configs() };
     let name = root.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
     let names: Vec<String> = c.agents.iter().map(|a| a.name.clone()).collect();
     println!("gitta is set up in {name}.\n");
@@ -4019,8 +4019,8 @@ fn spec(cmd: &str) -> Option<&'static Spec> {
 }
 
 const SPECS: &[Spec] = &[
-    Spec { name: "init", usage: "gitta init [--onto BRANCH] [--gate CMD] [--notify on|off] [--weakened-checks warn|block] [--parallel N] [--security PATTERN]... [--security-block high|medium|none] [--server URL] [--token T] [--team] [--no-claude] [--no-cow]\n  Coordinate every worktree of this repository from now on (run once).",
-        values: &["--onto", "--gate", "--parallel", "--security", "--security-block", "--server", "--token", "--notify", "--weakened-checks"], flags: &["--team", "--no-claude", "--no-cow"], text_after: None },
+    Spec { name: "init", usage: "gitta init [--onto BRANCH] [--gate CMD] [--notify on|off] [--weakened-checks warn|block] [--parallel N] [--security PATTERN]... [--security-block high|medium|none] [--server URL] [--token T] [--team] [--no-claude] [--no-mcp] [--no-cow]\n  Coordinate every worktree of this repository from now on (run once).",
+        values: &["--onto", "--gate", "--parallel", "--security", "--security-block", "--server", "--token", "--notify", "--weakened-checks"], flags: &["--team", "--no-claude", "--no-mcp", "--no-cow"], text_after: None },
     Spec { name: "run", usage: "gitta run --task T... | --tasks FILE [--agent claude|codex] [--cmd TEMPLATE] [--gate CMD] [--link DIR] [--sandbox] [--net-port P] [--land]\n  Start one agent per task in its own workspace.",
         values: &["--task", "--tasks", "--agent", "--cmd", "--gate", "--link", "--net-port"], flags: &["--land", "--sandbox"], text_after: None },
     Spec { name: "up", usage: "gitta up -n N [--gate CMD] [--link DIR] [--backend worktree|overlay|fuse] [--deny-read PATTERN]\n  Create N agent workspaces from HEAD.",

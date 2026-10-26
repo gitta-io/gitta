@@ -225,6 +225,19 @@ fn uninstall_restores_every_file_exactly() {
 }
 
 #[test]
+fn init_with_no_mcp_leaves_cursor_and_codex_settings_alone() {
+    let e = env("nomcp");
+    shop(&e);
+    let files = [(".cursor/mcp.json", "{\n  \"mcpServers\": {}\n}"), (".codex/config.toml", "model = \"o3\"\n")];
+    for (p, t) in files { write(&e.home.join(p), t); }
+    let o = gitta(&e, &e.repo, &["init", "--no-claude", "--no-mcp"]);
+    assert!(o.status.success(), "{}", text(&o));
+    assert!(!text(&o).contains("MCP tools added"), "{}", text(&o));
+    for (p, t) in files { assert_eq!(std::fs::read_to_string(e.home.join(p)).unwrap(), t, "{p}"); }
+    assert!(!e.home.join(".cursor/mcp.json.gitta-backup").exists() && !e.home.join(".codex/config.toml.gitta-backup").exists());
+}
+
+#[test]
 fn init_never_writes_into_a_hooks_folder_outside_the_repository() {
     let e = env("sharedhooks");
     shop(&e);
