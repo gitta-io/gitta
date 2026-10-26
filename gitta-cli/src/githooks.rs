@@ -277,16 +277,26 @@ fn check_from(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incom
     }
     let failing = failing_tests(&out);
     let errs = first_errors(&out, 6);
+    // Tests that already fail on the target alone are not the incoming work's to fix.
+    let onto_c = soft(root, &["rev-parse", &format!("{onto}^{{commit}}")]).unwrap_or_else(|| onto.to_string());
+    let (base_fails, base_only) = if out.contains(GATE_TIMEOUT_MARK) { (None, false) } else { test_base(root, c, gate, &onto_c, &failing) };
     let defs = landed_definitions(root, &base, onto, &hz);
-    if let Some(a) = &ag { save_test_hold(root, a, &changed_paths(a, &c.link), &main_commit(c), &failing, &out, &defs); }
-    write_failure_package(root, c, onto, incoming, at, &tree, &failing, &out);
-    log(root, "refused", &who, &format!("gitta stopped the {how}: tests fail on {target} combined with {who}{}.", failing.first().map(|t| format!(" ({t})")).unwrap_or_default()));
-    audit::record(root, "merge_stopped", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "failing": failing, "features": gitta_core::guard::features()}));
+    if let Some(a) = &ag {
+        if base_only { let _ = std::fs::remove_file(root.join(".gitta").join(format!("{}.held", a.name))); }
+        else { save_test_hold(root, a, &changed_paths(a, &c.link), &main_commit(c), &failing, &out, &defs); }
+    }
+    write_failure_package(root, c, &onto_c, incoming, at, &tree, &failing, &out, base_fails);
+    let said = if base_only { format!("already fail on {target} without {who}") } else { format!("fail on {target} combined with {who}") };
+    log(root, "refused", &who, &format!("gitta stopped the {how}: tests {said}{}.", failing.first().map(|t| format!(" ({t})")).unwrap_or_default()));
+    audit::record(root, "merge_stopped", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "failing": failing, "base_fails": base_fails, "features": gitta_core::guard::features()}));
+    let named = match failing.len() { 0 => String::new(), 1 => format!(" ({})", failing[0]), k => format!(" ({k} tests: {})", failing.iter().take(3).cloned().collect::<Vec<_>>().join(", ")) };
+    let err = errs.first().map(|l| format!("\n    {l}")).unwrap_or_default();
+    if base_only {
+        return Err(format!("tests already fail on {target} without {who}{named}, so the fault is on {target}, not in {} work; {{state}}. Fix {target} first, then merge again.{err}", poss(&who)));
+    }
     // One line for the agent, the first error as evidence, and the new form of a function its code relies on.
-    Err(format!("tests fail on {target} with {who}{}; {{state}}. Fix it and merge again.{}",
-        match failing.len() { 0 => String::new(), 1 => format!(" ({})", failing[0]), k => format!(" ({k} tests: {})", failing.iter().take(3).cloned().collect::<Vec<_>>().join(", ")) },
-        errs.first().map(|l| format!("\n    {l}")).unwrap_or_default()
-            + &defs.first().map(|d| format!("\nNow on {target}: {d}")).unwrap_or_default()))
+    Err(format!("tests fail on {target} with {who}{named}; {{state}}. Fix it and merge again.{}",
+        err + &defs.first().map(|d| format!("\nNow on {target}: {d}")).unwrap_or_default()))
 }
 
 /// A refusal with what happened to the target filled in: in the `{state}` slot, or as a closing sentence.
@@ -671,8 +681,9 @@ fn now_secs() -> f64 { std::time::SystemTime::now().duration_since(std::time::UN
 fn short(sha: &str) -> &str { &sha[..sha.len().min(12)] }
 
 /// Record (or refresh) the failure package for a gate failure on the merge path. Keyed by the candidate tree,
-/// so one failing candidate is one package. Prior rerun attempts are preserved.
-pub(crate) fn write_failure_package(root: &Path, c: &Config, base: &str, incoming: &str, candidate_commit: &str, candidate_tree: &str, failing: &[String], out: &str) {
+/// so one failing candidate is one package. Prior rerun attempts are preserved. `base_fails`: the gate fails on
+/// `base` alone too (None: unknown).
+pub(crate) fn write_failure_package(root: &Path, c: &Config, base: &str, incoming: &str, candidate_commit: &str, candidate_tree: &str, failing: &[String], out: &str, base_fails: Option<bool>) {
     let Some(gate) = c.gate.as_deref() else { return };
     if candidate_tree.is_empty() { return; }
     let id = short(candidate_tree);
@@ -683,7 +694,7 @@ pub(crate) fn write_failure_package(root: &Path, c: &Config, base: &str, incomin
     let attempts = std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()).and_then(|v| v["attempts"].as_array().cloned()).unwrap_or_default();
     let pkg = serde_json::json!({
         "id": id, "recorded_at": now_secs(), "status": "recorded", "reproduced": false, "rerun_available": true,
-        "base": base, "incoming": incoming, "candidate_commit": candidate_commit, "candidate_tree": candidate_tree,
+        "base": base, "base_fails": base_fails, "incoming": incoming, "candidate_commit": candidate_commit, "candidate_tree": candidate_tree,
         "gate": gate, "fingerprint": fp, "fingerprint_reliable": reliable,
         "failing": failing.iter().take(10).collect::<Vec<_>>(), "errors": first_errors(out, 8), "output": tail.join("\n"),
         "rerun": format!("gitta failure rerun {id}"), "attempts": attempts });
@@ -721,7 +732,8 @@ fn failure_rerun(root: &Path, c: &Config, id: &str) -> Result<String, String> {
         w.release();
         if timed { ("could not run".into(), "the gate was stopped at its time limit before a result; not confirmed.".into()) }
         else if ok { pkg["reproduced"] = serde_json::json!(false); ("not reproduced".into(), "the gate passed on the recorded candidate; the failure did not reproduce.".into()) }
-        else { pkg["reproduced"] = serde_json::json!(true); ("reproduced".into(), "the gate failed again on the recorded candidate; the failure is confirmed.".into()) }
+        else { pkg["reproduced"] = serde_json::json!(true); ("reproduced".into(), format!("the gate failed again on the recorded candidate; the failure is confirmed.{}",
+            if pkg["base_fails"] == true { " It also failed on the base alone when it was recorded, so fix the base first." } else { "" })) }
     };
     attempts.push(serde_json::json!({"at": now_secs(), "result": status, "fingerprint": short(&now_fp)}));
     pkg["attempts"] = serde_json::json!(attempts);
@@ -799,6 +811,20 @@ fn gate_result(root: &Path, c: &Config, gate: &str, tree: &str, at: &str) -> Opt
     if reliable && !timed_out && missing_tool(&out, code).is_none() && !(ok && zero_tests(&out).is_some()) { save_gate(root, gate, tree, &fp, ok, &out, code); }
     let _ = std::fs::remove_file(&run);
     Some((ok, out, code, false))
+}
+
+/// After the gate failed on code built on `base`: whether it fails on `base` alone too (None: unknown), and whether
+/// every test named in `failing` fails there too, so the failure is the base's, not the incoming work's. It runs
+/// as every gate does (cached by tree and environment, slot cap, time limit): a broken base costs one run.
+pub(crate) fn test_base(root: &Path, c: &Config, gate: &str, base: &str, failing: &[String]) -> (Option<bool>, bool) {
+    let tree = soft(root, &["rev-parse", &format!("{base}^{{tree}}")]).unwrap_or_default();
+    match gate_result(root, c, gate, &tree, base) {
+        Some((ok, out, code, _)) if ok || !(out.contains(GATE_TIMEOUT_MARK) || missing_tool(&out, code).is_some()) => {
+            let theirs = failing_tests(&out);
+            (Some(!ok), !ok && failing.iter().all(|t| theirs.contains(t)))
+        }
+        _ => (None, false),
+    }
 }
 
 /// After main moved: test what each agent's committed work gives on the new main, in the background, so the agent's
@@ -973,15 +999,16 @@ mod failure_package_tests {
             "root": root.to_string_lossy(), "main": "refs/heads/main", "agents": [],
             "gate": "false", "link": [], "auto_sync": true, "gate_env": [envname.clone()] })).unwrap();
         std::env::remove_var(&envname);
-        write_failure_package(&root, &c, &head, &head, &head, &tree, &["t_x".into()], "boom\n");
+        write_failure_package(&root, &c, &head, &head, &head, &tree, &["t_x".into()], "boom\n", Some(true));
         let id = short(&tree).to_string();
         let v = failure_get(&root, &id).expect("package written");
         assert_eq!(v["rerun_available"], serde_json::json!(true));
         assert_eq!(v["reproduced"], serde_json::json!(false));
+        assert_eq!(v["base_fails"], serde_json::json!(true));
         assert!(!failure_list(&root).is_empty());
         // Same environment: the gate ("false") fails again, so the failure is confirmed reproduced.
         let msg = failure_rerun(&root, &c, &id).unwrap();
-        assert!(msg.contains("confirmed"), "{msg}");
+        assert!(msg.contains("confirmed") && msg.contains("fix the base first"), "{msg}");
         assert_eq!(failure_get(&root, &id).unwrap()["reproduced"], serde_json::json!(true));
         // Changed environment: reported as a mismatch, not a reproduction.
         std::env::set_var(&envname, "changed");

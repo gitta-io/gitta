@@ -107,8 +107,11 @@ fn plain_log(root: &Path, t: f64, text: &str) {
 }
 fn refuse(root: &Path, agent: &str, msg: &str) -> ! { log(root, "refused", agent, msg); die(msg) }
 /// A refused landing, also recorded in the audit trail with the check that stopped it.
-fn refuse_land(root: &Path, agent: &str, check: &str, msg: &str) -> ! {
-    audit::record(root, "land_refused", agent, &audit::actor(root), serde_json::json!({"check": check, "reason": msg.lines().next().unwrap_or("").trim_start_matches("land refused: ")}));
+fn refuse_land(root: &Path, agent: &str, check: &str, msg: &str) -> ! { refuse_land_with(root, agent, serde_json::json!({"check": check}), msg) }
+/// `refuse_land` with more fields for the audit event.
+fn refuse_land_with(root: &Path, agent: &str, mut data: serde_json::Value, msg: &str) -> ! {
+    data["reason"] = serde_json::json!(msg.lines().next().unwrap_or("").trim_start_matches("land refused: "));
+    audit::record(root, "land_refused", agent, &audit::actor(root), data);
     refuse(root, agent, msg)
 }
 /// The coding tool behind a workspace, from where it lives.
@@ -2066,8 +2069,9 @@ fn cmd_land(args: &[String]) {
     if let Some(gate) = &c.gate {
         println!("gitta: gate `{gate}` on the merged candidate...");
         let t0 = std::time::Instant::now();
-        let _slot = acquire_gate_slot(&root, gate_cap(&c));
-        let (ok, out, code, _timed) = run_gate(gate, &tmp, _slot.path(), gate_timeout(&c));
+        let slot = acquire_gate_slot(&root, gate_cap(&c));
+        let (ok, out, code, timed) = run_gate(gate, &tmp, slot.path(), gate_timeout(&c));
+        drop(slot);   // the run on main alone below takes its own
         gate_s = t0.elapsed().as_secs_f64();
         if !ok {
             cleanup(&root, &tmp);
@@ -2080,21 +2084,34 @@ fn cmd_land(args: &[String]) {
                 std::process::exit(3);
             }
             let failing = failing_tests(&out);
-            let defs = landed_definitions(&root, &a.base, &main, &mh);
-            save_test_hold(&root, &a, &mine, &main, &failing, &out, &defs);
             // Record the failure package for the exact candidate that was tested, so it can be reproduced and
             // handed off. The tested tree is committed (dangling) so a rerun can check it out.
             let ctree = git_ok(&tmp, &["write-tree"]);
+            let ccommit = if ctree.is_empty() { String::new() } else { String::from_utf8_lossy(&git(&tmp, &["commit-tree", &ctree, "-p", &main, "-m", "gitta candidate"]).stdout).trim().to_string() };
+            let target = c.main.trim_start_matches("refs/heads/");
+            // Tests that already fail on main alone are not this agent's to fix.
+            let (base_fails, base_only) = if timed { (None, false) } else {
+                println!("gitta: checking whether the tests also fail on {target} alone...");
+                GATE_QUIET.store(true, std::sync::atomic::Ordering::Relaxed);
+                let r = githooks::test_base(&root, &c, gate, &main, &failing);
+                GATE_QUIET.store(false, std::sync::atomic::Ordering::Relaxed);
+                r
+            };
+            let defs = landed_definitions(&root, &a.base, &main, &mh);
+            if base_only { let _ = std::fs::remove_file(root.join(".gitta").join(format!("{name}.held"))); } else { save_test_hold(&root, &a, &mine, &main, &failing, &out, &defs); }
             if !ctree.is_empty() {
-                let ccommit = String::from_utf8_lossy(&git(&tmp, &["commit-tree", &ctree, "-p", &main, "-m", "gitta candidate"]).stdout).trim().to_string();
                 let tip = git_ok(Path::new(&a.path), &["rev-parse", "HEAD"]);
-                githooks::write_failure_package(&root, &c, &main, &tip, &ccommit, &ctree, &failing, &out);
+                githooks::write_failure_package(&root, &c, &main, &tip, &ccommit, &ctree, &failing, &out, base_fails);
             }
             let first = failing.first().map(|t| format!(" First failing test: {t}.")).unwrap_or_default();
             let errs = first_errors(&out, 6);
             let errs = if errs.is_empty() { String::new() } else { format!("\n{}", errs.iter().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")) };
-            let defs = defs.iter().map(|d| format!("\nNow on {}: {d}", c.main.trim_start_matches("refs/heads/"))).collect::<String>();
-            refuse_land(&root, &name, "tests", &format!("land refused: the tests failed on {name_p} work combined with what is already merged, so nothing was merged.{first}{errs}{defs}\nFix the code, then run the same command again."))
+            let data = serde_json::json!({"check": "tests", "base_fails": base_fails});
+            if base_only {
+                refuse_land_with(&root, &name, data, &format!("land refused: the tests already fail on {target} without {name_p} work, so nothing was merged. The fault is on {target}, not in {name_p} work.{first}{errs}\nFix {target} first, then run the same command again."))
+            }
+            let defs = defs.iter().map(|d| format!("\nNow on {target}: {d}")).collect::<String>();
+            refuse_land_with(&root, &name, data, &format!("land refused: the tests failed on {name_p} work combined with what is already merged, so nothing was merged.{first}{errs}{defs}\nFix the code, then run the same command again."))
         }
     }
     // Commit exactly the agent's paths: never gate output, caches or linked folders.
