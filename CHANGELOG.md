@@ -31,6 +31,7 @@
 
 ### Fixes
 
+- When only the inside of a function another agent uses changed, gitta no longer calls it probably fine. It asks the agent to check that the function still does what its code expects.
 - When a file does not merge, gitta now says why in plain words instead of an internal code.
 - When `gitta land` stops on failing tests, the failure record now holds the code that was tested, so `gitta failure rerun` confirms the same failure.
 - Projects with submodules now pass the gate when they pass in your own checkout. gitta gives its test checkout the submodules from your main checkout, with no clone and no network.
