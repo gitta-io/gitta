@@ -430,6 +430,20 @@ fn a_changed_meaning_is_information_and_the_tests_decide() {
 }
 
 #[test]
+fn a_low_severity_change_is_not_called_fine() {
+    let e = env("lowsev");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let (a, b) = (worktree(&e, "vat"), worktree(&e, "label"));
+    // An optional parameter appended: existing calls stay valid, a low-severity change, but the function still changed.
+    write(&a.join("shop/pricing.py"), &PRICING.replace("def net_to_gross(net):", "def net_to_gross(net, digits=2):"));
+    write(&b.join("shop/label.py"), "from shop.pricing import net_to_gross\n\n\ndef label(x):\n    return f\"{net_to_gross(x)} kr\"\n");
+    let st = text(&gitta(&e, &e.repo, &["status"]));
+    assert!(st.contains("which label's new code in shop/label.py uses. The way it is called did not change. Check that it still does what that code expects."), "{st}");
+    assert!(!st.contains("probably fine"), "{st}");
+}
+
+#[test]
 fn csharp_and_kotlin_changed_meaning_is_reported() {
     let e = env("cskt");
     let vat_cs = "namespace Shop.Pricing\n{\n    public static class Vat\n    {\n        public const decimal Rate = 0.25m;\n\n        public static decimal NetToGross(decimal net)\n        {\n            return net * (1 + Rate);\n        }\n    }\n}\n";

@@ -1500,7 +1500,7 @@ fn describe(w: &Warning) -> String {
             let by = match w.changed_by.as_deref() { Some("main") | Some("head") => "work merged into main".to_string(), x => x.unwrap_or_default().to_string() };
             format!("{by} changed {sym}{}, which {} new code in {} uses. {}", if w.security.is_some() { " (a security check)" } else { "" },
                     poss(&w.referenced_by.clone().unwrap_or_default()), w.path,
-                    if w.severity.as_deref() == Some("high") { "Check that the two changes still work together." } else { "Only its inside changed, so this is probably fine." })
+                    if w.severity.as_deref() == Some("high") { "Check that the two changes still work together." } else { "The way it is called did not change. Check that it still does what that code expects." })
         }
         "SECURITY" => {
             let n = w.security.clone().unwrap_or(gitta_core::security::Note { what: "weakened".into(), risk: String::new() });
