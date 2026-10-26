@@ -30,7 +30,7 @@ Now on main: bench/aidev-replay/analyze.py:23: def wilson(k, n, *, z=1.96):</ter
 <p>To skip the hooks, run <code>gitta init --no-claude</code>. To add them later, run <code>gitta install claude</code>.</p>
 
 <h2>Cursor and Codex</h2>
-<p>When Cursor or Codex is installed, <code>gitta init</code> registers gitta as an MCP server in <code>~/.cursor/mcp.json</code> or <code>~/.codex/config.toml</code>. The agent then has these tools:</p>
+<p>When Cursor or Codex is installed, <code>gitta init</code> registers gitta as an MCP server in <code>~/.cursor/mcp.json</code> or <code>~/.codex/config.toml</code>. To skip that, run <code>gitta init --no-mcp</code>. The agent then has these tools:</p>
 <table>
   <tr><th>Tool</th><th>What the agent can do</th></tr>
   <tr><td><code>gitta_status</code></td><td>See the other agents, what each changed, and the warnings that affect it.</td></tr>
@@ -80,7 +80,7 @@ This repository uses gitta. Other agents work in parallel in their own worktrees
   <tr><td><code>.gitta/</code> in the repository</td><td>gitta's settings and state. Listed in <code>.git/info/exclude</code>, so Git ignores it.</td></tr>
   <tr><td>Git hooks of the repository</td><td><code>pre-merge-commit</code>, <code>post-merge</code>, <code>reference-transaction</code> and <code>pre-push</code>, in the folder that <code>core.hooksPath</code> names. A hook you already had is kept and still runs first.</td></tr>
   <tr><td><code>~/.claude/settings.json</code></td><td>Two hooks. A backup is kept next to the file.</td></tr>
-  <tr><td><code>~/.cursor/mcp.json</code>, <code>~/.codex/config.toml</code></td><td>The gitta MCP server, when the tool is installed.</td></tr>
+  <tr><td><code>~/.cursor/mcp.json</code>, <code>~/.codex/config.toml</code></td><td>The gitta MCP server, when the tool is installed. Skip with <code>--no-mcp</code>.</td></tr>
   <tr><td><code>.claude/settings.local.json</code> (Linux)</td><td>Worktree hooks for shared workspaces. Skip with <code>--no-cow</code>. <code>gitta install claude</code> also adds the two hooks here, because Claude Code reads this file at the main checkout in worktree sessions.</td></tr>
 </table>
 <p>gitta merges into existing files. It never replaces your other settings. <a href="uninstall.html">Uninstall</a> removes exactly what it added.</p>

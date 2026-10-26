@@ -43,6 +43,7 @@
 
 ### Changes
 
+- `gitta init --no-mcp` leaves your Cursor and Codex settings alone.
 - The code security checks, credential checks and `gitta scan` moved to gitta Enterprise.
 
 ## 0.1.3 — 2026-10-25
