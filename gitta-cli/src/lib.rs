@@ -2513,13 +2513,9 @@ impl Wt {
     fn open_any(root: &Path, slots: &[String], rev: &str, link: &[String]) -> Wt {
         let dir = root.join(".gitta/wt");
         std::fs::create_dir_all(&dir).ok();
-        let alive = |pid: &str| Command::new("kill").args(["-0", pid]).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
         let mut chosen = None;
         for slot in slots {
-            let lock = dir.join(format!("{slot}.lock"));
-            if let Ok(pid) = std::fs::read_to_string(&lock) { if !alive(pid.trim()) { std::fs::remove_file(&lock).ok(); } }   // left by a crashed run
-            let tag = format!("{}-{:?}", std::process::id(), std::thread::current().id());
-            if std::fs::OpenOptions::new().write(true).create_new(true).open(&lock).map(|mut f| { let _ = write!(f, "{}", std::process::id()); let _ = tag; }).is_ok() { chosen = Some(slot.clone()); break; }
+            if claim_wt_lock(&dir.join(format!("{slot}.lock"))) { chosen = Some(slot.clone()); break; }
         }
         // Git serialises worktree bookkeeping: create and switch checkouts one at a time (tests still run in parallel).
         static SETUP: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -2551,6 +2547,22 @@ impl Wt {
             None => { git(&self.root, &["worktree", "remove", "--force", self.path.to_str().unwrap()]); }
         }
     }
+}
+
+/// Take the checkout lock `lock`, first removing one whose holder has ended. The pid goes into a file of this claim
+/// alone, which is then hard-linked in: the link is atomic and fails if the lock is taken, and a lock is never seen
+/// without its pid. A lock created first and written after was empty for a moment, so another claim could take it
+/// for a crashed run's, remove it and share the checkout.
+fn claim_wt_lock(lock: &Path) -> bool {
+    let alive = |pid: &str| Command::new("kill").args(["-0", pid]).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
+    if let Ok(pid) = std::fs::read_to_string(lock) { if !alive(pid.trim()) { std::fs::remove_file(lock).ok(); } }   // left by a crashed run
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let name = lock.file_name().and_then(|n| n.to_str()).unwrap_or("lock");
+    let tmp = lock.with_file_name(format!(".{name}.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    if std::fs::write(&tmp, std::process::id().to_string()).is_err() { return false; }
+    let linked = std::fs::hard_link(&tmp, lock).is_ok();
+    let _ = std::fs::remove_file(&tmp);
+    linked
 }
 
 /// Materialize gitta/main plus the given agents' current changes (merged in order) in a temporary worktree.
@@ -4308,6 +4320,37 @@ mod zero_test_gate_tests {
         assert!(zero_tests("Tests: 5 passed, 5 total\n").is_none());
         assert!(zero_tests("  42 passing (1s)\n").is_none());
         assert!(zero_tests("running 3 tests\ntest result: ok. 3 passed; 0 failed\n").is_none());
+    }
+}
+
+#[cfg(all(test, unix))]   // the stale check is `kill -0`
+mod checkout_lock_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    /// A claim never takes a checkout lock that another claim holds, so two checks never share a checkout.
+    #[test]
+    fn checkout_locks_are_never_held_twice() {
+        let dir = std::env::temp_dir().join(format!("gitta-wtlock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("check-0.lock");
+        let (held, peak) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        for _ in 0..50 {
+            std::thread::scope(|s| {
+                for _ in 0..8 {
+                    s.spawn(|| {
+                        if claim_wt_lock(&lock) {
+                            peak.fetch_max(held.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                            held.fetch_sub(1, Ordering::SeqCst);
+                            let _ = std::fs::remove_file(&lock);
+                        }
+                    });
+                }
+            });
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(peak.load(Ordering::SeqCst) <= 1, "{} claims held one checkout lock at once", peak.load(Ordering::SeqCst));
     }
 }
 
