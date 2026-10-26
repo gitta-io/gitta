@@ -25,6 +25,15 @@ printf '%s' "$w" | jq -e . >/dev/null || fail "waybar not JSON"
 "$D/gitta-notify" "$T"     | grep -q "3 blocked"   || fail "notify"
 "$D/gitta-dashboard" "$T"  | grep -q "const DATA=" || fail "dashboard"
 
+# dashboard: a "</script>" in an agent name (a legal branch name) must not end the
+# script element early.
+mkdir -p "$T/evil/.gitta"
+printf '%s\n' '{"seq":1,"event":"land_refused","agent":"x</script><b>","data":{"check":"tests"}}' > "$T/evil/.gitta/audit.jsonl"
+[ "$("$D/gitta-dashboard" "$T/evil" | grep -o '</script>' | wc -l)" -eq 1 ] || fail "dashboard escaping"
+
+# keep the root-scan cache inside the test's temp dir
+export XDG_RUNTIME_DIR="$T/run"; mkdir -p "$XDG_RUNTIME_DIR"
+
 # aggregate mode: a root holding two repos sums their trails (repos=2).
 mkdir -p "$ROOT/r1/.gitta" "$ROOT/r2/.gitta"
 cp "$D/sample-audit.jsonl" "$ROOT/r1/.gitta/audit.jsonl"

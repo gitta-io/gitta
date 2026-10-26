@@ -94,7 +94,11 @@ ul.tl li:first-child{border-top:0}
 <script>
 HEAD
 
-printf 'const DATA=%s;const REPO=%s;\n' "$events" "$(printf '%s' "$name" | jq -R .)"
+# Escape "<" in the embedded JSON: an agent name or reason containing "</script>"
+# (legal in a branch name) must not end the script element early.
+printf 'const DATA=%s;const REPO=%s;\n' \
+  "$(printf '%s' "$events" | sed 's/</\\u003c/g')" \
+  "$(printf '%s' "$name" | jq -R . | sed 's/</\\u003c/g')"
 
 cat <<'TAIL'
 const SERIOUS = new Set(['credentials','weakened checks','security','code page','policy']);

@@ -19,12 +19,14 @@ else
   # of trails and refresh it at most every GITTA_SCAN_TTL seconds; the trails
   # themselves are always read fresh below.
   key=$(printf '%s' "$target" | cksum | cut -d' ' -f1)
-  cache="${XDG_RUNTIME_DIR:-/tmp}/gitta-trails-$key"
-  mt=$(stat -c %Y "$cache" 2>/dev/null || echo 0)
+  dir="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/gitta-integrations"
+  mkdir -p "$dir" 2>/dev/null
+  cache="$dir/trails-$key"
+  mt=$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null || echo 0)
   if [ "$(( $(date +%s) - mt ))" -ge "${GITTA_SCAN_TTL:-60}" ]; then
     find "$target" -maxdepth "${GITTA_SCAN_DEPTH:-6}" \
       \( -name node_modules -o -name target -o -name .git -o -name _dogfood_target -o -name .cache -o -name vendor \) -prune -o \
-      -type f -path '*/.gitta/audit.jsonl' -print > "$cache.tmp" 2>/dev/null && mv "$cache.tmp" "$cache"
+      -type f -path '*/.gitta/audit.jsonl' -print > "$cache.$$" 2>/dev/null && mv "$cache.$$" "$cache"
   fi
   trails=$(cat "$cache" 2>/dev/null)
   [ -n "$trails" ] || { printf '{"on":false}\n'; exit 0; }
