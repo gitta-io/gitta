@@ -20,6 +20,49 @@ use tree_sitter::Node;
 pub enum MergeError { Conflict(String), Unsupported(String) }
 use MergeError::*;
 
+/// What happened, in words for people. Scripts get the code itself (`merge_json`, `merge_snapshots`).
+impl std::fmt::Display for MergeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let (Conflict(c) | Unsupported(c)) = self;
+        let (code, detail) = c.split_once(' ').unwrap_or((c.as_str(), ""));
+        // gitta tries the structure only after the line merge failed, so these say both.
+        let lines = "both sides changed the same lines, and";
+        match code {
+            "TEXT_CONFLICT" => f.write_str("both sides changed the same lines"),
+            "SAME_SYMBOL_EDIT" => f.write_str("both sides changed the same part of one function or definition"),
+            "SAME_STATEMENT" => f.write_str("both sides changed the same statement"),
+            "HEADER_CONFLICT" => f.write_str("both sides changed the declaration of the same class or function"),
+            "FUNCTION_TAIL" => f.write_str("both sides changed the end of the same function"),
+            "TAIL_CHANGED" => f.write_str("both sides changed the end of the same file or class"),
+            "SAME_IMPORT_EDIT" => f.write_str("both sides changed the same import"),
+            "ADD_ADD" => f.write_str("both sides added a definition with the same name"),
+            "DELETE_MODIFY" => f.write_str("one side deleted a definition that the other side changed"),
+            "CLASS_HEADER" => f.write_str("both sides added a class with the same name, declared differently"),
+            "CLASS_MEMBER" => f.write_str("both sides added a class with the same name, with one member defined differently"),
+            "ADD_ADD_OR_DELETE_MODIFY" => f.write_str("both sides created this file with different content, or one side deleted it and the other changed it"),
+            "DUPLICATE_DEFINITION" => f.write_str("the merged file would define the same name twice"),
+            "MERGED_DOES_NOT_PARSE" => f.write_str("the merged file would not parse"),
+            "SETTING_SET_TWICE" => f.write_str("the merged file would set the same setting twice"),
+            "JSON_VALUE_COLLISION" => f.write_str("both sides changed the same JSON value"),
+            "SEQUENCE_NUMBER_CLASH" => f.write_str("both sides added a list entry with the same number"),
+            "REQUIREMENT" => write!(f, "both sides changed the requirement for {detail}"),
+            "DEPENDENCY_REMOVED_WHILE_ADDED" => f.write_str("one side removed a dependency while the other side added new ones"),
+            "BINARY" => f.write_str("both sides changed this binary file"),
+            "GIT_MERGE_ERROR" => f.write_str("git merge-file failed"),
+            "PARSE_ERROR" => write!(f, "{lines} gitta could not parse the file to merge it function by function"),
+            "NON_UTF8" => write!(f, "{lines} the file is not UTF-8 text, so gitta could not merge it function by function"),
+            "DUPLICATE_KEY" => write!(f, "{lines} the file defines one name twice, so gitta could not merge it function by function"),
+            "REORDER" => write!(f, "{lines} code was moved, so gitta could not merge it function by function"),
+            "OPAQUE_STATEMENT_CHANGED" => write!(f, "{lines} code outside any function or class changed, so gitta could not merge it function by function"),
+            "NO_BODY" | "EMPTY_BODY" | "ONE_LINE_BODY" => write!(f, "{lines} gitta could not split a class into its members"),
+            "JSON_PARSE_ERROR" => write!(f, "{lines} gitta could not parse the JSON to merge it key by key ({detail})"),
+            "JSON_ROOT_NOT_OBJECT" => write!(f, "{lines} the JSON is not an object, so gitta could not merge it key by key"),
+            "REQUIREMENTS_SYNTAX" | "REQUIREMENTS_DUPLICATE" => write!(f, "{lines} gitta could not read the requirements entry by entry"),
+            _ => f.write_str(c),
+        }
+    }
+}
+
 pub type MergeResult = Result<Option<Vec<u8>>, MergeError>;
 
 fn choose(b: &Option<Vec<u8>>, h: &Option<Vec<u8>>, s: &Option<Vec<u8>>) -> Option<Option<Vec<u8>>> {
@@ -742,5 +785,35 @@ mod write_error_tests {
         assert_eq!(std::fs::read(&ph).unwrap(), b"h\n");
         assert_eq!(std::fs::read(&ps).unwrap(), b"s\n");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod words_tests {
+    use super::*;
+
+    #[test]
+    fn merge_errors_read_as_words() {
+        assert_eq!(Conflict("TEXT_CONFLICT".into()).to_string(), "both sides changed the same lines");
+        assert_eq!(Conflict("SAME_SYMBOL_EDIT".into()).to_string(), "both sides changed the same part of one function or definition");
+        assert_eq!(Unsupported("PARSE_ERROR".into()).to_string(), "both sides changed the same lines, and gitta could not parse the file to merge it function by function");
+        assert_eq!(Unsupported("GIT_MERGE_ERROR".into()).to_string(), "git merge-file failed");
+        assert_eq!(Conflict("REQUIREMENT flask".into()).to_string(), "both sides changed the requirement for flask");
+        assert!(Unsupported("JSON_PARSE_ERROR EOF while parsing an object at line 3 column 0".into()).to_string().ends_with("key by key (EOF while parsing an object at line 3 column 0)"));
+        // An error that is already words, such as a failed write, stays as it is.
+        assert_eq!(Unsupported("Permission denied (os error 13)".into()).to_string(), "Permission denied (os error 13)");
+    }
+
+    // A new code without words would reach people as a code.
+    #[test]
+    fn every_code_in_this_file_has_words() {
+        let src = include_str!("merge.rs");
+        for (pat, e) in [("Conflict(\"", Conflict as fn(String) -> MergeError), ("Unsupported(\"", Unsupported)] {
+            let codes = src.split(pat).skip(1).filter_map(|t| t.split('"').next());
+            for code in codes.filter(|c| c.bytes().all(|x| x.is_ascii_uppercase() || x.is_ascii_digit() || x == b'_')) {
+                let w = e(code.into()).to_string();
+                assert!(w != code && !w.contains('_'), "{code}: {w}");
+            }
+        }
     }
 }

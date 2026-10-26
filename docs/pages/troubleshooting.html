@@ -31,7 +31,7 @@ $ git branch -D worktree-detect-language</term>
 <ul>
   <li>Both agents changed the same function or the same lines. Each one gets an <b>also editing</b> note, and gitta merges the two changes by structure.</li>
   <li>One agent changed a function that the other agent's new code uses, in the same file or another one. The second agent gets a warning with the other agent's new definition. The tests run on the combined code when you merge.</li>
-  <li>The two changes cannot be combined. git names the file at merge time, and the second agent resolves it in its own worktree after <code>gitta sync</code>.</li>
+  <li>The two changes cannot be combined. git names the file at merge time, and the second agent resolves it in its own worktree after <code>gitta sync</code>. gitta says in words why the file does not merge, for example "both sides changed the same part of one function or definition". The audit trail keeps the short code, for scripts.</li>
 </ul>
 <p>Run <code>gitta status</code> to see all of these at once. See <a href="warnings.html#kinds-of-warning">Kinds of warning</a>.</p>
 
