@@ -927,9 +927,9 @@ fn shell(cmd: &str) -> Command {
     let mut c = Command::new("sh"); c.arg("-c").arg(cmd); c
 }
 
-/// Three-way merge of one file with the structural merger; Err(code) on conflict or unsupported change.
+/// Three-way merge of one file with the structural merger; Err(what happened, in words) on conflict or unsupported change.
 fn merge3(path: &str, base: Option<Vec<u8>>, ours: Option<Vec<u8>>, theirs: Option<Vec<u8>>) -> Result<Option<Vec<u8>>, String> {
-    gitta_core::merge::merge_file(path, base.as_deref(), ours.as_deref(), theirs.as_deref()).map_err(|e| format!("{e:?}"))
+    gitta_core::merge::merge_file(path, base.as_deref(), ours.as_deref(), theirs.as_deref()).map_err(|e| e.to_string())
 }
 
 /// Build output and caches are never part of an agent's work.
