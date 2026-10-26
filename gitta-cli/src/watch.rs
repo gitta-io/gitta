@@ -50,7 +50,8 @@ fn agent_lines(v: &serde_json::Value) -> Vec<(String, String)> {
             else if has("approval") || has("security") { "removes tests or weakens a security check; reported when merged, and .gitta.toml decides whether that stops the merge".into() }
             else if has("credentials") { "has what looks like a password or key in its code; gitta told it".into() }
             else if !told.is_empty() { format!("adapting, gitta told it that {}", told.join(" and ")) }
-            else { format!("{} changed, nothing affected, ready to merge", if files == 1 { "1 file".to_string() } else { format!("{files} files") }) };
+            else { format!("{} changed, nothing affected, ready to merge{}", if files == 1 { "1 file".to_string() } else { format!("{files} files") },
+                if v["main_fails"].is_array() { " once main passes its tests" } else { "" }) };
         (n, state)
     }).collect()
 }
@@ -152,4 +153,16 @@ pub(crate) fn watch(args: &[String]) {
     print!("\x1b[?25h\x1b[?1049l");
     let _ = std::io::stdout().flush();
     if !saved.is_empty() { let _ = Command::new("stty").arg(&saved).stdin(tty()).status(); }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_work_waits_for_a_red_main() {
+        let v = |red: serde_json::Value| serde_json::json!({"agents": [{"name": "docs", "changed": ["README.md"], "holds": []}], "main_fails": red});
+        assert_eq!(agent_lines(&v(serde_json::Value::Null))[0].1, "1 file changed, nothing affected, ready to merge");
+        assert_eq!(agent_lines(&v(serde_json::json!(["t"])))[0].1, "1 file changed, nothing affected, ready to merge once main passes its tests");
+    }
 }

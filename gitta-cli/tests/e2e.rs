@@ -1055,6 +1055,9 @@ fn land_onto_a_main_that_already_fails_says_so_and_does_not_blame_the_agent() {
     // The agent's Stop hook does not send it back to fix main.
     let stop = gitta_in(&e, &a, &["hook", "claude-stop"], &format!("{{\"cwd\": {:?}}}", a.to_str().unwrap()));
     assert_eq!(String::from_utf8_lossy(&stop.stdout), "");
+    // gitta status says main is red, from the cached result, and does not call the work just ready.
+    let st = text(&gitta(&e, &e.repo, &["status"]));
+    assert!(st.contains("The tests failed on main alone when gitta last ran them") && st.contains("docs 1 file changed, ready to merge once main passes its tests"), "{st}");
     // main alone ran once: the next attempt finds its result in the cache.
     assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 2);
     assert!(!gitta(&e, &e.repo, &["land", "docs"]).status.success());
@@ -1075,6 +1078,7 @@ fn land_that_breaks_a_passing_main_is_the_agents_to_fix() {
     assert!(!t.contains("already fail"), "{t}");
     assert_eq!(failure_package(&e)["base_fails"], false);
     assert_eq!(audit_event(&e, "land_refused")["data"]["base_fails"], false);
+    assert!(!text(&gitta(&e, &e.repo, &["status"])).contains("failed on main alone"));
 }
 
 #[test]

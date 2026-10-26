@@ -827,6 +827,15 @@ pub(crate) fn test_base(root: &Path, c: &Config, gate: &str, base: &str, failing
     }
 }
 
+/// The tests that failed on `main`'s code alone the last time gitta ran the gate on it (a land or merge that
+/// checked the base). None when that run passed or there was none.
+pub(crate) fn main_failed(root: &Path, gate: &str, main: &str) -> Option<Vec<String>> {
+    let tree = soft(root, &["rev-parse", &format!("{main}^{{tree}}")])?;
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(gate_cache(root, &tree)).ok()?).ok()?;
+    if v["gate"].as_str() != Some(gate) || v["ok"].as_bool() != Some(false) { return None; }
+    Some(failing_tests(v["out"].as_str().unwrap_or("")))
+}
+
 /// After main moved: test what each agent's committed work gives on the new main, in the background, so the agent's
 /// next merge finds the result ready and git holds main's lock for a moment only. One run at a time per repository;
 /// a move during a run asks for one more round.

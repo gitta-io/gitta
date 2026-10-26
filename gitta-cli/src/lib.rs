@@ -1447,6 +1447,11 @@ fn cmd_status(args: &[String]) {
     }
     let target = c.main.trim_start_matches("refs/heads/");
     println!("{target} is the branch gitta merges finished work into.{}", c.gate.as_ref().map(|g| format!(" Before each merge it runs `{g}` on {target} combined with the agent's changes.")).unwrap_or_default());
+    let red = c.gate.as_deref().and_then(|g| githooks::main_failed(Path::new(&c.root), g, &c.main));
+    if let Some(f) = &red {
+        println!("The tests failed on {target} alone when gitta last ran them{}. Merges stop on that failure until {target} is fixed.", f.first().map(|t| format!(" ({t})")).unwrap_or_default());
+    }
+    let once = format!("ready to merge once {target} passes its tests");
     let _ = std::io::stdout().flush();
     prof("status: first line");
     // Scans and pairs first; each agent's own checks then run a few at a time, and its line is printed as soon as
@@ -1469,7 +1474,7 @@ fn cmd_status(args: &[String]) {
         let merged = merged_at(root, &a.name).map(|t| format!("merged into {target} at {}, no new changes since", clock(t)));
         let state = if mine.is_empty() { merged.as_deref().unwrap_or("no changes yet") } else if has("tests") { "its last merge failed the tests on the combined code" }
             else if has("approval") || has("security") { "removes tests or weakens a security check; reported when merged, and .gitta.toml decides whether that stops the merge" }
-            else if has("credentials") { "contains what looks like a password or key" } else { "ready to merge" };
+            else if has("credentials") { "contains what looks like a password or key" } else if red.is_some() { &once } else { "ready to merge" };
         let count = if mine.is_empty() && merged.is_some() { String::new() } else { format!("{} {} changed, ", mine.len(), if mine.len() == 1 { "file" } else { "files" }) };
         let shown_n = if n > BEHIND_CAP { format!("{BEHIND_CAP}+") } else { n.to_string() };
         let mut lines = vec![format!("  {:4} {count}{state}{}", a.name,
@@ -3572,6 +3577,7 @@ fn status_json(c: &Config) -> serde_json::Value {
         "main": git_ok(root, &["rev-parse", "--short", &c.main]),
         "repo": root.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
         "target": c.main.trim_start_matches("refs/heads/"), "gate": c.gate, "landings": landings, "root": c.root,
+        "main_fails": c.gate.as_deref().and_then(|g| githooks::main_failed(root, g, &c.main)),
         "agents": c.agents.iter().filter(|a| !v.skipped.iter().any(|s| s.0 == a.name)).map(|a| {
             let mine = &v.changes[&a.name];
             let wt = Path::new(&a.path);
