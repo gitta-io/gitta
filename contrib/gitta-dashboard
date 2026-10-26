@@ -4,15 +4,26 @@
 #   gitta-dashboard /path/to/repo > dashboard.html
 # Reads .gitta/audit.jsonl only; never runs the gitta binary. Requires jq.
 set -u
-repo="${1:-${GITTA_REPO:-$PWD}}"
-log="$repo/.gitta/audit.jsonl"
-name=$(basename "$(cd "$repo" 2>/dev/null && pwd || echo "$repo")")
-if [ -f "$log" ]; then
-  events=$(jq -cs 'map(select(.event=="landed" or .event=="land_refused" or .event=="agent_started"))
-    | map({event, agent:(.agent//""), time:(.time//""), check:(.data.check//null), reason:(.data.reason//null),
-           seconds:((.data.checks//[])|map(select(.check=="tests"))|.[0].seconds//null)})' "$log")
+target="${1:-${GITTA_REPO:-$PWD}}"
+# One repo, or a root: if not itself a gitta repo, aggregate every trail under it.
+if [ -f "$target/.gitta/audit.jsonl" ]; then
+  name=$(basename "$(cd "$target" 2>/dev/null && pwd || echo "$target")")
+  trails="$target/.gitta/audit.jsonl"
 else
-  events='[]'
+  trails=$(find "$target" -maxdepth "${GITTA_SCAN_DEPTH:-6}" \
+      \( -name node_modules -o -name target -o -name .git -o -name _dogfood_target -o -name .cache -o -name vendor \) -prune -o \
+      -type f -path '*/.gitta/audit.jsonl' -print 2>/dev/null)
+  n=$(printf '%s\n' "$trails" | grep -c .)
+  name="$(basename "$target") · $n repo(s)"
+fi
+if [ -n "$trails" ]; then
+  events=$(printf '%s\n' "$trails" | while IFS= read -r f; do [ -n "$f" ] && cat "$f"; done \
+    | jq -cs 'map(select(.event=="landed" or .event=="land_refused" or .event=="agent_started"))
+    | map({event, agent:(.agent//""), time:(.time//""), check:(.data.check//null), reason:(.data.reason//null),
+           seconds:((.data.checks//[])|map(select(.check=="tests"))|.[0].seconds//null)})
+    | sort_by(.time)')
+else
+  events='[]'; name=$(basename "$target")
 fi
 
 cat <<'HEAD'

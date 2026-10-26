@@ -3,7 +3,7 @@
 # and check the key numbers. No gitta binary, no network. Needs jq.
 set -eu
 D=$(cd -- "$(dirname -- "$0")" && pwd)
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d); ROOT=$(mktemp -d); trap 'rm -rf "$T" "$ROOT"' EXIT
 mkdir -p "$T/.gitta"; cp "$D/sample-audit.jsonl" "$T/.gitta/audit.jsonl"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
@@ -24,6 +24,15 @@ printf '%s' "$w" | jq -e . >/dev/null || fail "waybar not JSON"
 "$D/gitta-i3blocks" "$T"   | grep -q "3 blocked"   || fail "i3blocks"
 "$D/gitta-notify" "$T"     | grep -q "3 blocked"   || fail "notify"
 "$D/gitta-dashboard" "$T"  | grep -q "const DATA=" || fail "dashboard"
+
+# aggregate mode: a root holding two repos sums their trails (repos=2).
+mkdir -p "$ROOT/r1/.gitta" "$ROOT/r2/.gitta"
+cp "$D/sample-audit.jsonl" "$ROOT/r1/.gitta/audit.jsonl"
+cp "$D/sample-audit.jsonl" "$ROOT/r2/.gitta/audit.jsonl"
+agg=$(GITTA_SCAN_TTL=0 "$D/gitta-feed" "$ROOT")
+[ "$(printf '%s' "$agg" | jq .repos)"   = 2 ] || fail "aggregate repos"
+[ "$(printf '%s' "$agg" | jq .blocked)" = 6 ] || fail "aggregate blocked"
+[ "$(printf '%s' "$agg" | jq .landed)"  = 8 ] || fail "aggregate landed"
 
 # off state: no .gitta -> feed says on:false, waybar hides (empty text).
 "$D/gitta-feed" "$T/nope"  | grep -q '"on":false' || fail "off feed"

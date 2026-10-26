@@ -24,7 +24,8 @@ just as well (see `../`).
 1. Copy `gitta-status` to `~/.config/waybar/` and `chmod +x` it. Needs `jq` and a
    Nerd Font in your bar (for the git and warning glyphs).
 2. Add `"custom/gitta"` to a modules list in `~/.config/waybar/config` and paste
-   the block from `waybar-config.jsonc`. Point `exec` at the repo you work in.
+   the block from `waybar-config.jsonc`. Point `exec` at your projects root (e.g.
+   `~/src`) to aggregate every gitta repo under it, or at a single repo.
 3. Append `style.css` to `~/.config/waybar/style.css`.
 
 ## Colours
@@ -35,8 +36,13 @@ you match your bar's palette without editing the script. `waybar-config.jsonc`
 shows Tokyo Night Storm values; the script's defaults are Catppuccin. The `.css`
 only gives the module the same background and padding as your other modules.
 
-The module is per-repo (gitta's state lives in each repo's `.gitta/`). Point it
-at the repo you care about, or run several instances.
+## One repo or many
+
+Point `exec` at a single repo, or at a root directory (e.g. `~/src`): if the path
+is not itself a gitta repo, the module aggregates every repo's `.gitta/audit.jsonl`
+found under it, so you set it once and new gitta repos appear on their own — no
+need to repoint or run several instances. The directory scan is cached
+(`GITTA_SCAN_TTL`, default 60s; `GITTA_SCAN_DEPTH`, default 6), so polling stays cheap.
 
 ## A cleaner read, upstream
 

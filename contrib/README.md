@@ -39,13 +39,19 @@ red with a ⚠.
 
 ## Use
 
-Each takes a repo path (an argument, `$GITTA_REPO`, or the current directory) and
-needs `jq`:
+Each takes a path (an argument, `$GITTA_REPO`, or the current directory) and
+needs `jq`. Give it **one repo**, or a **root directory** — if the path is not
+itself a gitta repo, it aggregates every repo's trail found under it, so you set
+it once and never repoint as you move between repos:
 
 ```sh
-./gitta-feed ~/src/myrepo
-./gitta-dashboard ~/src/myrepo > dashboard.html
+./gitta-feed ~/src/myrepo          # one repo
+./gitta-feed ~/src                 # every gitta repo under ~/src, combined
+./gitta-dashboard ~/src > dashboard.html
 ```
+
+The root scan is cached (`GITTA_SCAN_TTL`, default 60s; `GITTA_SCAN_DEPTH`,
+default 6), so a polled bar stays cheap; a new gitta repo shows up within the TTL.
 
 Try them against the sample without a real repo:
 
