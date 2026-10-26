@@ -245,6 +245,29 @@ fn init_never_writes_into_a_hooks_folder_outside_the_repository() {
 }
 
 #[test]
+fn a_merge_that_fails_says_why_in_words() {
+    let e = env("mergewords");
+    shop(&e);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", "true"]).status.success());
+    let (a, b) = (worktree(&e, "loud"), worktree(&e, "trim"));
+    write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper() + \"!\"\n");
+    write(&b.join("shop/text.py"), "def shout(s):\n    return s.strip().upper()\n");
+    let why = "both sides changed the same part of one function or definition";
+    let raw = |t: &str| t.contains("Conflict(") || t.contains("Unsupported(") || t.contains("SAME_SYMBOL_EDIT");
+    let o = text(&gitta(&e, &e.repo, &["check", "loud", "--with", "trim"]));
+    assert!(o.contains("DOES_NOT_MERGE") && o.contains(&format!("shop/text.py does not merge ({why})")) && !raw(&o), "{o}");
+    assert!(gitta(&e, &e.repo, &["land", "loud"]).status.success());
+    let o = text(&gitta(&e, &e.repo, &["land", "trim"]));
+    assert!(o.contains(&format!("collides with work that already landed ({why})")) && !raw(&o), "{o}");
+    let o = text(&gitta(&e, &e.repo, &["sync", "trim"]));
+    assert!(o.contains(&format!("sync refused, nothing changed: shop/text.py: {why}")) && !raw(&o), "{o}");
+    // Scripts keep reading the codes.
+    let log = text(&gitta(&e, &e.repo, &["audit", "--json"]));
+    let refused = log.lines().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).find(|e| e["event"] == "land_refused").expect("refusal recorded");
+    assert_eq!(refused["data"]["check"], "merge");
+}
+
+#[test]
 fn clear_errors_for_common_mistakes() {
     let e = env("errors");
     shop(&e);
