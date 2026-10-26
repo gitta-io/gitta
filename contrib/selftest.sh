@@ -8,21 +8,21 @@ mkdir -p "$T/.gitta"; cp "$D/sample-audit.jsonl" "$T/.gitta/audit.jsonl"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-# gitta-feed: the sample has 4 landed, 3 blocked, 2 of them serious.
+# gitta-feed: the sample has 4 landed, 3 refused, 2 of them serious.
 feed=$("$D/gitta-feed" "$T")
 [ "$(printf '%s' "$feed" | jq .landed)"  = 4 ] || fail "feed landed"
-[ "$(printf '%s' "$feed" | jq .blocked)" = 3 ] || fail "feed blocked"
+[ "$(printf '%s' "$feed" | jq .refused)" = 3 ] || fail "feed refused"
 [ "$(printf '%s' "$feed" | jq .serious)" = 2 ] || fail "feed serious"
 
-# waybar: valid JSON, class "refused" because a serious block happened.
+# waybar: valid JSON, class "refused" because a serious refusal happened.
 w=$("$D/waybar/gitta-status" "$T")
 printf '%s' "$w" | jq -e . >/dev/null || fail "waybar not JSON"
 [ "$(printf '%s' "$w" | jq -r .class)" = refused ] || fail "waybar class"
 
-# the other frontends produce the blocked count and exit 0.
-"$D/gitta-tmux" "$T"       | grep -q "3 blocked"   || fail "tmux"
-"$D/gitta-i3blocks" "$T"   | grep -q "3 blocked"   || fail "i3blocks"
-"$D/gitta-notify" "$T"     | grep -q "3 blocked"   || fail "notify"
+# the other frontends produce the refused count and exit 0.
+"$D/gitta-tmux" "$T"       | grep -q "3 refused"   || fail "tmux"
+"$D/gitta-i3blocks" "$T"   | grep -q "3 refused"   || fail "i3blocks"
+"$D/gitta-notify" "$T"     | grep -q "3 refused"   || fail "notify"
 "$D/gitta-dashboard" "$T"  | grep -q "const DATA=" || fail "dashboard"
 
 # dashboard: a "</script>" in an agent name (a legal branch name) must not end the
@@ -40,7 +40,7 @@ cp "$D/sample-audit.jsonl" "$ROOT/r1/.gitta/audit.jsonl"
 cp "$D/sample-audit.jsonl" "$ROOT/r2/.gitta/audit.jsonl"
 agg=$(GITTA_SCAN_TTL=0 "$D/gitta-feed" "$ROOT")
 [ "$(printf '%s' "$agg" | jq .repos)"   = 2 ] || fail "aggregate repos"
-[ "$(printf '%s' "$agg" | jq .blocked)" = 6 ] || fail "aggregate blocked"
+[ "$(printf '%s' "$agg" | jq .refused)" = 6 ] || fail "aggregate refused"
 [ "$(printf '%s' "$agg" | jq .landed)"  = 8 ] || fail "aggregate landed"
 
 # off state: no .gitta -> feed says on:false, waybar hides (empty text).

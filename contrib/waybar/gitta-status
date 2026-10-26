@@ -4,9 +4,9 @@
 # Point it at ONE repo, or at a ROOT directory (e.g. ~/src): if the path is not
 # itself a gitta repo, it aggregates every repo's .gitta/audit.jsonl found under
 # it, so you set it once and never repoint — new gitta repos are picked up
-# automatically. It shows gitta's impact: merges BLOCKED (bad code kept off the
-# branch) vs merges that passed and LANDED, in different colours (a block is an
-# alert, a landing is good), with serious blocks (credentials, security,
+# automatically. It shows gitta's impact: merges REFUSED (bad code kept off the
+# branch) vs merges that passed and LANDED, in different colours (a refusal is an
+# alert, a landing is good), with serious refusals (credentials, security,
 # weakened checks, policy) in red with a ⚠. It only reads the trail; it never
 # runs the gitta binary, so it is safe to poll.
 #   gitta-status ~/src            # aggregate every gitta repo under ~/src
@@ -42,8 +42,8 @@ icon="${GITTA_ICON:-$(printf '\357\207\223')}"   # U+F1D3 git glyph (Nerd Font)
 warn="${GITTA_WARN_ICON:-$(printf '\357\201\261')}"  # U+F071 warning (Nerd Font, matches other module icons)
 ci="${GITTA_COLOR_ICON:-#89b4fa}"   # module identity
 cok="${GITTA_COLOR_OK:-#a6e3a1}"    # landed — good
-cw="${GITTA_COLOR_WARN:-#f9e2af}"   # blocked, routine (tests, merge)
-cb="${GITTA_COLOR_BAD:-#f38ba8}"    # blocked, serious
+cw="${GITTA_COLOR_WARN:-#f9e2af}"   # refused, routine (tests, merge)
+cb="${GITTA_COLOR_BAD:-#f38ba8}"    # refused, serious
 cm="${GITTA_COLOR_MUTE:-#6c7086}"   # separators, "clear"
 
 printf '%s\n' "$trails" | while IFS= read -r f; do [ -n "$f" ] && cat "$f"; done | jq -cs \
@@ -54,26 +54,26 @@ printf '%s\n' "$trails" | while IFS= read -r f; do [ -n "$f" ] && cat "$f"; done
   | map(select(.event=="landed" or .event=="land_refused" or .event=="agent_started")) as $evs
   | ($evs | map(select(.event=="landed")) | length) as $landed
   | ($evs | map(select(.event=="land_refused"))) as $ref
-  | ($ref | length) as $blocked
+  | ($ref | length) as $refused
   | ($ref | map(select(.data.check as $c | $serious | any(. == $c))) | length) as $scary
   | ($ref | group_by(.data.check // "gate")
           | map((length|tostring) + " × " + (.[0].data.check // "gate"))) as $byreason
   | ($evs | sort_by(.time) | last) as $e
-  | (if $scary > 0 then $cb else $cw end) as $cblock
+  | (if $scary > 0 then $cb else $cw end) as $cref
   | ( span($ci; $icon)
-      + (if $blocked > 0 then " " + span($cblock; (if $scary > 0 then ($warn + " ") else "" end) + ($blocked|tostring) + " blocked") else "" end)
+      + (if $refused > 0 then " " + span($cref; (if $scary > 0 then ($warn + " ") else "" end) + ($refused|tostring) + " refused") else "" end)
       + (if $landed > 0 then " " + span($cm; "·") + " " + span($cok; ($landed|tostring) + " ok")
-         elif $blocked == 0 then " " + span($cm; "clear") else "" end)
+         elif $refused == 0 then " " + span($cm; "clear") else "" end)
     ) as $text
   | {
       text: $text,
       class: (if ($scary > 0 or ($e.event // "") == "land_refused") then "refused"
-              elif $blocked > 0 then "caught" else "ok" end),
+              elif $refused > 0 then "caught" else "ok" end),
       tooltip: (
-        (if $blocked > 0
-           then "gitta blocked " + ($blocked|tostring) + " merge(s):\n  " + ($byreason | join("\n  "))
-                + (if $scary > 0 then "\n⚠ includes serious blocks (credentials, security, weakened checks, policy)" else "" end)
-           else "gitta has blocked nothing yet" end)
+        (if $refused > 0
+           then "gitta refused " + ($refused|tostring) + " merge(s):\n  " + ($byreason | join("\n  "))
+                + (if $scary > 0 then "\n⚠ includes serious refusals (credentials, security, weakened checks, policy)" else "" end)
+           else "gitta has refused nothing yet" end)
         + "\n" + ($landed|tostring) + " merge(s) passed the gate and landed"
         + (if $nrepos > 1 then " · across " + ($nrepos|tostring) + " repos" else "" end)
         + (if $e != null then "\nlast: " + $e.event + " " + ($e.agent // "") + " at " + $e.time else "" end)

@@ -42,7 +42,7 @@ printf '%s\n' "$trails" | while IFS= read -r f; do [ -n "$f" ] && cat "$f"; done
       on: true,
       repos: $nrepos,
       landed: $landed,
-      blocked: ($ref|length),
+      refused: ($ref|length),
       serious: ($ref|map(select(.data.check as $c|$serious|any(.==$c)))|length),
       by_check: ($ref|group_by(.data.check // "gate")|map({(.[0].data.check // "gate"): length})|add // {}),
       last: (($evs|sort_by(.time)|last) as $e | if $e==null then null else {event:$e.event, agent:($e.agent//""), time:($e.time//"")} end)

@@ -33,7 +33,7 @@ cat <<'HEAD'
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gitta dashboard</title>
-<meta name="description" content="What gitta blocked and landed in a repository, from its audit trail.">
+<meta name="description" content="What gitta refused and landed in a repository, from its audit trail.">
 <style>
 :root{
   --bg:#f5f6f8; --panel:#ffffff; --fg:#1b1f24; --muted:#687078; --border:#e6e8eb;
@@ -110,7 +110,7 @@ const byCheck = {}; refused.forEach(e=>{const k=e.check||'gate';byCheck[k]=(byCh
 document.getElementById('repo').textContent = REPO;
 
 const tiles = [
-  {n:refused.length, l:'blocked',  c: serious?'red':(refused.length?'amber':'blue')},
+  {n:refused.length, l:'refused',  c: serious?'red':(refused.length?'amber':'blue')},
   {n:landed,         l:'landed',   c:'green'},
   {n:serious,        l:'serious',  c: serious?'red':'blue'},
 ];
@@ -120,7 +120,7 @@ document.getElementById('tiles').innerHTML = tiles.map(t=>
 const keys = Object.keys(byCheck).sort((a,b)=>byCheck[b]-byCheck[a]);
 const max = Math.max(1,...keys.map(k=>byCheck[k]));
 document.getElementById('bd').innerHTML = keys.length ? (
-  `<h2>Blocked by reason</h2><div class="panel">` + keys.map(k=>
+  `<h2>Refused by reason</h2><div class="panel">` + keys.map(k=>
     `<div class="row${SERIOUS.has(k)?' sev':''}"><span class="k">${esc(k)}</span>`+
     `<span class="bar"><i style="width:${byCheck[k]/max*100}%"></i></span>`+
     `<span class="c">${byCheck[k]}</span></div>`).join('') + `</div>`
@@ -130,7 +130,7 @@ const when = t => t ? new Date(t).toLocaleString(undefined,{month:'short',day:'n
 const rows = DATA.slice().reverse().map(e=>{
   let cls='', title='', meta=[];
   if(e.event==='landed'){cls='landed';title=`<b>landed</b> ${esc(e.agent)}`;if(e.seconds!=null)meta.push(`gate ${(+e.seconds).toFixed(1)}s`);}
-  else if(e.event==='land_refused'){const sev=SERIOUS.has(e.check);cls=sev?'sev':'refused';title=`<b>blocked</b> ${esc(e.agent)}`;if(e.check)meta.push(esc(e.check));if(sev)meta.push('serious');}
+  else if(e.event==='land_refused'){const sev=SERIOUS.has(e.check);cls=sev?'sev':'refused';title=`<b>refused</b> ${esc(e.agent)}`;if(e.check)meta.push(esc(e.check));if(sev)meta.push('serious');}
   else {title=`${esc(e.agent)} <b>started</b>`;}
   if(e.time)meta.unshift(when(e.time));
   return `<li><span class="dot ${cls}"></span><div class="ev"><div class="t">${title}</div>`+

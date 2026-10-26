@@ -10,7 +10,7 @@ repo="${1:-${GITTA_REPO:-$PWD}}"
 D=$(cd -- "$(dirname -- "$0")" && pwd)
 line=$("$D/gitta-feed" "$repo" | jq -r '
   if (.on|not) then "gitta: off"
-  elif .blocked>0 then "gitta: \(.blocked) blocked" + (if .serious>0 then " (\(.serious) serious)" else "" end) + ", \(.landed) landed"
+  elif .refused>0 then "gitta: \(.refused) refused" + (if .serious>0 then " (\(.serious) serious)" else "" end) + ", \(.landed) landed"
   else "gitta: \(.landed) landed, clear" end')
 echo "$line"
 [ "$toast" = 1 ] && command -v notify-send >/dev/null 2>&1 && notify-send "gitta" "$line"

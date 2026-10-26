@@ -1,7 +1,7 @@
 #!/bin/sh
 # gitta block for i3blocks — works on BOTH swaybar (sway) and i3bar (i3), since
 # i3blocks is the usual way to add a custom block to either. Shows gitta's
-# impact: merges BLOCKED vs landed, red when a block was serious (credentials,
+# impact: merges REFUSED vs landed, red when a refusal was serious (credentials,
 # security, weakened checks, policy). Reads .gitta/audit.jsonl only; never runs
 # the gitta binary. Requires jq.
 #
@@ -16,7 +16,7 @@ D=$(cd -- "$(dirname -- "$0")" && pwd)
 "$D/gitta-feed" "${1:-${GITTA_REPO:-$PWD}}" | jq -r '
   (if (.on|not) then ""
    else (if .serious>0 then "⚠ " else "" end)
-        + (if .blocked>0 then "\(.blocked) blocked · \(.landed) ok" else "\(.landed) ok" end)
+        + (if .refused>0 then "\(.refused) refused · \(.landed) ok" else "\(.landed) ok" end)
    end),
   "",
-  (if (.on|not) then "" elif .serious>0 then "#dc2626" elif .blocked>0 then "#d97706" else "#2563eb" end)'
+  (if (.on|not) then "" elif .serious>0 then "#dc2626" elif .refused>0 then "#d97706" else "#2563eb" end)'

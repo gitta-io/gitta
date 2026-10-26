@@ -1,11 +1,11 @@
 # gitta on Waybar
 
 A small [Waybar](https://github.com/Alexays/Waybar) module that shows gitta's
-impact: how many merges it has **blocked** — bad code kept off your branch — next
-to how many passed and **landed**. Blocked and landed are coloured differently (a
-block is an alert, a landing is good), and a serious block — credentials,
+impact: how many merges it has **refused** — bad code kept off your branch — next
+to how many passed and **landed**. Refused and landed are coloured differently (a
+refusal is an alert, a landing is good), and a serious refusal — credentials,
 security, weakened checks or policy — turns the count red and adds a ⚠. The
-tooltip breaks the blocks down by reason.
+tooltip breaks the refusals down by reason.
 
 ![the module on a bar](../media/waybar.png)
 
