@@ -1612,3 +1612,16 @@ fn report_counts_agents_changes_and_stopped_merges_in_three_formats() {
     assert!(c.starts_with("period,repo,person,agents_run,changes,clashes_found,merges_stopped,broken_mains_prevented"), "{c}");
     assert!(!gitta(&e, &e.repo, &["report", "--period", "year"]).status.success());
 }
+
+#[test]
+fn init_promises_live_warnings_only_with_the_claude_hooks() {
+    let e = env("noclaude");
+    shop(&e);
+    let t = text(&gitta(&e, &e.repo, &["init", "--no-claude"]));
+    assert!(!t.contains("tells that agent right away") && !t.contains("the agent fixes its code itself"), "{t}");
+    assert!(t.contains("only when they ask") && t.contains("gitta install claude"), "{t}");
+    let e = env("withclaude");
+    shop(&e);
+    let t = text(&gitta(&e, &e.repo, &["init"]));
+    assert!(t.contains("tells that agent right away") && t.contains("the agent fixes its code itself"), "{t}");
+}

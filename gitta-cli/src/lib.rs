@@ -382,7 +382,12 @@ fn cmd_init(args: &[String]) {
     println!("{} Every worktree an agent tool creates from now on is picked up on its own.", match names.len() {
         0 => "No agent worktrees exist yet.".to_string(), 1 => format!("It watches the agent worktree {}.", names[0]),
         n => format!("It watches the {n} agent worktrees {}.", names.join(", ")) });
-    println!("After every step an agent takes, gitta looks at what it changed. When one agent changes a function that another agent's new code calls, gitta tells that agent right away, so it can adapt before anything reaches {onto}.");
+    let no_claude = args.iter().any(|a| a == "--no-claude");
+    if no_claude {
+        println!("gitta compares the agents' work whenever it runs: `gitta status`, `gitta check`, a merge, or an agent calling its MCP tools. Claude Code agents hear about a clash only when they ask, because --no-claude skips the hooks that tell them after every step. Add them later with `gitta install claude`.");
+    } else {
+        println!("After every step an agent takes, gitta looks at what it changed. When one agent changes a function that another agent's new code calls, gitta tells that agent right away, so it can adapt before anything reaches {onto}.");
+    }
     match &team_setting(&root, "gate").or(c.gate.clone()) {
         Some(g) => println!("Merging works as always, with git merge, git pull or git push. gitta hooks into those commands and runs `{g}` on the combined code first. If the tests fail, it stops the merge and says which test failed and why.{}", if chained.is_empty() { String::new() } else { format!(" Your existing {} hooks still run first.", chained.join(" and ")) }),
         None => println!("Merging works as always, with git merge, git pull or git push. No test command is set, so gitta runs no tests during a merge yet. Add one with `gitta init --gate \"<your test command>\"`."),
@@ -398,7 +403,7 @@ fn cmd_init(args: &[String]) {
     if !githooks::has_ref_transaction() {
         println!("Your git is older than 2.28, so a cherry-pick, rebase or reset onto {onto} is checked only afterwards, with a warning. Update git to have those stopped too.");
     }
-    println!("When gitta tells an agent about a clash, the agent fixes its code itself and mentions it to you in one sentence in its chat.");
+    if !no_claude { println!("When gitta tells an agent about a clash, the agent fixes its code itself and mentions it to you in one sentence in its chat."); }
     println!("gitta never asks you anything. When a merge removes tests or weakens a security check, it says so in the merge output and in the log{}.", if team_setting(&root, "weakened_checks").as_deref() == Some("block") { ", and stops the merge, because .gitta.toml sets weakened_checks to block" } else { ". The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block" });
     if !root.join(".gitta.toml").exists() {
         println!("To share the test command and rules with your team and the CI check, run `gitta init --team` and commit .gitta.toml.");
