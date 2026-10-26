@@ -344,7 +344,10 @@ pub(crate) fn run(args: &[String]) {
     // Git sets these for its hooks; gitta's own git calls work in other folders and need them gone.
     let name = args.first().map(String::as_str).unwrap_or("");
     if name == "merge-driver" && args.len() >= 4 { merge_driver(&args[1..]) }
-    if std::env::var_os("GITTA_LANDING").is_some() { return; }
+    // A git command gitta itself runs reaches this hook. Stand aside for it, but only when GITTA_LANDING names
+    // gitta's own live marker. A value set by hand or left in the environment (for example `GITTA_LANDING=1`) has
+    // no marker, so the operation is checked like any other. To skip a real merge on purpose, use GITTA_SKIP.
+    if std::env::var_os("GITTA_LANDING").is_some() && internal_landing(&root()) { return; }
     // Every ref update in the repository runs this hook: everything but the target branch leaves at once.
     if name == "reference-transaction" && args.get(1).map(String::as_str) != Some("prepared") { return; }
     let mut input = String::new();
@@ -376,7 +379,7 @@ pub(crate) fn run(args: &[String]) {
     let branch = String::from_utf8_lossy(&git(&here, &["symbolic-ref", "-q", "HEAD"]).stdout).trim().to_string();
     let stop = |e: String| -> ! { say(&e); std::process::exit(1) };
     // gitta's own git commands below (moving a branch back, cancelling a merge) need no second check.
-    std::env::set_var("GITTA_LANDING", "1");
+    mark_landing(&root);
     match name {
         "pre-merge-commit" => {
             if branch != c.main { return; }
@@ -769,6 +772,46 @@ fn wait_running(root: &Path, tree: &str) {
         if !pid_alive(&pid) { let _ = std::fs::remove_file(&p); break; }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+}
+
+// ---- Internal-landing marker -------------------------------------------------
+// gitta runs git itself to move the target branch (during `land`), to test a merge it is about to let through,
+// and to undo a stopped merge. Those git commands must not re-enter this hook. gitta marks them with GITTA_LANDING,
+// set to a one-time token that names a marker file, under .gitta/landing/, that only a running gitta writes and
+// holds a lock on. The hook stands aside only when GITTA_LANDING matches such a marker whose lock is still held. A
+// value set by hand or left in the environment by an earlier run has no held marker, so it skips nothing.
+fn landing_dir(root: &Path) -> PathBuf { root.join(".gitta/landing") }
+
+/// Mark the git commands gitta runs next (in this process and the children it spawns) as gitta's own, so this
+/// hook stands aside for them. Called once per gitta operation that moves the target branch itself.
+pub(crate) fn mark_landing(root: &Path) {
+    let dir = landing_dir(root);
+    let _ = std::fs::create_dir_all(&dir);
+    // Drop markers left behind by gitta processes that have since ended (the kernel released their locks), so the
+    // folder does not grow and a stale token can never match.
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            if std::fs::File::open(e.path()).map(|f| f.try_lock().is_ok()).unwrap_or(false) { let _ = std::fs::remove_file(e.path()); }
+        }
+    }
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let tok = format!("{}.{:x}{:x}", std::process::id(), t, n);
+    // Held until this process exits.
+    static HELD: std::sync::Mutex<Vec<std::fs::File>> = std::sync::Mutex::new(Vec::new());
+    if let Ok(f) = std::fs::File::create(dir.join(&tok)) { if f.try_lock().is_ok() { HELD.lock().unwrap_or_else(|e| e.into_inner()).push(f); } }
+    std::env::set_var("GITTA_LANDING", &tok);
+}
+
+/// True only when GITTA_LANDING names a marker a still-running gitta holds: this hook was reached from a git
+/// command gitta itself runs, so it stands aside. Any other value is a normal operation and is checked.
+fn internal_landing(root: &Path) -> bool {
+    let Ok(tok) = std::env::var("GITTA_LANDING") else { return false };
+    let Some((pid, rest)) = tok.split_once('.') else { return false };
+    if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) { return false }
+    if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_hexdigit()) { return false }
+    std::fs::File::open(landing_dir(root).join(&tok)).map(|f| matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))).unwrap_or(false)
 }
 
 /// The gate's result on `tree` (checked out from `at`): kept from an earlier run of the same test command on the

@@ -1315,6 +1315,35 @@ fn every_other_way_main_moves_is_checked_and_refused_when_the_tests_fail() {
     assert!(text(&gitta(&e, &e.repo, &["audit", "--json"])).contains("GITTA_SKIP"));
 }
 
+#[test]
+fn a_hand_set_gitta_landing_does_not_bypass_the_gate() {
+    // GITTA_LANDING marks the git commands gitta runs itself. A value set by hand (or left in the environment)
+    // must not turn the checks off: only gitta's own live marker makes the hook stand aside. GITTA_SKIP is the
+    // recorded way to skip on purpose.
+    let e = env("landingmarker");
+    shop(&e);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", FAILING_GATE]).status.success());
+    let bad = worktree(&e, "bad");
+    write(&bad.join("shop/cart.py"), &format!("{CART}\n\n# BROKEN\n"));
+    git(&bad, &["add", "-A"]); git(&bad, &["commit", "-qm", "bad"]);
+    // main gets a commit of its own, so merging bad is a real merge the pre-merge-commit hook checks.
+    write(&e.repo.join("shop/text.py"), "def shout(s):\n    return s.upper()\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-q", "--allow-empty", "-m", "text"]);
+    let before = git(&e.repo, &["rev-parse", "main"]);
+    // A marker file that no running gitta holds: left behind, or planted, naming a live (or reused) pid.
+    let stale = format!("{}.ab", std::process::id());
+    write(&e.repo.join(".gitta/landing").join(&stale), "");
+    for tok in ["1", stale.as_str()] {
+        let mut c = Command::new("git");
+        for v in AGENT_ENV { c.env_remove(v); }
+        let o = c.arg("-C").arg(&e.repo).args(["-c", "user.name=t", "-c", "user.email=t@t", "merge", "--no-edit", "bad"])
+            .env("HOME", &e.home).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_LANDING", tok).output().unwrap();
+        assert!(!o.status.success(), "GITTA_LANDING={tok} must not bypass the gate: {}", text(&o));
+        assert_eq!(git(&e.repo, &["rev-parse", "main"]), before, "main must not move");
+        let _ = git_run(&e, &e.repo, &["merge", "--abort"]);
+    }
+}
+
 const LABEL: &str = "from shop.pricing import net_to_gross\n\n\ndef label(x):\n    return f\"{net_to_gross(x)} kr\"\n";
 const INT_GROSS: &str = "return int(net * (1 + VAT_RATE) * 100)";
 
