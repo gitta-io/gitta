@@ -14,6 +14,7 @@
 
 ### Merges and teamwork
 
+- An agent's claims end when `gitta land` merges its work or its worktree is removed, so others can take that code at once. When a landing touches code another agent claimed, gitta says so.
 - A failed merge names the last version of the work that passed, and tells you when the work fails only together with other work. With `flaky_rerun = true`, a test that fails at random gets one more run, and the agent is not blamed.
 - `gitta main-check` finds the change that broke main and the agent that merged it, and can undo it. `gitta tests-for` lists the tests to run first for an agent's work.
 - `gitta run --schedule` runs tasks on different files in parallel and holds tasks that touch the same files.
