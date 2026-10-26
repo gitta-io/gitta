@@ -2017,3 +2017,16 @@ fn the_team_server_token_goes_on_the_wire_but_never_on_the_command_line() {
     let seen = seen.lock().unwrap();
     assert!(seen.iter().any(|a| a == "Authorization: Bearer SECRET-TOKEN-XYZ"), "token should be delivered as a bearer header: {seen:?}");
 }
+
+#[test]
+fn init_promises_live_warnings_only_with_the_claude_hooks() {
+    let e = env("noclaude");
+    shop(&e);
+    let t = text(&gitta(&e, &e.repo, &["init", "--no-claude"]));
+    assert!(!t.contains("tells that agent right away") && !t.contains("the agent fixes its code itself"), "{t}");
+    assert!(t.contains("only when they ask") && t.contains("gitta install claude"), "{t}");
+    let e = env("withclaude");
+    shop(&e);
+    let t = text(&gitta(&e, &e.repo, &["init"]));
+    assert!(t.contains("tells that agent right away") && t.contains("the agent fixes its code itself"), "{t}");
+}

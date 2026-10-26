@@ -31,6 +31,7 @@
 
 ### Fixes
 
+- `gitta init --no-claude` no longer promises warnings after every agent step, and tells you how to add them later.
 - When only the inside of a function another agent uses changed, gitta no longer calls it probably fine. It asks the agent to check that the function still does what its code expects.
 - When a file does not merge, gitta now says why in plain words instead of an internal code.
 - When `gitta land` stops on failing tests, the failure record now holds the code that was tested, so `gitta failure rerun` confirms the same failure.

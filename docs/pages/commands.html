@@ -12,7 +12,7 @@
   <tr><td><code>--weakened-checks warn|block</code></td><td>What a merge does when it removes tests or weakens a check. <code>warn</code> reports it and merges, <code>block</code> stops the merge. Local hooks use <code>warn</code> by default, CI and the pull request check use <code>block</code>. Written to <code>.gitta.toml</code>, which takes effect once committed. See <a href="#team-policy">Team policy</a>.</td></tr>
   <tr><td><code>--team</code></td><td>Write the team policy to <code>.gitta.toml</code>, so you can commit it and share the test command and rules with your team and the CI check. See <a href="#team-policy">Team policy</a>.</td></tr>
   <tr><td><code>--notify on|off</code></td><td>Desktop notifications when something needs a person. Off by default.</td></tr>
-  <tr><td><code>--no-claude</code></td><td>Do not add Claude Code hooks.</td></tr>
+  <tr><td><code>--no-claude</code></td><td>Do not add Claude Code hooks. Agents then hear about a clash only when they ask gitta, for example with <code>gitta status</code> or its MCP tools. Add the hooks later with <code>gitta install claude</code>.</td></tr>
   <tr><td><code>--no-cow</code></td><td>On Linux, use ordinary worktrees instead of a shared checkout.</td></tr>
   <tr><td><code>--parallel N</code></td><td>Run at most N combination checks at the same time.</td></tr>
   <tr><td><code>--server URL[,URL]</code>, <code>--token T</code></td><td>Report to Gitta Enterprise team servers.</td></tr>
