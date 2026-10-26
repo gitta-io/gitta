@@ -295,9 +295,14 @@ fn refresh(root: &Path, c: &mut Config) {
     }
     let root_s = root.to_string_lossy().to_string();
     let live: BTreeSet<String> = wts.iter().map(|(p, _)| p.clone()).collect();
-    let before = c.agents.len();
-    c.agents.retain(|a| a.owned || !a.upper.is_empty() || live.contains(&a.path));
-    let mut changed = c.agents.len() != before;
+    let (kept, gone): (Vec<Agent>, Vec<Agent>) = std::mem::take(&mut c.agents).into_iter().partition(|a| a.owned || !a.upper.is_empty() || live.contains(&a.path));
+    c.agents = kept;
+    // An agent whose worktree is gone holds no claims.
+    for a in &gone {
+        let t = release_all(root, &a.name);
+        if !t.is_empty() { log(root, "claim", &a.name, &format!("{} worktree is gone, so gitta released its {}.", poss(&a.name), claims_on(&t))); }
+    }
+    let mut changed = !gone.is_empty();
     for (p, b) in wts {
         if p == root_s || p.contains("/.gitta/") || c.agents.iter().any(|a| a.path == p) { continue; }
         let Ok(head) = std::process::Command::new("git").args(["-C", &p, "rev-parse", "HEAD"]).output() else { continue };
@@ -2136,6 +2141,21 @@ fn cmd_land(args: &[String]) {
     println!("gitta: landed {name} as {}", &new[..10]);
     let _ = std::fs::remove_file(root.join(".gitta").join(format!("{name}.adapt")));
     let _ = std::fs::remove_file(root.join(".gitta").join(format!("{name}.held")));
+    // Its work is merged, so its claims are done. Another agent's claim on what landed is information.
+    let t = release_all(&root, &name);
+    if !t.is_empty() {
+        log(&root, "claim", &name, &format!("{name} was merged, so gitta released its {}.", claims_on(&t)));
+        println!("gitta: released {name_p} {}.", claims_on(&t));
+    }
+    let others = claims(&root);
+    if !others.is_empty() {
+        let syms: BTreeSet<String> = gitta_core::provided_symbols(&base, &theirs).into_iter().chain(gitta_core::new_references(&base, &theirs)).collect();
+        for cl in others.iter().filter(|x| claims_path(x, &mine) || syms.contains(&x.target)) {
+            let t = format!("{name} touched {}, which {} claimed{}.", cl.target, cl.agent, if cl.note.trim().is_empty() { String::new() } else { format!(" ({})", peer(&cl.note, 200)) });
+            log(&root, "claim", &name, &t);
+            println!("gitta: note: {t}");
+        }
+    }
     {
         // Evidence: who landed it, which agent and tool made it, the commits it carried (with their authors and
         // trailers such as Co-Authored-By), the exact file versions, and every check with its result.
@@ -3344,13 +3364,24 @@ fn claim(root: &Path, agent: &str, target: &str, note: &str) -> Result<String, S
     Ok(format!("{agent} claimed {target}"))
 }
 
+/// Drop every claim `agent` holds; returns their targets.
+fn release_all(root: &Path, agent: &str) -> Vec<String> {
+    let (done, kept): (Vec<Claim>, Vec<Claim>) = claims(root).into_iter().partition(|x| x.agent == agent);
+    if !done.is_empty() { save_claims(root, &kept); }
+    done.into_iter().map(|x| x.target).collect()
+}
+fn claims_on(t: &[String]) -> String { format!("{} on {}", if t.len() == 1 { "claim" } else { "claims" }, t.join(", ")) }
+
+/// Whether one of `paths` is the claimed path or lies under it.
+fn claims_path(cl: &Claim, paths: &BTreeSet<String>) -> bool { paths.iter().any(|p| p == &cl.target || p.starts_with(&format!("{}/", cl.target))) }
+
 /// Warnings from claims: another agent edits a claimed path, or newly uses / changes a claimed symbol.
 fn claim_warnings(c: &Config, v: &View) -> Vec<Warning> {
     let mut out = vec![];
     for cl in claims(Path::new(&c.root)) {
         for (name, paths) in &v.changes {
             if *name == cl.agent { continue; }
-            let path_hit = paths.iter().any(|p| p == &cl.target || p.starts_with(&format!("{}/", cl.target)));
+            let path_hit = claims_path(&cl, paths);
             let sym_hit = v.warnings.iter().any(|w| w.symbol.as_deref() == Some(cl.target.as_str()) && w.agents.contains(name)) || {
                 let a = agent(c, name);
                 let base = blobs(Path::new(&c.root), &a.base, paths);

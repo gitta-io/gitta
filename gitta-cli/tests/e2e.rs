@@ -186,6 +186,62 @@ fn text_from_another_agent_reaches_an_agent_quoted_on_one_line_and_short() {
 }
 
 #[test]
+fn a_landing_releases_the_agents_claims() {
+    let e = env("claimland");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let (a, _b) = (worktree(&e, "vat"), worktree(&e, "label"));
+    assert!(gitta(&e, &e.repo, &["claim", "vat", "shop/pricing.py", "lowering VAT"]).status.success());
+    assert!(!gitta(&e, &e.repo, &["claim", "label", "shop/pricing.py"]).status.success(), "a live claim keeps others out");
+    write(&a.join("shop/pricing.py"), &PRICING.replace("0.25", "0.12"));
+    let o = gitta(&e, &e.repo, &["land", "vat"]);
+    let t = text(&o);
+    assert!(o.status.success(), "{t}");
+    assert!(t.contains("gitta: released vat's claim on shop/pricing.py."), "{t}");
+    let st = text(&gitta(&e, &e.repo, &["status"]));
+    assert!(!st.contains("claim: vat"), "vat's work is on main, so its claim is gone: {st}");
+    let o = gitta(&e, &e.repo, &["claim", "label", "shop/pricing.py"]);
+    assert!(o.status.success(), "{}", text(&o));
+}
+
+#[test]
+fn a_removed_worktree_takes_its_claims_with_it() {
+    let e = env("claimgone");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let (a, b) = (worktree(&e, "vat"), worktree(&e, "label"));
+    assert!(gitta(&e, &e.repo, &["claim", "vat", "shop/pricing.py"]).status.success());
+    write(&b.join("shop/pricing.py"), &PRICING.replace("0.25", "0.12"));
+    let st = text(&gitta(&e, &e.repo, &["status"]));
+    assert!(st.contains("claim: vat") && st.contains("CLAIMED"), "{st}");
+    git(&e.repo, &["worktree", "remove", a.to_str().unwrap()]);
+    let st = text(&gitta(&e, &e.repo, &["status"]));
+    assert!(!st.contains("claim: vat") && !st.contains("CLAIMED"), "vat is gone, so its claim is too: {st}");
+    assert!(gitta(&e, &e.repo, &["claim", "label", "shop/pricing.py"]).status.success());
+}
+
+#[test]
+fn a_landing_says_when_it_touches_another_agents_claim() {
+    let e = env("claimother");
+    shop(&e);
+    gitta(&e, &e.repo, &["init", "--no-claude"]);
+    let (a, _b) = (worktree(&e, "vat"), worktree(&e, "label"));
+    assert!(gitta(&e, &e.repo, &["claim", "label", "shop/cart.py", "rewriting it"]).status.success());
+    assert!(gitta(&e, &e.repo, &["claim", "label", "shop.pricing.net_to_gross"]).status.success());
+    assert!(gitta(&e, &e.repo, &["claim", "label", "shop/text.py"]).status.success());
+    write(&a.join("shop/cart.py"), &format!("{CART}\n# vat\n"));
+    write(&a.join("shop/pricing.py"), &PRICING.replace("round(net * (1 + VAT_RATE), 2)", "round(net * (1 + VAT_RATE), 3)"));
+    let o = gitta(&e, &e.repo, &["land", "vat"]);
+    let t = text(&o);
+    assert!(o.status.success(), "a claim is information, not a refusal: {t}");
+    assert!(t.contains("gitta: note: vat touched shop/cart.py, which label claimed (\"rewriting it\")."), "{t}");
+    assert!(t.contains("gitta: note: vat touched shop.pricing.net_to_gross, which label claimed."), "{t}");
+    assert!(!t.contains("shop/text.py"), "vat did not touch text.py: {t}");
+    let st = text(&gitta(&e, &e.repo, &["status"]));
+    assert!(st.contains("claim: label is changing shop/cart.py"), "label's claims stay: {st}");
+}
+
+#[test]
 fn hooks_are_silent_outside_gitta_and_on_bad_input() {
     let e = env("quiet");
     let plain = e.dir.join("not-a-repo");

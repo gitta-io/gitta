@@ -137,7 +137,7 @@ gitta: ci99 + ci-level: BREAKS
 <p>Add <code>--with AGENT</code> to test against one agent only, and <code>--json</code> for scripts. Results are <code>PASSES</code>, <code>BREAKS</code>, <code>DOES_NOT_MERGE</code> or <code>CANNOT_RUN</code>. <code>CANNOT_RUN</code> means a tool that the gate needs was not found, so the tests did not run. That is a setup problem for you to fix, and agents are not told that their work breaks. Checks run in parallel. Use <code>gitta init --parallel N</code> to limit how many run at once.</p>
 
 <h2>Claims</h2>
-<p>Before a large change, an agent can claim the symbol or path. Others are warned before they build on it.</p>
+<p>Before a large change, an agent can claim the symbol or path. Others are warned before they build on it. gitta releases an agent's claims when <code>gitta land</code> merges its work, or when its worktree is removed.</p>
 <term>$ gitta claim ci-level bench.aidev-replay.analyze.wilson "making z keyword-only"
 gitta: ci-level claimed bench.aidev-replay.analyze.wilson
 $ gitta release ci-level bench.aidev-replay.analyze.wilson
