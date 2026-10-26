@@ -3409,7 +3409,7 @@ fn mcp_tools() -> serde_json::Value {
         {"name": "gitta_check", "description": "Test your work combined with other agents' work.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "with": {"type": "string"}}, "required": []}},
         {"name": "gitta_claim", "description": "Claim a symbol (module.name) or path you will change.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "target": {"type": "string"}, "note": {"type": "string"}}, "required": ["target"]}},
         {"name": "gitta_release", "description": "Release a claim.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "target": {"type": "string"}}, "required": ["target"]}},
-        {"name": "gitta_failures", "description": "Recorded integration failures you can repair. With no id, lists them; with an id, shows that reproducible package: base/incoming/candidate revisions, the gate command, an environment fingerprint, the failing output and a rerun command. 'reproduced' is true only after a rerun confirmed the failure.", "inputSchema": {"type": "object", "properties": {"path": path, "id": {"type": "string"}}}}
+        {"name": "gitta_failures", "description": "Recorded integration failures you can repair. With no id, lists them; with an id, shows that reproducible package: base/incoming/candidate revisions, the gate command, an environment fingerprint, the failing output and a rerun command. 'reproduced' is true only after a rerun confirmed the failure; 'base_fails' is true when the gate failed on the base alone too.", "inputSchema": {"type": "object", "properties": {"path": path, "id": {"type": "string"}}}}
     ])
 }
 
