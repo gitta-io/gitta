@@ -33,6 +33,7 @@
 - A refused merge prints each finding once, with clearer notes and paths relative to the repository.
 - gitta exits quietly when the program that reads its output stops early, as in `gitta init | head -1`.
 - The limit on how many tests run at once now holds exactly.
+- Two test runs that start at the same moment no longer share one checkout, so one run cannot change the files under the other.
 
 ### Changes
 
