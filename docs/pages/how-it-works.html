@@ -30,7 +30,7 @@
 <p>On Linux, gitta can make Claude Code worktrees share one checkout on disk. See <a href="linux.html">Linux workspaces</a>.</p>
 
 <h2>Warnings</h2>
-<p>gitta parses each changed file with Tree-sitter. gitta Enterprise reads COBOL and JCL with its own reader. It finds the functions, methods, classes, constants and fields that an agent changed. It also finds the symbols that the agent's new code uses. It follows imports and calls up to three steps away.</p>
+<p>gitta parses each changed file with Tree-sitter. It finds the functions, methods, classes, constants and fields that an agent changed. It also finds the symbols that the agent's new code uses. It follows imports and calls up to three steps away.</p>
 <p>When one agent changes a symbol that another agent's new code uses, gitta warns the second agent. The warning reaches the agent inside its own session, at its next step. No person has to run a command. See <a href="warnings.html">Warnings and sync</a>.</p>
 
 <h2>Sync</h2>

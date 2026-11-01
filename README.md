@@ -180,7 +180,7 @@ The full documentation is at [gitta.io/docs](https://gitta.io/docs/), and its so
 
 ## Enterprise
 
-[gitta Enterprise](https://gitta.io/enterprise) brings every agent on every machine together as one team, with a team server and mainframe languages.
+[gitta Enterprise](https://gitta.io/enterprise) brings every agent on every machine together as one team with a team server, and adds more languages and platforms.
 
 ## Contributing
 

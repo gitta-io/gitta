@@ -25,8 +25,8 @@ pub struct Finding { pub kind: String, pub path: String, pub detail: String }
 
 fn file(p: &str) -> &str { p.rsplit('/').next().unwrap_or(p) }
 
-/// The optional checks this binary was compiled with. The verdict depends on it: a build WITHOUT `mainframe` cannot
-/// raise COBOL/JCL/code-page findings, and one without `abap` cannot parse ABAP, so a clean verdict from such a build
+/// The optional checks this binary was compiled with. The verdict depends on it: a build WITHOUT an optional
+/// language feature cannot raise that feature's findings or parse that language, so a clean verdict from such a build
 /// is not the same as a clean verdict from a full one. Reported in the audit/result record so that difference is
 /// observable; it never changes what any feature does.
 pub fn features() -> Vec<&'static str> {
@@ -320,7 +320,7 @@ pub fn assertion_strength(t: &str) -> (usize, usize) {
 mod feature_visibility_tests {
     use super::*;
 
-    // The compiled-in feature set must be observable so a build without `mainframe`/`abap` is not mistaken for a
+    // The compiled-in feature set must be observable so a build without an optional feature is not mistaken for a
     // clean verdict from a full build. `features()` reflects exactly what was compiled in, nothing more.
     #[test]
     fn features_reflects_the_build() {

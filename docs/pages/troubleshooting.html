@@ -35,13 +35,6 @@ $ git branch -D worktree-detect-language</term>
 </ul>
 <p>Run <code>gitta status</code> to see all of these at once. See <a href="warnings.html#kinds-of-warning">Kinds of warning</a>.</p>
 
-<h2>A file shows as changed, but nobody changed it</h2>
-<p>On mainframe repositories this usually comes from a code page. Git converts the file between EBCDIC and UTF-8 with the <code>working-tree-encoding</code> in <code>.gitattributes</code>. When that setting changes, or a folder gets the wrong code page, every line can differ by a few characters such as <code>[</code> and <code>]</code>. gitta reports a change that differs only in those characters as a weakened check, with <code>code page conversion changed characters</code>.</p>
-<ol class="steps">
-  <li>Run <code>gitta encoding</code>. It shows the code page of each kind of file and the folders that have none.</li>
-  <li>Set the right code page for the folder in <code>.gitattributes</code>. See <a href="https://gitta.io/docs/mainframe.html#code-pages">Set the code page for each folder</a>.</li>
-  <li>Check out the file again with <code>git checkout -- &lt;file&gt;</code>. Git converts it with the new setting.</li>
-</ol>
 
 <h2>"gitta: skipped &lt;agent&gt;: ..."</h2>
 <p>gitta could not read one worktree. It leaves that worktree out and keeps working for all the others. The line names the worktree, the reason and the fix. The agent in that worktree is told once that gitta cannot check its work.</p>

@@ -45,18 +45,7 @@ namespace PROTOBUF_NAMESPACE_OPEN google</term>
 <p>gitta does not run the preprocessor. It reads the code of every branch of <code>#if</code>, <code>#ifdef</code>, <code>#elif</code> and <code>#else</code>, so a function that exists only on one platform is still followed. When two branches write different headers for the same function, gitta reads the first branch. Code under <code>#if 0</code> is skipped.</p>
 <p>Line continuations, X-macros, export macros such as <code>class LEVELDB_EXPORT DB</code> and macros that open a namespace, such as <code>FMT_BEGIN_NAMESPACE</code>, are read. A macro that gitta does not know, for example one used as a statement without a semicolon, leaves a small region that does not parse. The rest of the file is read as usual, and the uses inside that region still count. gitta reports a file as not parsed only when more than half of it does not parse.</p>
 
-<h2 id="zos">z/OS XL C/C++</h2>
-<p>With gitta Enterprise, gitta reads the parts of the z/OS XL C/C++ dialect that change what a name means. It keeps every byte offset, so line numbers stay right.</p>
-<ul>
-  <li><b>Trigraphs and digraphs.</b> <code>??(</code> <code>??)</code> <code>??&lt;</code> <code>??&gt;</code> <code>??=</code> <code>??/</code> <code>??'</code> <code>??!</code> <code>??-</code> and <code>&lt;:</code> <code>:&gt;</code> <code>&lt;%</code> <code>%&gt;</code> <code>%:</code> <code>%:%:</code> are read as the characters they stand for. Trigraphs are read everywhere, as the compiler does. Digraphs are read outside strings and comments.</li>
-  <li><b><code>_Packed</code>.</b> A <code>_Packed</code> struct or union is read like any other. Adding or removing <code>_Packed</code> is a change to its layout.</li>
-  <li><b><code>#pragma map(name, "EXTNAME")</code>.</b> The external name is the same symbol as the C name. A change to the function reaches code that calls either name, also COBOL that calls <code>'EXTNAME'</code>. A change to the external name is a change to the function&rsquo;s interface.</li>
-  <li><b><code>#pragma linkage(name, OS)</code>.</b> The linkage is part of the function&rsquo;s interface, so a change to it is high severity.</li>
-  <li><b>Other pragmas</b>, such as <code>options</code>, <code>runopts</code>, <code>pack</code> and <code>inline</code>, are skipped. They never stop a file from being read.</li>
-  <li><b>Embedded SQL and CICS.</b> <code>EXEC SQL ... ;</code> and <code>EXEC CICS ... ;</code> do not stop a file from being read. Host variables such as <code>:hv_id</code> and the arguments of CICS options count as uses. <code>EXEC CICS LINK</code>, <code>XCTL</code>, <code>LOAD</code> and <code>RELEASE PROGRAM(...)</code> call that program, as they do in COBOL. A program name in a variable is found through the literal the file gives it, such as <code>char pgm[9] = "ACCTINQ";</code> or <code>strcpy(pgm, "ACCTINQ")</code>.</li>
-  <li><b>Fixed-length records.</b> Sequence numbers in columns 73 to 80 and blanks that pad lines to column 72 or 80 are not part of any name or text. Renumbering a file changes nothing.</li>
-</ul>
-<p>For code pages of C sources on z/OS, see <a href="https://gitta.io/docs/mainframe.html#code-pages">Set the code page for each folder</a>.</p>
+<p>More languages and platforms are in <a href="https://gitta.io/enterprise">gitta Enterprise</a>.</p>
 
 <h2>What counts as a change of meaning</h2>
 <p>These changes are high severity. Code that uses the changed name must be checked:</p>

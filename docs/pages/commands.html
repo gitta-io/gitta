@@ -53,7 +53,6 @@
   <tr><td><code>gitta land &lt;agent&gt; --pr [--remote origin]</code></td><td>Push the checked result to <code>gitta/pr/&lt;agent&gt;</code> and open a pull request.</td></tr>
   <tr><td><code>gitta approve &lt;agent&gt; &lt;reason&gt;</code></td><td>Optional. A recorded override for a repository that sets <code>weakened_checks</code> to <code>block</code>. A person accepts this agent's current weakened checks, and the reason goes into the audit trail. It runs only at a person's terminal, outside agent sessions and workspaces, and covers only these exact findings.</td></tr>
   <tr><td><code>gitta pr-check --pr REF --other REF[=NAME]...</code></td><td>Compare one branch with others, as the CI check does. <code>--name N</code> names this pull request, <code>--base REF</code> sets the target branch, <code>--gate CMD</code> runs your tests on each pair, <code>--json</code> prints the results for scripts. It also lists removed tests and weakened checks in the branch, and exits with 3 when <code>weakened_checks</code> is <code>block</code>. See <a href="pull-requests.html">Pull requests and CI</a>.</td></tr>
-  <tr><td><code>gitta encoding</code></td><td>With gitta Enterprise, show the code pages of the mainframe files, from <code>.gitattributes</code> and <code>.gitta-encoding</code>, and the code page risks gitta sees. This command is in the Enterprise build, not in the free <code>gitta</code>. See <a href="https://gitta.io/docs/mainframe.html#code-pages">Set the code page for each folder</a>.</td></tr>
 </table>
 
 <h2 id="agents-in-batches">Agents in batches</h2>
@@ -138,7 +137,6 @@ weakened_checks = "block"</term>
   <tr><th>File</th><th>Use</th></tr>
   <tr><td><code>.gitta/</code></td><td>Settings (<code>config.json</code>), the audit trail (<code>audit.jsonl</code>), caches and check checkouts. Hidden from Git, per checkout.</td></tr>
   <tr><td><code>.gitta.toml</code></td><td>Committed. The team policy. See <a href="#team-policy">Team policy</a>.</td></tr>
-  <tr><td><code>.gitta-copybooks</code></td><td>Committed, for gitta Enterprise. Directories whose files are COBOL copybooks. See <a href="https://gitta.io/docs/mainframe.html#copybook-directories">Copybook directories</a>.</td></tr>
   <tr><td><code>.gitta-include</code></td><td>Committed. C and C++ include directories, how to read <code>.h</code> files, and macros that open a namespace. See <a href="c-cpp.html#include-directories">C and C++</a>.</td></tr>
 </table>
 

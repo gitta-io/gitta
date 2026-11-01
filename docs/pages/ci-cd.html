@@ -95,9 +95,6 @@ gitta pr-check --pr refs/pr/124 --base origin/main \
 jq -e 'all(.[]; .merges and .tests != "FAIL")' gitta.json</code></pre>
 <p><code>gitta pr-check</code> exits with 0 when it finds clashes, so your pipeline decides what fails, as in the <code>jq</code> line above. It exits with 3 when the branch removes tests or weakens checks and <code>weakened_checks</code> is <code>block</code>. Use the same rule as the GitHub check, so two incompatible pull requests do not block each other: only fail for a clash with an older pull request. See <a href="pull-requests.html#which-pull-request-goes-first">Which pull request goes first</a>.</p>
 
-<h3>IBM DBB pipelines</h3>
-<p>For COBOL on z/OS with gitta Enterprise, run <code>gitta pr-check</code> on a Linux or macOS CI agent before the DBB build step. A pull request whose new code uses a copybook field that another pull request changed then stops before it uses z/OS build time. See <a href="https://gitta.io/docs/mainframe.html#ci-and-dbb">Mainframe guide</a>.</p>
-
 <h2>Audit evidence in CI</h2>
 <p>A scheduled job can check the audit trail and keep an export with each run, so your auditor gets evidence without asking anyone.</p>
 <pre class="code"><code># weekly job

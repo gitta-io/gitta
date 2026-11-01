@@ -118,8 +118,8 @@ pub struct Refs {
     pub members: BTreeSet<(String, String)>, // (object identifier, property)
     pub props: BTreeSet<String>,             // every `.prop` used, any object
     pub paths: BTreeSet<(String, String)>,   // Rust `a::b::name` paths: (raw path, name)
-    /// References the parser already resolved to (module, name): COBOL names of a nested program's own scope,
-    /// GLOBAL items of an enclosing program, EXTERNAL data, INVOKE on a known class.
+    /// References the parser already resolved to (module, name): names of a nested program's own scope,
+    /// global items of an enclosing program, shared external data, calls on a known class.
     pub qual: BTreeSet<(String, String)>,
 }
 
@@ -147,7 +147,7 @@ pub struct FileInfo {
     /// Modules whose names are all in scope: C# `using N;` and enclosing namespaces, Kotlin `import a.b.*`.
     pub opens: BTreeSet<String>,
     /// The symbol (module, name) of a key whose symbol is not (`module`, its name): the items of the second and
-    /// later programs of a COBOL source file, and EXTERNAL data, which every program that declares it shares.
+    /// later programs of one source file, and shared external data, which every program that declares it shares.
     /// The bare names such a key uses are not in `module`'s scope (they are resolved in `Refs::qual`).
     pub symbols: BTreeMap<Key, (String, String)>,
 }
@@ -1449,7 +1449,7 @@ pub struct Uses {
     /// Names the edited keys define themselves, and classes whose members they are.
     pub own: BTreeSet<String>,
     pub member_classes: BTreeSet<String>,
-    /// COBOL EXTERNAL data the edited keys declare.
+    /// Shared external data the edited keys declare.
     pub externals: BTreeSet<(String, String)>,
 }
 
