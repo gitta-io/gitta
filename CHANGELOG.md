@@ -30,6 +30,7 @@
 
 ### Fixes
 
+- When `gitta land` stops on failing tests, the failure record now holds the code that was tested, so `gitta failure rerun` confirms the same failure.
 - Projects with submodules now pass the gate when they pass in your own checkout. gitta gives its test checkout the submodules from your main checkout, with no clone and no network.
 - A refused merge prints each finding once, with clearer notes and paths relative to the repository.
 - gitta exits quietly when the program that reads its output stops early, as in `gitta init | head -1`.

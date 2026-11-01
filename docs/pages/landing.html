@@ -38,7 +38,7 @@ Fast-forward
  create mode 100644 bench/aidev-replay/test_wilson.py</term>
 
 <h2 id="stopped">When gitta stops a merge</h2>
-<p>When the tests fail on the combined code, gitta stops the merge. It names the failing test, prints the first error line and, when a function the code calls changed on main, its new definition line.</p>
+<p>When the tests fail on the combined code, gitta stops the merge. It names the failing test, prints the first error line and, when a function the code calls changed on main, its new definition line. gitta also records the exact code that it tested. <code>gitta failure list</code> shows these records, and <code>gitta failure rerun ID</code> runs the tests on that code again.</p>
 <term>$ git merge --no-edit ci99
 Auto-merging bench/aidev-replay/analyze.py
 gitta: tests fail on main with ci99 (test_ci99.T.test_wider); main unchanged, merge cancelled (ignore git's note). Fix it and merge again.
