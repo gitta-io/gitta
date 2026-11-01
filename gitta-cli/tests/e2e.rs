@@ -131,6 +131,22 @@ fn the_gate_checkout_has_submodule_contents() {
 }
 
 #[test]
+fn each_gate_run_starts_without_earlier_build_output() {
+    // gitta reuses its gate checkouts. Ignored build output from one candidate must not be there for the next.
+    let e = env("cleangate");
+    shop(&e);
+    write(&e.repo.join(".gitignore"), "out.o\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "ignore out.o"]);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", "test ! -e out.o && touch out.o"]).status.success());
+    for (n, f) in [("one", "shop/one.py"), ("two", "shop/two.py")] {
+        let a = worktree(&e, n);
+        write(&a.join(f), "X = 1\n");
+        let o = gitta(&e, &e.repo, &["land", n]);
+        assert!(o.status.success(), "{n}: the gate must not see out.o from the run before: {}", text(&o));
+    }
+}
+
+#[test]
 fn a_submodule_path_outside_the_checkout_is_never_linked() {
     // Agent work can change .gitmodules. A path that leaves the checkout must not make gitta create a link there.
     let e = env("subescape");

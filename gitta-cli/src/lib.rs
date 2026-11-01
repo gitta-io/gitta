@@ -2774,7 +2774,7 @@ impl Wt {
         }
         let ok = path.join(".git").exists()
             && git(&path, &["checkout", "-q", "--force", "--detach", rev]).status.success()
-            && git(&path, &["clean", "-fdq"]).status.success();
+            && git(&path, &["clean", "-ffdqx"]).status.success();   // -x: ignored build output from an earlier candidate goes too
         if !ok {
             git(root, &["worktree", "remove", "--force", path.to_str().unwrap()]);
             let _ = std::fs::remove_dir_all(&path);
