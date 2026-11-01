@@ -43,6 +43,7 @@
 
 ### Changes
 
+- `gitta audit --stats` counts how much work landed and how much was refused, and for which check. `--last N` shows only the most recent events, and `gitta status --json` includes the totals.
 - `gitta init --no-mcp` leaves your Cursor and Codex settings alone.
 - The code security checks, credential checks and `gitta scan` moved to gitta Enterprise.
 

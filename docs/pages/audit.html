@@ -37,6 +37,12 @@
 <p>Filter by date, agent or event. <code>--json</code> shows every field of each event:</p>
 <term>$ gitta audit --since 2026-10-01 --event merge_stopped
 $ gitta audit --agent ci99 --json</term>
+<p>To count the landings and refusals, use <code>--stats</code>. <code>--last N</code> keeps only the N most recent events:</p>
+<term>$ gitta audit --stats
+landed: 12
+refused: 3
+  tests: 3
+$ gitta audit --stats --json --last 50</term>
 
 <h2>Check that nobody changed it</h2>
 <p>Each event carries the SHA-256 hash of the event before it. If someone changes, removes or reorders an event, the chain breaks at that point.</p>

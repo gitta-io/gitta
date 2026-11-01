@@ -82,7 +82,8 @@
 <table>
   <tr><th>Command</th><th>What it does</th></tr>
   <tr><td><code>gitta audit</code></td><td>Show the audit trail as a table. See <a href="audit.html">Audit trail</a>.</td></tr>
-  <tr><td><code>--since DATE</code>, <code>--agent A</code>, <code>--event E</code></td><td>Filter.</td></tr>
+  <tr><td><code>--since DATE</code>, <code>--agent A</code>, <code>--event E</code>, <code>--last N</code></td><td>Filter. <code>--last N</code> keeps the N most recent events.</td></tr>
+  <tr><td><code>--stats</code></td><td>Count how many landings went through and how many <code>gitta land</code> refused, for each check. Add <code>--json</code> for scripts. <code>gitta status --json</code> shows the same totals as <code>landed_total</code> and <code>refused_total</code>.</td></tr>
   <tr><td><code>--csv</code>, <code>--json</code></td><td>Export.</td></tr>
   <tr><td><code>--team</code></td><td>With Enterprise, read the whole team's trail from the team servers.</td></tr>
   <tr><td><code>gitta audit verify [--team]</code></td><td>Check that no event was changed, removed or reordered.</td></tr>
