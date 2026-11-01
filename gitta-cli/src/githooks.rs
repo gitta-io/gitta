@@ -826,9 +826,10 @@ fn wait_running(root: &Path, tree: &str) {
 // ---- Internal-landing marker -------------------------------------------------
 // gitta runs git itself to move the target branch (during `land`), to test a merge it is about to let through,
 // and to undo a stopped merge. Those git commands must not re-enter this hook. gitta marks them with GITTA_LANDING,
-// set to a one-time token that names a marker file, under .gitta/landing/, that only a running gitta writes. The
-// hook stands aside only when GITTA_LANDING matches such a marker whose gitta process is still alive. A value set
-// by hand or left in the environment by an earlier run has no live marker, so it skips nothing.
+// set to a one-time token that names a marker file, under .gitta/landing/, that only a running gitta writes and
+// holds a lock on. The hook stands aside only when GITTA_LANDING matches such a marker whose lock is still held. A
+// value set by hand, left in the environment, or a marker file planted with a live pid has no held lock, so it
+// skips nothing.
 fn landing_dir(root: &Path) -> PathBuf { root.join(".gitta/landing") }
 
 /// Mark the git commands gitta runs next (in this process and the children it spawns) as gitta's own, so this
@@ -840,26 +841,35 @@ pub(crate) fn mark_landing(root: &Path) {
     // token can never match.
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
+            // Only a marker whose process ended and whose lock is free: a live gitta may not have locked it yet.
             let live = e.file_name().to_str().and_then(|n| n.split_once('.')).map(|(p, _)| pid_alive(p)).unwrap_or(false);
-            if !live { let _ = std::fs::remove_file(e.path()); }
+            let free = std::fs::File::open(e.path()).map(|f| f.try_lock().is_ok()).unwrap_or(true);
+            if !live && free { let _ = std::fs::remove_file(e.path()); }
         }
     }
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let tok = format!("{}.{:x}{:x}", std::process::id(), t, n);
-    let _ = std::fs::write(dir.join(&tok), b"");
+    // The lock is held until this process exits; the kernel then releases it.
+    static HELD: std::sync::Mutex<Vec<std::fs::File>> = std::sync::Mutex::new(Vec::new());
+    if let Ok(f) = std::fs::OpenOptions::new().write(true).create_new(true).open(dir.join(&tok)) {
+        if f.try_lock().is_ok() { HELD.lock().unwrap_or_else(|e| e.into_inner()).push(f); }
+    }
     std::env::set_var("GITTA_LANDING", &tok);
 }
 
-/// True only when GITTA_LANDING names a marker a still-running gitta wrote: this hook was reached from a git
+/// True only when GITTA_LANDING names a marker a still-running gitta holds locked: this hook was reached from a git
 /// command gitta itself runs, so it stands aside. Any other value is a normal operation and is checked.
 fn internal_landing(root: &Path) -> bool {
     let Ok(tok) = std::env::var("GITTA_LANDING") else { return false };
     let Some((pid, rest)) = tok.split_once('.') else { return false };
     if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) { return false }
     if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_hexdigit()) { return false }
-    landing_dir(root).join(&tok).exists() && pid_alive(pid)
+    let p = landing_dir(root).join(&tok);
+    // Not a symlink: the marker is a plain file gitta created.
+    if !std::fs::symlink_metadata(&p).map(|m| m.file_type().is_file()).unwrap_or(false) { return false }
+    pid_alive(pid) && std::fs::File::open(&p).map(|f| matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))).unwrap_or(false)
 }
 
 /// The gate's result on `tree` (checked out from `at`): kept from an earlier run of the same test command on the

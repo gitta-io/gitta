@@ -1209,13 +1209,18 @@ fn a_hand_set_gitta_landing_does_not_bypass_the_gate() {
     write(&e.repo.join("shop/text.py"), "def shout(s):\n    return s.upper()\n");
     git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-q", "--allow-empty", "-m", "text"]);
     let before = git(&e.repo, &["rev-parse", "main"]);
-    let mut c = Command::new("git");
-    for v in AGENT_ENV { c.env_remove(v); }
-    let o = c.arg("-C").arg(&e.repo).args(["-c", "user.name=t", "-c", "user.email=t@t", "merge", "--no-edit", "bad"])
-        .env("HOME", &e.home).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_LANDING", "1").output().unwrap();
-    assert!(!o.status.success(), "GITTA_LANDING=1 must not bypass the gate: {}", text(&o));
-    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before, "main must not move");
-    let _ = git_run(&e, &e.repo, &["merge", "--abort"]);
+    // A marker file that no running gitta holds, planted with a live pid (this test's own).
+    let planted = format!("{}.ab", std::process::id());
+    write(&e.repo.join(".gitta/landing").join(&planted), "");
+    for tok in ["1", planted.as_str()] {
+        let mut c = Command::new("git");
+        for v in AGENT_ENV { c.env_remove(v); }
+        let o = c.arg("-C").arg(&e.repo).args(["-c", "user.name=t", "-c", "user.email=t@t", "merge", "--no-edit", "bad"])
+            .env("HOME", &e.home).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_LANDING", tok).output().unwrap();
+        assert!(!o.status.success(), "GITTA_LANDING={tok} must not bypass the gate: {}", text(&o));
+        assert_eq!(git(&e.repo, &["rev-parse", "main"]), before, "main must not move");
+        let _ = git_run(&e, &e.repo, &["merge", "--abort"]);
+    }
 }
 
 const LABEL: &str = "from shop.pricing import net_to_gross\n\n\ndef label(x):\n    return f\"{net_to_gross(x)} kr\"\n";

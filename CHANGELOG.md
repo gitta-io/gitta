@@ -25,7 +25,7 @@
 ### Your code stays with you
 
 - Your source code now stays on your machines. gitta sends the team server a short summary of each agent step, with the names of changed symbols and the paths of touched files, and the server finds the same warnings from that.
-- The merge checks are now harder to switch off by accident. Environment variables, a deleted local config file or a hand set marker can no longer weaken the checks your team committed, and `GITTA_SKIP` stays the one recorded way to skip.
+- The merge checks are now harder to switch off by accident. Environment variables, a deleted local config file, or a marker set by hand or copied into place, can no longer weaken the checks your team committed, and `GITTA_SKIP` stays the one recorded way to skip.
 - The team server token stays off the command line, and gitta sends it over plain http only to this machine unless you allow more.
 
 ### Fixes

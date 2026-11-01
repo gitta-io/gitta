@@ -81,6 +81,7 @@ Not committing merge; use 'git commit' to complete the merge.</term>
 
 <h2>Skipping the checks</h2>
 <p><code>git merge --no-verify</code> skips gitta, as it skips any git hook. For a cherry-pick, rebase or reset, set <code>GITTA_SKIP=1</code> for that one command. gitta records each skip as <code>checks_skipped</code> in the audit trail and writes a line to <code>.gitta/gitta.log</code>.</p>
+<p>Other environment variables and files cannot skip the checks. gitta marks its own git commands with a token that only a running gitta process holds. A token that you set by hand, or a marker file that you put in <code>.gitta/landing</code>, does not skip a check.</p>
 
 <h2>Optional commands</h2>
 <p><code>gitta land &lt;agent&gt;</code> runs the same checks, merges and moves main forward by one commit in one command. <code>gitta land --all</code> lands every agent in dependency order, and <code>gitta land &lt;agent&gt; --pr</code> pushes the checked result to <code>gitta/pr/&lt;agent&gt;</code> and opens a pull request. In a repository that sets <code>weakened_checks</code> to <code>block</code>, a person can record an override with <code>gitta approve &lt;agent&gt; &lt;reason&gt;</code>. It covers only the current findings, runs only at a person's terminal, outside agent sessions, and the reason goes into the audit trail. Where an override must be enforced, use the <a href="routes.html">pull request route</a> with branch protection and a review by a person.</p>
