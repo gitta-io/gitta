@@ -50,9 +50,8 @@ Not committing merge; use 'git commit' to complete the merge.
 | **Also editing** | Two agents changed the same function or lines. gitta merges both changes by structure, for example by function, import or JSON key. |
 | **Merge check** | Inside `git merge`, `git pull` and `git push`, gitta runs the gate on the combined code and stops the merge when the tests fail. |
 | **Weakened checks** | Deleted tests, fewer assertions, new skip markers and relaxed CI are reported in the merge output, `.gitta/gitta.log` and the audit trail. `weakened_checks` in `.gitta.toml` decides whether the merge goes ahead (`warn`, the local default) or stops (`block`, the CI default). |
-| **Security** | Risky new lines, such as SQL or shell commands built from variables, and security controls that one agent removes while another agent's new code relies on them. |
-| **Credentials** | New lines that look like keys, tokens or passwords in code. |
-| **Agent instructions** | Changes to `AGENTS.md`, `CLAUDE.md` and similar files. `gitta scan` finds instruction files that a package planted in your dependencies. |
+| **Tests you can trust** | A test run that ends itself early, a changed test runner, an equality that is always true and fewer tests run than at the last merge are weakened checks too. Each merge keeps the result of every test the full suite ran. |
+| **Task and tests disagree** | An agent whose task and tests contradict each other runs `gitta conflict` (or the `gitta_conflict` MCP tool) instead of changing the tests. gitta holds its work for a person. |
 | **Audit trail** | A hash-chained record of every agent, warning, check and merge in `.gitta/audit.jsonl`. `gitta audit verify` checks it. |
 
 gitta never asks you anything. Inside an agent's tool call it prints only what changes the agent's next step. Everything else goes to the log.
@@ -82,7 +81,10 @@ gitta land <agent>|--all [--pr]               optional: check, merge and move ma
 gitta approve <agent> <reason>                optional: a recorded override at a person's terminal
 gitta install claude|cursor|codex             hooks for Claude Code, MCP for Cursor and Codex
 gitta mcp                                     the MCP server for Cursor and Codex
-gitta scan [dirs]                             planted agent instructions in dependencies
+gitta conflict <agent> <reason>               the task and the tests disagree: hold the work for a person
+gitta tests-ran [--reset]                     how many tests ran at the last merge
+gitta main-check [--revert]                   find the merged change that broke main
+gitta tests-for <agent>                       the test files that use what an agent changed
 gitta audit [verify] [--since DATE] [--json|--csv]
 gitta update [--check]                        install the latest release
 gitta down                                    remove the workspaces gitta made
@@ -94,7 +96,7 @@ gitta uninstall [--everywhere]                remove gitta from this repository
 ## Agents
 
 - **Claude Code**: hooks after every tool call and when the agent stops. `gitta install claude` adds them again.
-- **Cursor and Codex**: MCP tools (`gitta_status`, `gitta_sync`, `gitta_check`, `gitta_claim`, `gitta_release`) that the agent calls. Tell the agent in `AGENTS.md` to merge with git and to fix a failed merge.
+- **Cursor and Codex**: MCP tools (`gitta_status`, `gitta_sync`, `gitta_check`, `gitta_claim`, `gitta_release`, `gitta_conflict`) that the agent calls. Tell the agent in `AGENTS.md` to merge with git and to fix a failed merge.
 - **Any other tool that makes git worktrees**: `gitta status`, `gitta watch` and the merge output.
 
 ## Workspaces on Linux

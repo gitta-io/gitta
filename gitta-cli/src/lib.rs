@@ -44,11 +44,6 @@ struct Config { root: String, agents: Vec<Agent>, gate: Option<String>, link: Ve
     #[serde(default)] watch: bool,
     /// Team server (business version): agents on other machines. Token kept here, in the excluded .gitta folder.
     #[serde(default)] server: Option<String>, #[serde(default)] server_token: Option<String>,
-    /// The repository's own security checks: symbols (`billing.check_limits`, `shop.auth.*`) and paths (`app/auth/*`).
-    /// Lines of a committed `.gitta-security` file count too.
-    #[serde(default)] security: Vec<String>,
-    /// Security notes (layer 1) at or above this severity count as weakened checks when merged: "high" (default), "medium" or "none".
-    #[serde(default, skip_serializing_if = "Option::is_none")] security_block: Option<String>,
     /// C and C++ include directories (like `-I`), on top of the committed `.gitta-include` file.
     #[serde(default, skip_serializing_if = "Vec::is_empty")] include: Vec<String>,
     /// Desktop notifications when something needs a person (`gitta init --notify off` turns them off).
@@ -60,7 +55,7 @@ struct Config { root: String, agents: Vec<Agent>, gate: Option<String>, link: Ve
     /// Wall-clock limit for the gate in seconds. 0 (the default) means no limit. A run stopped at the limit is
     /// never treated as a pass and never cached. `GITTA_GATE_TIMEOUT` overrides it.
     #[serde(default)] gate_timeout: u64,
-    /// Without a terminal to ask in, removed tests or weakened security checks: "warn" (default) or "block".
+    /// Without a terminal to ask in, removed tests or weakened checks: "warn" (default) or "block".
     #[serde(default, skip_serializing_if = "Option::is_none")] weakened_checks: Option<String> }
 
 /// Hooks run after every agent step in every folder: they must never print errors or fail there.
@@ -232,7 +227,7 @@ fn load(root: &Path) -> Config {
     if c.watch { refresh(root, &mut c); }
     // The gate committed in .gitta.toml on the target branch wins: only a reviewed commit there changes it.
     if let Some(g) = team_setting(root, "gate") { c.gate = Some(g); }
-    apply_settings(root, &c.security, &c.include);
+    apply_settings(root, &c.include);
     c
 }
 
@@ -261,25 +256,10 @@ fn set_gate(root: &Path, c: &mut Config, gate: Option<String>) {
 }
 
 /// The one place the repository's analysis settings reach the analysis, for every command, hook and MCP tool:
-/// security checks (settings plus `.gitta-security`), COBOL copybook folders (`.gitta-copybooks`), C and C++
-/// include folders, and the parse cache that lets each hook process skip large unchanged files.
-fn apply_settings(root: &Path, security: &[String], include: &[String]) {
-    mark_security(root, security);
+/// C and C++ include folders, and the parse cache that lets each hook process skip large unchanged files.
+fn apply_settings(root: &Path, include: &[String]) {
     gitta_core::c_cpp::load_config(root, include);
     gitta_core::set_parse_cache_dir(Some(root.join(".gitta/cache/parse")));
-}
-
-/// Hand the repository's own security checks to the analysis: settings plus the committed `.gitta-security` file
-/// (one symbol or path pattern per line, `#` starts a comment).
-/// The security checks in force, as handed to the analysis: part of the key of cached meaning checks.
-static MARKED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-fn mark_security(root: &Path, settings: &[String]) {
-    let file = std::fs::read_to_string(root.join(".gitta-security")).unwrap_or_default();
-    let mut v: Vec<String> = settings.to_vec();
-    v.extend(gitta_core::security::marks(&file));
-    gitta_core::code_security::load(&file);
-    let _ = MARKED.set(format!("{}\n{}", v.join("\n"), gitta_core::security::entries(&file).join("\n")));
-    gitta_core::security::set_marked(v);
 }
 
 /// After `gitta init`: every worktree that exists is an agent; new ones are picked up, removed ones dropped.
@@ -336,7 +316,7 @@ fn cmd_init(args: &[String]) {
     if !t.lines().any(|l| l == "/.gitta/") { if let Some(d) = excl.parent() { std::fs::create_dir_all(d).ok(); } std::fs::write(&excl, format!("{t}\n/.gitta/\n")).ok(); }
     let old: Option<Config> = std::fs::read_to_string(cfg_path(&root)).ok().and_then(|t| serde_json::from_str(&t).ok());
     let mut c = if let Some(old) = old { old } else {
-        Config { root: root.to_string_lossy().into(), agents: vec![], gate: None, link: vec![], auto_sync: true, parallel: 0, main: main.clone(), watch: true, server: None, server_token: None, security: vec![], security_block: None, include: vec![], notify: false, gate_env: vec![], gate_timeout: 0, weakened_checks: None }
+        Config { root: root.to_string_lossy().into(), agents: vec![], gate: None, link: vec![], auto_sync: true, parallel: 0, main: main.clone(), watch: true, server: None, server_token: None, include: vec![], notify: false, gate_env: vec![], gate_timeout: 0, weakened_checks: None }
     };
     c.watch = true; c.auto_sync = true; c.main = main.clone();
     set_gate(&root, &mut c, get("--gate"));
@@ -344,12 +324,11 @@ fn cmd_init(args: &[String]) {
     // several servers, comma separated, for when one is down: agents report to all of them
     if let Some(u) = get("--server") { c.server = Some(u.split(',').map(|x| x.trim().trim_end_matches('/')).filter(|x| !x.is_empty()).collect::<Vec<_>>().join(",")); }
     if let Some(t) = get("--token") { c.server_token = Some(t); }
-    for w in args.windows(2).filter(|w| w[0] == "--security") { if !c.security.contains(&w[1]) { c.security.push(w[1].clone()); } }
     // The team file only on request: an uncommitted file in the main checkout shows up in every agent's git status.
     if args.iter().any(|a| a == "--team") && !root.join(".gitta.toml").exists() {
         let _ = std::fs::write(root.join(".gitta.toml"), format!("# gitta team policy. Commit this file: merges, pushes and the CI check read it from {onto}.\n\
             # The test command gitta runs on the combined code before a merge.\n{}\n\
-            # Removed tests or weakened security checks: \"warn\" lets the merge go ahead and records it, \"block\" stops it.\n\
+            # Removed tests or weakened checks: \"warn\" lets the merge go ahead and records it, \"block\" stops it.\n\
             # Without this line, local merges warn and the CI check blocks.\n# weakened_checks = \"warn\"\n",
             c.gate.as_ref().map(|g| format!("gate = {g:?}")).unwrap_or("# gate = \"your test command\"".into())));
     }
@@ -361,10 +340,6 @@ fn cmd_init(args: &[String]) {
     if let Some(n) = get("--notify") {
         if !matches!(n.as_str(), "on" | "off") { die("--notify takes on or off") }
         c.notify = n == "on";
-    }
-    if let Some(b) = get_flag(args, "--security-block") {
-        if !matches!(b.as_str(), "high" | "medium" | "none") { die("--security-block takes high, medium or none") }
-        c.security_block = Some(b);
     }
     save(&root, &c);
     let _ = std::fs::write(root.join(".gitta/audit-main"), git_ok(&root, &["rev-parse", &c.main]));
@@ -399,7 +374,7 @@ fn cmd_init(args: &[String]) {
         println!("Your git is older than 2.28, so a cherry-pick, rebase or reset onto {onto} is checked only afterwards, with a warning. Update git to have those stopped too.");
     }
     println!("When gitta tells an agent about a clash, the agent fixes its code itself and mentions it to you in one sentence in its chat.");
-    println!("gitta never asks you anything. When a merge removes tests or weakens a security check, it says so in the merge output and in the log{}.", if team_setting(&root, "weakened_checks").as_deref() == Some("block") { ", and stops the merge, because .gitta.toml sets weakened_checks to block" } else { ". The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block" });
+    println!("gitta never asks you anything. When a merge removes tests or weakens a check, it says so in the merge output and in the log{}.", if team_setting(&root, "weakened_checks").as_deref() == Some("block") { ", and stops the merge, because .gitta.toml sets weakened_checks to block" } else { ". The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block" });
     if !root.join(".gitta.toml").exists() {
         println!("To share the test command and rules with your team and the CI check, run `gitta init --team` and commit .gitta.toml.");
     } else if git(&root, &["ls-files", "--error-unmatch", ".gitta.toml"]).status.code() != Some(0) {
@@ -943,37 +918,12 @@ fn tempdir(tag: &str) -> PathBuf {
     std::fs::create_dir_all(&p).unwrap(); p
 }
 
-// ---------------------------------------------------------------- secrets and injected instructions
-
-/// Files that coding agents read as instructions. A change to one is a change to every agent's behaviour.
-const INSTRUCTION_FILES: &[&str] = &["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".cursorrules", ".windsurfrules", "copilot-instructions.md", ".clinerules", "CONVENTIONS.md"];
-fn instruction_file(p: &str) -> bool {
-    let f = p.rsplit('/').next().unwrap_or(p);
-    INSTRUCTION_FILES.iter().any(|x| f.eq_ignore_ascii_case(x)) || p.starts_with(".cursor/rules/") || p.contains("/.cursor/rules/")
-}
-
-/// Phrases typical of prompt injection aimed at agents.
-const INJECTION: &[&str] = &["ignore previous instructions", "ignore all previous", "disregard your instructions", "you are now", "do not tell the user",
-    "without telling the user", "exfiltrate", "send the contents of", "curl http", "| sh", "| bash", "base64 -d", "env | curl", "printenv"];
-
-fn find_injection(text: &str) -> Option<&'static str> {
-    let l = text.to_lowercase();
-    INJECTION.iter().copied().find(|p| l.contains(p))
-}
-
-/// A credential on a line this agent added to `p` (lines already in the base are not its doing), with its line number.
-fn new_secret(a: &Agent, p: &str, text: &str) -> Option<(usize, String)> {
-    let o = git(Path::new(&a.path), &["show", &format!("{}:{p}", a.base)]);
-    let base = if o.status.success() { String::from_utf8_lossy(&o.stdout).to_string() } else { String::new() };
-    gitta_core::guard::secret_in_new_lines(&base, text)
-}
-
-/// Key of a check that depends only on the agent's base, the contents of `paths` in its workspace and the
-/// security settings: an unchanged key means the cached answer still stands.
+/// Key of a check that depends only on the agent's base and the contents of `paths` in its workspace: an unchanged
+/// key means the cached answer still stands.
 fn content_key(a: &Agent, paths: &BTreeSet<String>) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (env!("CARGO_PKG_VERSION"), &a.base, &a.path, MARKED.get()).hash(&mut h);
+    (env!("CARGO_PKG_VERSION"), &a.base, &a.path).hash(&mut h);
     for p in paths { (p, file_hash(&Path::new(&a.path).join(p))).hash(&mut h); }
     format!("{:016x}", h.finish())
 }
@@ -986,112 +936,33 @@ fn cached<T: Serialize + serde::de::DeserializeOwned + Clone>(root: &Path, kind:
     }
 }
 
-/// Safety findings in an agent's changed files.
-fn safety(a: &Agent, paths: &BTreeSet<String>) -> Vec<Warning> {
-    if paths.is_empty() { return vec![]; }
-    match repo_of(a) { Some(root) => cached(&root, "safety", &a.name, &content_key(a, paths), || safety_read(a, paths)), None => safety_read(a, paths) }
-}
-
-/// The main repository an agent belongs to (where `.gitta` lives).
-fn repo_of(a: &Agent) -> Option<PathBuf> {
-    let wt = Path::new(&a.path);
-    git_dir(wt).map(|g| match std::fs::read_to_string(g.join("commondir")) { Ok(c) => { let p = PathBuf::from(c.trim()); if p.is_absolute() { p } else { g.join(p) } } Err(_) => g })
-        .and_then(|g| g.canonicalize().ok()).and_then(|g| g.parent().map(Path::to_path_buf)).filter(|r| r.join(".gitta").is_dir())
-}
-
-fn safety_read(a: &Agent, paths: &BTreeSet<String>) -> Vec<Warning> {
-    let mut out = vec![];
-    // The base versions of all the files in one Git call.
-    let base = blobs(Path::new(&a.path), &a.base, paths);
-    for p in paths {
-        let Ok(bytes) = std::fs::read(Path::new(&a.path).join(p)) else { continue };
-        let text = String::from_utf8_lossy(&bytes);
-        let w = |kind: &str, what: String| Warning { kind: kind.into(), path: p.clone(), symbol: Some(what), changed_by: Some(a.name.clone()),
-                                                      referenced_by: None, severity: Some("high".into()), agents: vec![a.name.clone()], security: None };
-        if let Some((_, sec)) = gitta_core::guard::secret_in_new_lines(&base.get(p).map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default(), &text) { out.push(w("SECRET", sec)); }
-        if instruction_file(p) {
-            out.push(w("INSTRUCTIONS", find_injection(&text).map(|x| format!("agent instruction file changed; contains \"{x}\"")).unwrap_or("agent instruction file changed".into())));
-        }
-    }
-    out
-}
-
-fn cmd_scan(args: &[String]) {
-    // Search dependency folders (or given paths) for planted instruction files and injection phrases.
-    let root = root();
-    let dirs: Vec<PathBuf> = if args.is_empty() { ["node_modules", ".venv", "venv", "vendor"].iter().map(|d| root.join(d)).filter(|d| d.exists()).collect() } else { args.iter().map(PathBuf::from).collect() };
-    let mut found = 0;
-    for d in dirs {
-        let mut stack = vec![d];
-        while let Some(x) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&x) else { continue };
-            for e in rd.flatten() {
-                let p = e.path();
-                if e.file_type().map(|t| t.is_dir()).unwrap_or(false) { stack.push(p); continue; }
-                let name = p.to_string_lossy().to_string();
-                if instruction_file(&name) {
-                    let t = std::fs::read_to_string(&p).unwrap_or_default();
-                    found += 1;
-                    println!("INSTRUCTIONS {name}{}", find_injection(&t).map(|x| format!("  (contains \"{x}\")")).unwrap_or_default());
-                }
-            }
-        }
-    }
-    if found == 0 { println!("gitta: no agent instruction files in dependencies"); }
-}
-
-/// Safety-net findings for an agent's changes (tests weakened, CI weakened, thresholds lowered, checks silenced),
-/// and the security notes on the lines it added (layer 1). Both read the same two versions of the changed files.
-fn tamper(root: &Path, a: &Agent, paths: &BTreeSet<String>) -> (Vec<gitta_core::guard::Finding>, Vec<gitta_core::code_security::Note>) {
+/// Safety-net findings for an agent's changes (tests weakened, CI weakened, thresholds lowered, checks silenced).
+fn tamper(root: &Path, a: &Agent, paths: &BTreeSet<String>) -> Vec<gitta_core::guard::Finding> {
     if paths.is_empty() { return tamper_read(root, a, paths); }
     cached(root, "tamper", &a.name, &content_key(a, paths), || tamper_read(root, a, paths))
 }
 
-fn tamper_read(root: &Path, a: &Agent, paths: &BTreeSet<String>) -> (Vec<gitta_core::guard::Finding>, Vec<gitta_core::code_security::Note>) {
+fn tamper_read(root: &Path, a: &Agent, paths: &BTreeSet<String>) -> Vec<gitta_core::guard::Finding> {
     let base = blobs(root, &a.base, paths);
     let new = read_tree(Path::new(&a.path), paths);
     let paths: Vec<String> = paths.iter().cloned().collect();
-    let f = gitta_core::guard::safety_net(&base, &new, &paths);
-    let mut notes = gitta_core::code_security::findings(&base, &new, &paths);
-    // Certificate checks and CSRF exemptions inside existing code are layer 2 findings already: say it once.
-    notes.retain(|n| !f.iter().any(|x| x.kind == "SECURITY_WEAKENED" && x.path == n.path
-        && ((n.rule == "tls-off" && (x.detail.contains("certificate") || x.detail.contains("host name"))) || (n.rule == "csrf-off" && x.detail.contains("CSRF")))));
-    (f, notes)
+    gitta_core::guard::safety_net(&base, &new, &paths)
 }
 
-/// The severity from which security notes need a person: `security_block` in the settings, "high" by default.
-fn block_rank(c: &Config) -> u8 { match c.security_block.as_deref() { Some("none") => 3, Some("medium") => 1, _ => 2 } }
-
-/// A note blocks landing when it reaches the threshold and no committed allow covers it.
-fn blocks(n: &gitta_core::code_security::Note, rank: u8) -> bool { gitta_core::code_security::rank(&n.severity) >= rank && (n.allowed.is_none() || n.allow_new) }
-
-/// A security note in one line, as the agent and the land output show it.
-fn note_text(n: &gitta_core::code_security::Note) -> String { format!("security note ({}): {}:{} {} {}", n.severity, n.path, n.line, n.text, n.safer) }
-
-fn note_json(n: &gitta_core::code_security::Note) -> serde_json::Value {
-    serde_json::json!({"path": n.path, "line": n.line, "rule": n.rule, "severity": n.severity, "text": n.text, "safer": n.safer, "allowed": n.allowed, "allow_new": n.allow_new})
+/// Commits between `base` and `tip` that skipped the repository's pre-commit hooks: the repository at `tip` commits
+/// a hook configuration, and the trailer is in use (in the range, or in the last 200 commits of `history`).
+pub(crate) fn hook_findings(root: &Path, base: &str, tip: &str, history: &str) -> Vec<gitta_core::guard::Finding> {
+    let files: Vec<String> = git_ok(root, &["ls-tree", "--name-only", "-r", tip]).lines().map(String::from).collect();
+    if !gitta_core::guard::hooks_configured(&files) { return vec![]; }
+    let commits: Vec<(String, String, usize)> = git_ok(root, &["log", "--format=%H%x1f%P%x1f%B%x1e", &format!("{base}..{tip}")]).split('\u{1e}')
+        .filter_map(|r| { let f: Vec<&str> = r.trim_start().splitn(3, '\u{1f}').collect(); (f.len() == 3 && !f[0].is_empty()).then(|| (f[0].to_string(), f[2].to_string(), f[1].split_whitespace().count())) }).collect();
+    let in_use = git_ok(root, &["log", "-n", "200", "--format=%B", history]).contains(gitta_core::guard::HOOK_TRAILER);
+    gitta_core::guard::hook_bypass(&commits, true, in_use)
 }
 
-/// What a person must approve before an agent lands: its weakened checks (tests, CI, security controls in its own
-/// code) and security hazards: landed work weakened a security control that this agent's new code calls, and the
-/// agent has not changed that code since.
-/// Security notes at or above the threshold (`security_block`) are among them; the notes come back too.
-fn approval_findings(root: &Path, a: &Agent, mine: &BTreeSet<String>, mh: &[Warning], rank: u8) -> (Vec<gitta_core::guard::Finding>, Vec<gitta_core::code_security::Note>) {
-    let (mut f, notes) = tamper(root, a, mine);
-    for n in notes.iter().filter(|n| blocks(n, rank)) {
-        let allow = n.allowed.as_ref().map(|r| format!(" This change adds an allow for it (\"{r}\"), so a person decides.")).unwrap_or_default();
-        f.push(gitta_core::guard::Finding { kind: "SECURITY_RULE".into(), path: n.path.clone(), detail: format!("line {} {} {} [{}]{allow}", n.line, n.text, n.safer, n.rule) });
-    }
-    for w in mh.iter().filter(|w| w.kind == "SECURITY") {
-        f.push(gitta_core::guard::Finding { kind: "SECURITY_HAZARD".into(), path: w.path.clone(), detail: security_text(w, &a.name) });
-    }
-    for p in adapt_pending(root, &a.name) {
-        let (Some(t), Some(path)) = (p["security"].as_str(), p["path"].as_str()) else { continue };
-        if file_hash(&Path::new(&a.path).join(path)) == p["hash"].as_str().unwrap_or("") {
-            f.push(gitta_core::guard::Finding { kind: "SECURITY_HAZARD".into(), path: path.into(), detail: t.into() });
-        }
-    }
-    (f, notes)
+/// What a person must approve before an agent lands: its weakened checks (tests, CI, thresholds).
+fn approval_findings(root: &Path, a: &Agent, mine: &BTreeSet<String>) -> Vec<gitta_core::guard::Finding> {
+    tamper(root, a, mine)
 }
 
 /// A refusal under the team's rules for agents: in the log and the audit trail, like any stopped merge.
@@ -1102,22 +973,29 @@ pub(crate) fn policy_refused(root: &Path, who: &str, lines: &[String]) {
 
 /// What an agent weakened, one plain line each.
 fn weakened_lines(who: &str, f: &[gitta_core::guard::Finding]) -> Vec<String> {
-    f.iter().map(|x| format!("{who} {} in {}.", x.detail.trim_end_matches('.').replace("Your code", "That code"), x.path)).collect()
+    let mut out: Vec<String> = vec![];
+    for l in f.iter().map(|x| format!("{who} {} in {}.", x.detail.trim_end_matches('.').replace("Your code", "That code"), x.path)) { if !out.contains(&l) { out.push(l); } }
+    out
 }
 
-/// Removed tests or weakened security checks are reported, never asked about. The `weakened_checks` setting
+/// Removed tests or weakened checks are reported, never asked about. The `weakened_checks` setting
 /// decides whether they stop the merge: "warn" by default, "block" in CI. Both go into the audit trail.
 fn weakened_gate(root: &Path, c: &Config, who: &str, f: &[gitta_core::guard::Finding]) -> bool {
     if f.is_empty() || approvals(root).iter().any(|x| x.agent == who && x.digest == findings_digest(f)) { return true; }
     let lines = weakened_lines(who, f);
     let cfgv = |k: &str| String::from_utf8_lossy(&git(root, &["config", k]).stdout).trim().to_string();
     let me = format!("{} <{}>", cfgv("user.name"), cfgv("user.email"));
-    let policy = std::env::var("GITTA_WEAKENED_CHECKS").ok().or(team_setting(root, "weakened_checks")).or(c.weakened_checks.clone())
-        .unwrap_or(if std::env::var_os("CI").is_some() { "block".into() } else { "warn".into() });
+    // A committed weakened_checks = block is the team's policy, and the environment cannot weaken it; otherwise the
+    // local setting or GITTA_WEAKENED_CHECKS applies, defaulting to warn (block in CI).
+    let committed = team_setting(root, "weakened_checks");
+    let policy = if committed.as_deref() == Some("block") { "block".to_string() }
+        else { std::env::var("GITTA_WEAKENED_CHECKS").ok().or(committed).or(c.weakened_checks.clone())
+            .unwrap_or(if std::env::var_os("CI").is_some() { "block".into() } else { "warn".into() }) };
     let block = policy == "block";
     audit::record(root, if block { "blocked" } else { "warned" }, who, &audit::actor(root), serde_json::json!({"by": me, "setting": format!("weakened_checks is {policy}"), "findings": lines}));
     // Agents hear only what changes their next step: a block is in the refusal, a warning is for people.
-    if !githooks::in_agent() || block { for l in &lines { eprintln!("gitta: {l}"); } }
+    // A block prints them once, in the refusal that follows.
+    if !githooks::in_agent() && !block { for l in &lines { eprintln!("gitta: {l}"); } }
     if block {
         log(root, "refused", who, &format!("{} gitta stopped it, because .gitta.toml sets weakened_checks to block.", lines.join(" ")));
     } else {
@@ -1127,13 +1005,6 @@ fn weakened_gate(root: &Path, c: &Config, who: &str, f: &[gitta_core::guard::Fin
     !block
 }
 
-/// A security hazard between landed work and an agent, in words: who weakened what, and which code calls it.
-fn security_text(w: &Warning, agent: &str) -> String {
-    let side = |n: Option<String>| n.map(|n| match n.as_str() { "head" => "main".to_string(), "submitted" => agent.to_string(), _ => n });
-    let w = Warning { changed_by: side(w.changed_by.clone()), referenced_by: side(w.referenced_by.clone()), ..w.clone() };
-    describe(&w).trim_start_matches("SECURITY potentially affected: ").to_string()
-}
-
 fn findings_digest(f: &[gitta_core::guard::Finding]) -> String {
     let mut v: Vec<String> = f.iter().map(|x| format!("{}|{}|{}", x.kind, x.path, x.detail)).collect(); v.sort();
     let mut h: u64 = 0xcbf29ce484222325; for b in v.join("\n").bytes() { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); } format!("{h:016x}")
@@ -1141,7 +1012,20 @@ fn findings_digest(f: &[gitta_core::guard::Finding]) -> String {
 
 #[derive(Serialize, Deserialize)]
 struct Approval { agent: String, digest: String, reason: String, by: String, t: f64 }
-fn approvals(root: &Path) -> Vec<Approval> { std::fs::read_to_string(root.join(".gitta/approvals.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default() }
+/// The approvals that count. With independent_approval = true in .gitta.toml, an approval by the person who started
+/// the agent does not count: the author of a change never verifies it (DO-178C and IEC 61508 independence,
+/// DORA RTS 2024/1774 Art. 17).
+fn approvals(root: &Path) -> Vec<Approval> {
+    let all: Vec<Approval> = std::fs::read_to_string(root.join(".gitta/approvals.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    if team_setting(root, "independent_approval").as_deref() != Some("true") { return all; }
+    all.into_iter().filter(|x| !started_by(root, &x.agent).contains(&x.by)).collect()
+}
+
+/// Who started an agent, from its agent_started audit events: the operating system user and the Git name.
+fn started_by(root: &Path, agent: &str) -> Vec<String> {
+    audit::read(root).iter().filter(|e| e["event"] == "agent_started" && e["agent"] == agent)
+        .flat_map(|e| [e["actor"]["os_user"].as_str(), e["actor"]["name"].as_str()]).flatten().map(str::to_string).collect()
+}
 
 /// A human accepts the current safety-net findings of an agent (recorded with who and why).
 fn cmd_approve(args: &[String]) {
@@ -1150,13 +1034,13 @@ fn cmd_approve(args: &[String]) {
     if reason.trim().is_empty() { die("give a reason; it is recorded as evidence") }
     let a = agent(&c, name);
     let mine = changed_paths(a, &c.link);
-    let (f, _) = approval_findings(&root, a, &mine, &meaning_hazards(&root, a, &git_ok(&root, &["rev-parse", &c.main]), &mine), block_rank(&c));
+    let f = approval_findings(&root, a, &mine);
     let needs: Vec<String> = policy::load(&root, &c.main).ok().and_then(|r| r.check_agent_change(name, &mine.iter().cloned().collect::<Vec<_>>(), false).err()).unwrap_or_default()
         .into_iter().filter(|l| l.contains("need a person's approval")).collect();
     if f.is_empty() && needs.is_empty() { println!("gitta: nothing to approve for {name}"); return; }
     // A person approves, at a terminal, outside the agents' sessions and workspaces. On one machine where agents run
-    // as the same user this keeps agents from approving their own changes by accident or habit; it is not a security
-    // boundary. The enforced boundary is branch protection with a required review (see the docs).
+    // as the same user this keeps agents from approving their own changes by accident or habit; it is not an access
+    // control. The enforced boundary is branch protection with a required review (see the docs).
     if let Some(v) = agent_session() {
         die(&format!("gitta approve runs only for a person, not inside an agent session ({v} is set). Ask the user to run it in their own terminal."))
     }
@@ -1167,7 +1051,10 @@ fn cmd_approve(args: &[String]) {
     for x in &f { eprintln!("  - {} {}: {}", x.kind, x.path, x.detail); }
     for l in &needs { eprintln!("  - {l}"); }
     let by = std::env::var("USER").unwrap_or("unknown".into());
-    let mut v = approvals(&root);
+    if team_setting(&root, "independent_approval").as_deref() == Some("true") && started_by(&root, name).contains(&by) {
+        die(&format!("gitta approve: {by} started {name}, and independent_approval in .gitta.toml asks that someone else approves its change. Ask a colleague to run gitta approve."))
+    }
+    let mut v: Vec<Approval> = std::fs::read_to_string(root.join(".gitta/approvals.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     v.push(Approval { agent: name.clone(), digest: findings_digest(&f), reason: reason.clone(), by: by.clone(), t: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64() });
     std::fs::write(root.join(".gitta/approvals.json"), serde_json::to_string_pretty(&v).unwrap()).ok();
     let name_p = poss(name);
@@ -1241,7 +1128,7 @@ fn cmd_up(args: &[String]) {
     let made: Vec<(String, String)> = agents.iter().map(|a| (a.name.clone(), a.path.clone())).collect();
     let mut c = match existing {
         Some(mut c) => { c.agents.extend(agents); for l in link { if !c.link.contains(&l) { c.link.push(l); } } c }
-        None => Config { root: root.to_string_lossy().into(), agents, gate: None, link, auto_sync: true, parallel: 0, main: MAIN.into(), watch: false, server: None, server_token: None, security: vec![], security_block: None, include: vec![], notify: false, gate_env: vec![], gate_timeout: 0, weakened_checks: None },
+        None => Config { root: root.to_string_lossy().into(), agents, gate: None, link, auto_sync: true, parallel: 0, main: MAIN.into(), watch: false, server: None, server_token: None, include: vec![], notify: false, gate_env: vec![], gate_timeout: 0, weakened_checks: None },
     };
     set_gate(&root, &mut c, gate);
     save(&root, &c);
@@ -1252,8 +1139,6 @@ fn cmd_up(args: &[String]) {
 }
 
 struct View { changes: BTreeMap<String, BTreeSet<String>>, warnings: Vec<Warning>,
-    /// Security notes (layer 1) on the lines each agent added, allowed ones included.
-    notes: Vec<(String, gitta_core::code_security::Note)>,
     /// Agents whose workspace could not be read, with the reason and the fix. They are left out, never fatal.
     skipped: Vec<(String, String)> }
 
@@ -1357,30 +1242,21 @@ fn view_parts(c: &Config, only: Option<&str>, known: Option<BTreeSet<String>>, p
         analyze(&base, (&a.name, &sa), (&b.name, &sb))
     }, |_, w| warnings.extend(w));
     prof("view: pairs");
-    let mut notes = vec![];
-    if !per_agent { return View { changes, warnings, notes, skipped }; }
+    if !per_agent { return View { changes, warnings, skipped }; }
     let mine: Vec<&Agent> = good.iter().copied().filter(|a| only.map(|me| a.name == me).unwrap_or(true)).collect();
     let mut late = vec![];
-    par_ordered(&mine, |a| agent_warnings(c, a, &changes[&a.name]), |_, (m, l, n)| { warnings.extend(m); late.extend(l); notes.extend(n); });
+    par_ordered(&mine, |a| agent_warnings(c, a, &changes[&a.name]), |_, (m, l)| { warnings.extend(m); late.extend(l); });
     warnings.extend(late);
     prof("view: agent checks");
-    View { changes, warnings, notes, skipped }
+    View { changes, warnings, skipped }
 }
 
-/// One agent's own checks: what reached main under its work, then its safety findings and security notes.
-fn agent_warnings(c: &Config, a: &Agent, mine: &BTreeSet<String>) -> (Vec<Warning>, Vec<Warning>, Vec<(String, gitta_core::code_security::Note)>) {
+/// One agent's own checks: what reached main under its work, then its safety findings.
+fn agent_warnings(c: &Config, a: &Agent, mine: &BTreeSet<String>) -> (Vec<Warning>, Vec<Warning>) {
     let main = main_warnings(c, a, mine);
-    let mut late = safety(a, mine);
-    let (found, ns) = tamper(Path::new(&c.root), a, mine);
-    for n in ns.iter().filter(|n| n.allowed.is_none()) {
-        late.push(Warning { kind: "SECURITY_NOTE".into(), path: n.path.clone(), symbol: Some(format!("{} {}", n.line, n.rule)), changed_by: Some(a.name.clone()), referenced_by: None,
-            severity: Some(n.severity.clone()), agents: vec![a.name.clone()], security: Some(gitta_core::security::Note { what: n.text.clone(), risk: n.safer.clone() }) });
-    }
-    for f in found {
-        late.push(Warning { kind: "WEAKENED".into(), path: f.path, symbol: Some(format!("{}: {}", f.kind, f.detail)), changed_by: Some(a.name.clone()),
-                                referenced_by: None, severity: Some("high".into()), agents: vec![a.name.clone()], security: None });
-    }
-    (main, late, ns.into_iter().map(|n| (a.name.clone(), n)).collect())
+    let late = tamper(Path::new(&c.root), a, mine).into_iter().map(|f| Warning { kind: "WEAKENED".into(), path: f.path, symbol: Some(format!("{}: {}", f.kind, f.detail)),
+        changed_by: Some(a.name.clone()), referenced_by: None, severity: Some("high".into()), agents: vec![a.name.clone()] }).collect();
+    (main, late)
 }
 
 /// Threads for per-agent and per-pair work: enough to use the cores, few enough to leave the machine usable.
@@ -1438,8 +1314,7 @@ fn cmd_status(args: &[String]) {
     if args.iter().any(|a| a == "--json") {
         let v = view(&c);
         let skipped: Vec<_> = v.skipped.iter().map(|(n, why)| serde_json::json!({"name": n, "reason": why})).collect();
-        println!("{}", serde_json::json!({"agents": c.agents.iter().filter(|a| !v.skipped.iter().any(|s| s.0 == a.name)).map(|a| serde_json::json!({"name": a.name, "path": a.path, "base": a.base, "changed": v.changes[&a.name]})).collect::<Vec<_>>(), "warnings": v.warnings, "skipped": skipped,
-            "security_notes": v.notes.iter().map(|(ag, n)| { let mut j = note_json(n); j["agent"] = serde_json::json!(ag); j }).collect::<Vec<_>>()}));
+        println!("{}", serde_json::json!({"agents": c.agents.iter().filter(|a| !v.skipped.iter().any(|s| s.0 == a.name)).map(|a| serde_json::json!({"name": a.name, "path": a.path, "base": a.base, "changed": v.changes[&a.name]})).collect::<Vec<_>>(), "warnings": v.warnings, "skipped": skipped}));
         return;
     }
     let target = c.main.trim_start_matches("refs/heads/");
@@ -1465,8 +1340,8 @@ fn cmd_status(args: &[String]) {
         let has = |k: &str| holds.iter().any(|h| h["check"] == k);
         let merged = merged_at(root, &a.name).map(|t| format!("merged into {target} at {}, no new changes since", clock(t)));
         let state = if mine.is_empty() { merged.as_deref().unwrap_or("no changes yet") } else if has("tests") { "its last merge failed the tests on the combined code" }
-            else if has("approval") || has("security") { "removes tests or weakens a security check; reported when merged, and .gitta.toml decides whether that stops the merge" }
-            else if has("credentials") { "contains what looks like a password or key" } else { "ready to merge" };
+            else if has("approval") { "removes tests or weakens a check; reported when merged, and .gitta.toml decides whether that stops the merge" }
+            else { "ready to merge" };
         let count = if mine.is_empty() && merged.is_some() { String::new() } else { format!("{} {} changed, ", mine.len(), if mine.len() == 1 { "file" } else { "files" }) };
         let shown_n = if n > BEHIND_CAP { format!("{BEHIND_CAP}+") } else { n.to_string() };
         let mut lines = vec![format!("  {:4} {count}{state}{}", a.name,
@@ -1477,11 +1352,11 @@ fn cmd_status(args: &[String]) {
             if !t.is_empty() { lines.push(format!("       {t}.")); }
         }
         (ws, lines)
-    }, |_, ((m, l, n), lines)| {
+    }, |_, ((m, l), lines)| {
         let mut out = std::io::stdout().lock();
         for x in lines { let _ = writeln!(out, "{x}"); }
         let _ = out.flush();
-        early.extend(m); late.extend(l); v.notes.extend(n);
+        early.extend(m); late.extend(l);
     });
     prof("status: agents printed");
     v.warnings.extend(early); v.warnings.extend(late);
@@ -1498,29 +1373,15 @@ fn describe(w: &Warning) -> String {
             let sym = w.symbol.clone().unwrap_or_default();
             let sym = sym.strip_prefix("<attribute>.").map(|a| format!("the attribute .{a}")).unwrap_or(format!("`{sym}`"));
             let by = match w.changed_by.as_deref() { Some("main") | Some("head") => "work merged into main".to_string(), x => x.unwrap_or_default().to_string() };
-            format!("{by} changed {sym}{}, which {} new code in {} uses. {}", if w.security.is_some() { " (a security check)" } else { "" },
+            format!("{by} changed {sym}, which {} new code in {} uses. {}",
                     poss(&w.referenced_by.clone().unwrap_or_default()), w.path,
                     if w.severity.as_deref() == Some("high") { "Check that the two changes still work together." } else { "Only its inside changed, so this is probably fine." })
         }
-        "SECURITY" => {
-            let n = w.security.clone().unwrap_or(gitta_core::security::Note { what: "weakened".into(), risk: String::new() });
-            let by = match w.changed_by.as_deref() { Some("main") | Some("head") => "work that landed".to_string(), Some(x) => x.to_string(), None => String::new() };
-            format!("SECURITY potentially affected: {by} {} `{}`, which {} new code in {} calls. {}", n.what, w.symbol.clone().unwrap_or_default(),
-                    poss(&w.referenced_by.clone().unwrap_or_default()), w.path, n.risk.replace("Your code", "That code"))
-        }
-        "WEAKENED" if w.symbol.as_deref().map(|x| x.starts_with("SECURITY_WEAKENED")).unwrap_or(false) =>
-            format!("SECURITY: {} by {}: {} Reported when merged; .gitta.toml decides whether it stops the merge.", w.path, w.changed_by.clone().unwrap_or_default(),
-                    w.symbol.clone().unwrap_or_default().trim_start_matches("SECURITY_WEAKENED: ").replace("Your code", "That code")),
-        "SECURITY_NOTE" => {
-            let (line, rule) = w.symbol.as_deref().and_then(|s| s.split_once(' ')).unwrap_or(("", ""));
-            let n = w.security.clone().unwrap_or(gitta_core::security::Note { what: String::new(), risk: String::new() });
-            format!("security note ({}): {}:{line} {} {} [{rule}, by {}]", w.severity.clone().unwrap_or_default(), w.path, n.what, n.risk, w.changed_by.clone().unwrap_or_default())
-        }
         "CLAIMED" => format!("CLAIMED: {} claimed {} ({}); {} is touching it", w.changed_by.clone().unwrap_or_default(), w.path, w.symbol.clone().unwrap_or_default(), w.referenced_by.clone().unwrap_or_default()),
         "WEAKENED" => format!("WEAKENED: {} by {}: {}; reported when merged, .gitta.toml decides whether it stops the merge", w.path, w.changed_by.clone().unwrap_or_default(), w.symbol.clone().unwrap_or_default()),
-        "SECRET" => format!("SECRET: {} in {} by {}; it will not be landed", w.symbol.clone().unwrap_or_default(), w.path, w.changed_by.clone().unwrap_or_default()),
-        "INSTRUCTIONS" => format!("INSTRUCTIONS: {} by {}: {}", w.path, w.changed_by.clone().unwrap_or_default(), w.symbol.clone().unwrap_or_default()),
         "OVERLAP" => format!("both edited: {} {} ({})", w.path, w.symbol.clone().unwrap_or_default(), w.agents.join(" + ")),
+        "INTERFERENCE" => format!("shared state: {} newly sets `{}`, which {}'s new code in {} also uses", w.changed_by.clone().unwrap_or_default(), w.symbol.clone().unwrap_or_default(), w.referenced_by.clone().unwrap_or_default(), w.path),
+        "DUPLICATE" => format!("possibly the same work twice: {} and {} both add `{}` in {}", w.changed_by.clone().unwrap_or_default(), w.referenced_by.clone().unwrap_or_default(), w.symbol.clone().unwrap_or_default(), w.path),
         _ => format!("{}: {} ({})", w.kind, w.path, w.agents.join(", ")),
     }
 }
@@ -1578,8 +1439,7 @@ fn sync_main_noting(c: &mut Config, name: &str) -> (Result<Vec<String>, String>,
     (r, hz)
 }
 
-/// Note the files whose code relied on a symbol that a sync brought in changed. A security hazard is kept with its
-/// text: only a change to the file or a person's approval clears it, never the agent's own `--fits`.
+/// Note the files whose code relied on a symbol that a sync brought in changed.
 fn note_pending(root: &Path, a: &Agent, hz: &[Warning]) {
     if hz.is_empty() { return; }
     let mut pending = adapt_pending(root, &a.name);
@@ -1587,9 +1447,7 @@ fn note_pending(root: &Path, a: &Agent, hz: &[Warning]) {
         let hash = file_hash(&Path::new(&a.path).join(&w.path));
         if !pending.iter().any(|p| p["path"] == w.path.as_str() && p["symbol"] == w.symbol.clone().unwrap_or_default().as_str()) {
             let by = if w.changed_by.as_deref() == Some("head") { "main" } else { a.name.as_str() };
-            let mut e = serde_json::json!({"symbol": w.symbol, "path": w.path, "hash": hash, "changed_by": by});
-            if w.kind == "SECURITY" { e["security"] = serde_json::Value::String(security_text(w, &a.name)); }
-            pending.push(e);
+            pending.push(serde_json::json!({"symbol": w.symbol, "path": w.path, "hash": hash, "changed_by": by}));
         }
     }
     let _ = std::fs::write(root.join(".gitta").join(format!("{}.adapt", a.name)), serde_json::to_string_pretty(&pending).unwrap());
@@ -1674,12 +1532,6 @@ fn cmd_sync(args: &[String]) {
         Err(e) => die(&format!("sync refused, nothing changed: {e}")),
     }
     for w in &hz {
-        if w.kind == "SECURITY" {
-            let n = w.security.clone().map(|n| n.what).unwrap_or("weakened".into());
-            println!("gitta: SECURITY: work on main {n} `{}`, which {} new code in {} calls. When it is merged, gitta reports this, and .gitta.toml decides whether it stops the merge.",
-                w.symbol.clone().unwrap_or_default(), poss(&name), w.path);
-            continue;
-        }
         let side = if w.changed_by.as_deref() == Some("head") { "main" } else { name.as_str() };
         let lander = story_lander(&root, side, &w.symbol.clone().unwrap_or_default(), &w.path, &name);
         println!("gitta: note: {}. The tests on the combined code decide when it is merged.",
@@ -1746,6 +1598,228 @@ fn kill_gate_child(child: &mut std::process::Child) { let _ = child.kill(); }
 /// Run the gate in `dir`, stopping it at `timeout_secs` (0 = no limit). Returns (passed, output, exit code,
 /// timed_out). A timed-out run is cleaned up (its process group is killed and reaped on POSIX) before this
 /// returns, so the caller's capacity slot is released only after cleanup, and it must never be cached.
+/// The test files that use what an agent changed (its changed symbols, resolved through imports), and its own changed
+/// tests: the ones to run first. The gate at merge still runs everything.
+fn cmd_tests_for(args: &[String]) {
+    let root = root(); let c = load(&root);
+    let Some(name) = args.first() else { die("usage: gitta tests-for <agent>") };
+    let a = agent(&c, name);
+    let mine = changed_paths(a, &c.link);
+    let changed = gitta_core::provided_symbols(&blobs(&root, &a.base, &mine), &read_tree(Path::new(&a.path), &mine));
+    let files = git_ok(Path::new(&a.path), &["ls-files", "--cached", "--others", "--exclude-standard"]);
+    let mut hits: Vec<String> = files.lines().filter(|p| gitta_core::guard::is_test(p) && gitta_core::lang_of(p).is_some())
+        .filter(|p| mine.contains(*p) || std::fs::read(Path::new(&a.path).join(p)).map(|b| gitta_core::uses_any(p, &b, &changed)).unwrap_or(false))
+        .map(String::from).collect();
+    hits.sort();
+    if hits.is_empty() { println!("gitta: no test file uses what {name} changed"); return; }
+    for h in hits { println!("{h}"); }
+}
+
+/// Is main still green? Run the gate on main. When it fails twice (so not a flaky test), bisect the changes that
+/// landed since main was last green to find the one that broke it, and name it with the agent that landed it.
+/// With --revert, or auto_revert = true in .gitta.toml, undo that change on main when the tests pass without it.
+fn cmd_main_check(args: &[String]) {
+    let root = root(); let c = load(&root);
+    let Some(gate) = c.gate.clone() else { die("gitta main-check needs a gate: gitta init --gate \"<test command>\"") };
+    let main = git_ok(&root, &["rev-parse", &c.main]);
+    let branch = c.main.trim_start_matches("refs/heads/").to_string();
+    let slot = acquire_gate_slot(&root, gate_cap(&c));
+    GATE_QUIET.store(true, std::sync::atomic::Ordering::Relaxed);
+    let test = |rev: &str| -> bool {
+        let w = Wt::open(&root, "main-check", rev, &c.link);
+        let (ok, _, _, _) = run_gate(&gate, &w.path, slot.path(), gate_timeout(&c));
+        w.release();
+        ok
+    };
+    let green_file = root.join(".gitta/main.green");
+    if test(&main) || { println!("gitta: the tests failed on {branch}; running them once more to rule out a flaky test..."); test(&main) } {
+        std::fs::write(&green_file, &main).ok();
+        audit::record(&root, "main_checked", "", &audit::actor(&root), serde_json::json!({"main": main, "passed": true}));
+        println!("gitta: {branch} passes its tests ({})", &main[..10]);
+        return;
+    }
+    // The changes that landed since main was last green, oldest first (main's own history, not the agents' commits).
+    let green = std::fs::read_to_string(&green_file).ok().map(|t| t.trim().to_string()).filter(|g| git(&root, &["merge-base", "--is-ancestor", g, &main]).status.success());
+    let range = match &green { Some(g) => format!("{g}..{main}"), None => main.clone() };
+    let mut cands: Vec<String> = git_ok(&root, &["rev-list", "--first-parent", "--reverse", "--max-count=64", &range]).lines().map(String::from).collect();
+    if green.is_none() && cands.len() > 1 { cands.remove(0); }
+    // Binary search: the first candidate whose tests fail, with everything before it passing.
+    let (mut lo, mut hi): (isize, usize) = (-1, cands.len() - 1);
+    while hi as isize - lo > 1 {
+        let mid = ((lo + hi as isize) / 2) as usize;
+        if test(&cands[mid]) { lo = mid as isize; } else { hi = mid; }
+    }
+    let culprit = cands[hi].clone();
+    let subject = git_ok(&root, &["log", "-1", "--format=%s", &culprit]);
+    let parents: Vec<String> = git_ok(&root, &["rev-list", "--parents", "-n", "1", &culprit]).split_whitespace().skip(1).map(String::from).collect();
+    let who = audit::read(&root).into_iter().rev().find(|e| {
+        let d = &e["data"];
+        d["to"].as_str() == Some(culprit.as_str()) || d["incoming"].as_str().is_some_and(|i| parents.iter().skip(1).any(|p| p == i) || i == culprit)
+    }).and_then(|e| e["agent"].as_str().map(String::from)).unwrap_or_default();
+    let by = if who.is_empty() { String::new() } else { format!(", landed by {who}") };
+    println!("gitta: {branch} fails its tests since {} \"{subject}\"{by}.", &culprit[..10]);
+    audit::record(&root, "main_broken", &who, &audit::actor(&root), serde_json::json!({"main": main, "culprit": culprit, "subject": subject, "last_green": green}));
+    if !(args.iter().any(|a| a == "--revert") || team_setting(&root, "auto_revert").as_deref() == Some("true")) {
+        println!("gitta: run gitta main-check --revert to undo it, or fix it on {branch}.");
+        std::process::exit(1);
+    }
+    let w = Wt::open(&root, "main-check", &main, &c.link);
+    let mut rv = vec!["-c", "user.name=gitta", "-c", "user.email=gitta@localhost", "revert", "--no-edit"];
+    if parents.len() > 1 { rv.extend(["-m", "1"]); }
+    rv.push(&culprit);
+    // gitta's own git commands below: the hooks stand aside only for gitta's live marker.
+    githooks::mark_landing(&root);
+    let r = Command::new("git").arg("-C").arg(&w.path).args(&rv).output();
+    if !r.map(|o| o.status.success()).unwrap_or(false) {
+        w.release();
+        die(&format!("gitta: {} cannot be reverted cleanly, because later changes build on it. Fix it on {branch}.", &culprit[..10]));
+    }
+    let (ok, _, _, _) = run_gate(&gate, &w.path, slot.path(), gate_timeout(&c));
+    let new = git_ok(&w.path, &["rev-parse", "HEAD"]);
+    w.release();
+    if !ok { die(&format!("gitta: the tests still fail with {} reverted, so the revert was not applied. Fix {branch} by hand.", &culprit[..10])); }
+    let moved = match checkout_of(&root, &c.main) {
+        Some(wt) => Command::new("git").arg("-C").arg(&wt).args(["merge", "--ff-only", "--quiet", &new]).status().map(|s| s.success()).unwrap_or(false),
+        None => git(&root, &["update-ref", &c.main, &new, &main]).status.success(),
+    };
+    if !moved { die(&format!("gitta: {branch} moved while the revert was tested; run gitta main-check again")) }
+    std::fs::write(&green_file, &new).ok();
+    audit::record(&root, "reverted", &who, &audit::actor(&root), serde_json::json!({"culprit": culprit, "revert": new, "subject": subject}));
+    log(&root, "reverted", &who, &format!("{} broke the tests on {branch}{by}. gitta reverted it; the tests pass again.", &culprit[..10]));
+    println!("gitta: reverted {} on {branch}; the tests pass again ({})", &culprit[..10], &new[..10]);
+}
+
+/// The checks that run after the gate passes, on the checkout `tmp` where it ran: the number of tests run, changed-line coverage, SARIF findings, the revert check and
+/// mutation testing, each when the committed .gitta.toml turns it on. `gitta land` and the git hooks share them.
+/// Ok gives the number of tests the gate ran (to remember for next time); Err gives the check and the refusal.
+#[allow(clippy::too_many_arguments)]
+fn after_gate(root: &Path, c: &Config, name: &str, base: &str, mine: &BTreeSet<String>, tmp: &Path, gate: &str, slot: Option<&Path>, main: &str, out: &str) -> Result<Option<u64>, (String, String)> {
+    let name_p = poss(name);
+    let mut ran: Option<u64> = None;
+    // Fewer tests ran than when work last landed: an exit or skip inside the tests, a narrowed runner config or
+    // removed tests let the run pass without testing. Reported like other weakened checks.
+    if let Some(n) = gitta_core::guard::tests_ran(&out) {
+        if let Some(before) = std::fs::read_to_string(root.join(".gitta/tests-ran")).ok().and_then(|t| t.trim().parse::<u64>().ok()) {
+            if n < before {
+                let f = vec![gitta_core::guard::Finding { kind: "TESTS_RAN_FEWER".into(), path: "the test run".into(),
+                    detail: format!("ran {n} test(s), {} fewer than when work last landed ({before})", before - n) }];
+                if !weakened_gate(&root, &c, &name, &f) {
+                    return Err(("tests ran".to_string(), format!("land refused: {}\nNothing was merged. If tests were removed on purpose, a person runs gitta tests-ran --reset, then lands again.", weakened_lines(&name, &f).join("\n"))));
+                }
+            }
+        }
+        ran = Some(n);
+    }
+    // Each test's result from the full gate run (the command on the target branch, never one the agent chose).
+    let results = gitta_core::guard::test_results(&out);
+    if !results.is_empty() {
+        audit::record(&root, "test_results", &name, &audit::actor(&root), serde_json::json!({"gate": gate, "tests": results.iter().map(|(n, s)| serde_json::json!({"test": n, "result": s})).collect::<Vec<_>>()}));
+    }
+    // Did the tests run the lines this agent changed? Read from the coverage report the gate wrote, when the team
+    // names one in .gitta.toml (coverage_report = "coverage.xml", changed_line_coverage = 80).
+    if let Some(rep) = team_setting(&root, "coverage_report") {
+        match std::fs::read_to_string(tmp.join(&rep)).ok().and_then(|t| gitta_core::proof::parse(&t)) {
+            None => eprintln!("gitta: no coverage report at {rep} after the tests ran, so the coverage of {name_p} change was not checked."),
+            Some(cov) => {
+                let base_files = blobs(&root, &base, &mine);
+                let files: Vec<(String, String, String)> = mine.iter().filter_map(|p| {
+                    let n = std::fs::read_to_string(tmp.join(p)).ok()?;
+                    Some((p.clone(), base_files.get(p).map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default(), n))
+                }).collect();
+                let cc = gitta_core::proof::change_coverage(&cov, &files);
+                let limit = team_setting(&root, "changed_line_coverage").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+                let pct = cc.covered_pct();
+                audit::record(&root, "change_coverage", &name, &audit::actor(&root), serde_json::json!({"report": rep, "executable": cc.executable, "covered_pct": pct, "limit": limit, "uncovered": cc.uncovered}));
+                if cc.executable > 0 && pct < limit {
+                    let miss = cc.uncovered.iter().map(|(p, ls)| format!("{p}:{}", ls.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(","))).collect::<Vec<_>>().join(" ");
+                    let f = vec![gitta_core::guard::Finding { kind: "COVERAGE_LOW".into(), path: "the test run".into(),
+                        detail: format!("had {pct:.0}% of its changed lines run by the tests, below the team's {limit:.0}% (not run: {miss})") }];
+                    if !weakened_gate(&root, &c, &name, &f) {
+                        return Err(("coverage".to_string(), format!("land refused: {}\nNothing was merged. Add tests that run those lines, then land again.", weakened_lines(&name, &f).join("\n"))));
+                    }
+                }
+            }
+        }
+    }
+    // Findings of the team's static analysers on the lines this agent changed, from the SARIF reports the gate
+    // wrote (sarif_reports = "build/qac.sarif, build/cppcheck.sarif" in .gitta.toml).
+    if let Some(list) = team_setting(&root, "sarif_reports") {
+        let base_files = blobs(&root, &base, &mine);
+        let files: Vec<(String, String, String)> = mine.iter().filter_map(|p| {
+            let n = std::fs::read_to_string(tmp.join(p)).ok()?;
+            Some((p.clone(), base_files.get(p).map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default(), n))
+        }).collect();
+        let mut f = vec![];
+        for rep in list.split(',').map(str::trim).filter(|r| !r.is_empty()) {
+            let Some(results) = std::fs::read_to_string(tmp.join(rep)).ok().and_then(|t| gitta_core::proof::sarif(&t)) else {
+                eprintln!("gitta: no SARIF report at {rep} after the tests ran, so its findings on {name_p} change were not checked.");
+                continue;
+            };
+            let hits = gitta_core::proof::sarif_on_change(&results, &files);
+            audit::record(&root, "static_analysis", &name, &audit::actor(&root), serde_json::json!({"report": rep, "results": results.len(),
+                "on_change": hits.iter().map(|r| serde_json::json!({"tool": r.tool, "rule": r.rule, "level": r.level, "path": r.path, "line": r.line})).collect::<Vec<_>>()}));
+            for r in hits {
+                f.push(gitta_core::guard::Finding { kind: "STATIC_ANALYSIS".into(), path: r.path.clone(),
+                    detail: format!("has a {} from {} on a changed line, {} at line {}: {}", r.level, r.tool, if r.rule.is_empty() { "a finding".to_string() } else { format!("rule {}", r.rule) }, r.line, r.message) });
+            }
+        }
+        if !f.is_empty() && !weakened_gate(&root, &c, &name, &f) {
+            return Err(("static_analysis".to_string(), format!("land refused: {}\nNothing was merged. Fix those findings, then land again.", weakened_lines(&name, &f).join("\n"))));
+        }
+    }
+    // Do the agent's new tests notice its change? With revert_check = true in .gitta.toml, the tests run once more
+    // with the agent's code put back as it is on the target branch. Tests that still pass do not test the change.
+    let (tests, code): (Vec<&String>, Vec<&String>) = mine.iter().partition(|p| gitta_core::guard::is_test(p));
+    let code: Vec<&String> = code.into_iter().filter(|p| gitta_core::lang_of(p).is_some()).collect();
+    if team_setting(&root, "revert_check").as_deref() == Some("true") && !tests.is_empty() && !code.is_empty() {
+        let saved: Vec<(String, Option<Vec<u8>>)> = code.iter().map(|p| ((*p).clone(), std::fs::read(tmp.join(p)).ok())).collect();
+        let on_main = blobs(&root, &main, &code.iter().map(|p| (*p).clone()).collect());
+        for p in &code { match on_main.get(*p) { Some(b) => { std::fs::write(tmp.join(p), b).ok(); } None => { let _ = std::fs::remove_file(tmp.join(p)); } } }
+        println!("gitta: running the tests again without {name_p} code change, to see that the new tests notice it...");
+        let (still, _, _, _) = run_gate(gate, &tmp, slot, gate_timeout(&c));
+        for (p, b) in &saved { match b { Some(b) => { std::fs::write(tmp.join(p), b).ok(); } None => { let _ = std::fs::remove_file(tmp.join(p)); } } }
+        audit::record(&root, "revert_check", &name, &audit::actor(&root), serde_json::json!({"tests": tests, "code": code, "passed_without_change": still}));
+        if still {
+            let f = vec![gitta_core::guard::Finding { kind: "TESTS_MISS_CHANGE".into(), path: tests.iter().map(|t| t.as_str()).collect::<Vec<_>>().join(", "),
+                detail: "changed tests that pass with or without its code change, so they do not test it".into() }];
+            if !weakened_gate(&root, &c, &name, &f) {
+                return Err(("revert check".to_string(), format!("land refused: {}\nNothing was merged. Make the tests check what the change does, then land again.", weakened_lines(&name, &f).join("\n"))));
+            }
+        }
+    }
+    // Do the tests notice small changes to the new code? With mutation_budget = N in .gitta.toml, gitta changes one
+    // operator on up to N changed lines and runs the tests once per change. A change the tests still pass is
+    // behaviour no test checks.
+    if let Some(budget) = team_setting(&root, "mutation_budget").and_then(|v| v.parse::<usize>().ok()).filter(|n| *n > 0) {
+        let base_files = blobs(&root, &base, &mine);
+        let files: Vec<(String, String, String)> = mine.iter().filter_map(|p| {
+            let n = std::fs::read_to_string(tmp.join(p)).ok()?;
+            Some((p.clone(), base_files.get(p).map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default(), n))
+        }).collect();
+        let ms = gitta_core::proof::mutants(&files, budget);
+        if !ms.is_empty() { println!("gitta: running the tests on {} small change(s) to {name_p} new code, to see that the tests notice them...", ms.len()); }
+        let mut survived = vec![];
+        for m in &ms {
+            let Some(text) = files.iter().find(|f| f.0 == m.path).map(|f| f.2.clone()) else { continue };
+            let lines: Vec<&str> = text.split_inclusive('\n').collect();
+            let mutated: String = lines.iter().enumerate().map(|(i, l)| if i + 1 == m.line as usize { format!("{}{}", m.after, if l.ends_with('\n') { "\n" } else { "" }) } else { l.to_string() }).collect();
+            std::fs::write(tmp.join(&m.path), mutated).ok();
+            let (passed, _, _, _) = run_gate(gate, &tmp, slot, gate_timeout(&c));
+            std::fs::write(tmp.join(&m.path), &text).ok();
+            if passed { survived.push(m); }
+        }
+        if !ms.is_empty() {
+            audit::record(&root, "mutation_check", &name, &audit::actor(&root), serde_json::json!({"mutants": ms.len(), "survived": survived.iter().map(|m| serde_json::json!({"path": m.path, "line": m.line, "before": m.before.trim(), "after": m.after.trim()})).collect::<Vec<_>>()}));
+            let f: Vec<gitta_core::guard::Finding> = survived.iter().map(|m| gitta_core::guard::Finding { kind: "MUTANT_SURVIVED".into(), path: m.path.clone(),
+                detail: format!("has tests that still pass when line {} `{}` becomes `{}`, so no test checks that behaviour", m.line, m.before.trim(), m.after.trim()) }).collect();
+            if !f.is_empty() && !weakened_gate(&root, &c, &name, &f) {
+                return Err(("mutation check".to_string(), format!("land refused: {}\nNothing was merged. Add tests that fail when those lines change, then land again.", weakened_lines(&name, &f).join("\n"))));
+            }
+        }
+    }
+    Ok(ran)
+}
+
 fn run_gate(gate: &str, dir: &Path, slot: Option<&Path>, timeout_secs: u64) -> (bool, String, Option<i32>, bool) {
     let quiet = GATE_QUIET.load(std::sync::atomic::Ordering::Relaxed);
     let mut cmd = shell(gate);
@@ -1936,16 +2010,11 @@ fn land_holds(c: &Config, a: &Agent, mine: &BTreeSet<String>, main: &str) -> Vec
     let n = a.name.as_str();
     let mut v = vec![];
     if mine.is_empty() { return v; }
-    let mh = meaning_hazards(root, a, main, mine);
-    let (f, _) = approval_findings(root, a, mine, &mh, block_rank(c));
+    let f = approval_findings(root, a, mine);
     if !f.is_empty() && !approvals(root).iter().any(|x| x.agent == n && x.digest == findings_digest(&f)) {
         for x in &f {
-            v.push(serde_json::json!({"check": if x.kind.starts_with("SECURITY") { "security" } else { "approval" }, "kind": x.kind, "path": x.path,
-                "text": x.detail}));
+            v.push(serde_json::json!({"check": "approval", "kind": x.kind, "path": x.path, "text": x.detail}));
         }
-    }
-    if let Some(w) = safety(a, mine).into_iter().find(|w| w.kind == "SECRET") {
-        v.push(serde_json::json!({"check": "credentials", "path": w.path, "symbol": w.symbol, "text": format!("contains what looks like a credential ({})", w.symbol.clone().unwrap_or_default())}));
     }
     let held: Option<serde_json::Value> = std::fs::read_to_string(root.join(".gitta").join(format!("{n}.held"))).ok().and_then(|t| serde_json::from_str(&t).ok());
     if let Some(mut h) = held.filter(|h| h["fingerprint"].as_str() == Some(work_fingerprint(a, mine, main).as_str())) {
@@ -1962,7 +2031,7 @@ fn meaning_notes(c: &Config, a: &Agent, mine: &BTreeSet<String>, main: &str) -> 
     let n = a.name.as_str();
     let mut v = vec![];
     if mine.is_empty() { return v; }
-    for p in adapt_pending(root, n).iter().filter(|p| p["security"].is_null())
+    for p in adapt_pending(root, n).iter()
         .filter(|p| file_hash(&Path::new(&a.path).join(p["path"].as_str().unwrap_or(""))) == p["hash"].as_str().unwrap_or("")) {
         let (sym, path) = (p["symbol"].as_str().unwrap_or(""), p["path"].as_str().unwrap_or(""));
         let side = p["changed_by"].as_str().map(String::from).unwrap_or(if changed_own_symbol(mine, sym) { n.to_string() } else { "main".into() });
@@ -1972,7 +2041,7 @@ fn meaning_notes(c: &Config, a: &Agent, mine: &BTreeSet<String>, main: &str) -> 
             "text": meaning_story(n, &side, sym, path, lander.as_deref(), true)}));
     }
     let mh = meaning_hazards(root, a, main, mine);
-    if let Some(w) = mh.iter().find(|w| w.kind != "SECURITY") {
+    if let Some(w) = mh.first() {
         let side = if w.changed_by.as_deref() == Some("head") { "main" } else { n };
         let lander = story_lander(root, side, &w.symbol.clone().unwrap_or_default(), &w.path, n);
         let sym = w.symbol.clone().unwrap_or_default();
@@ -1986,8 +2055,8 @@ fn meaning_notes(c: &Config, a: &Agent, mine: &BTreeSet<String>, main: &str) -> 
 
 fn cmd_land(args: &[String]) {
     // gitta land runs every check itself: the git hooks stand aside for the branch moves it makes.
-    std::env::set_var("GITTA_LANDING", "1");
     let root = root();
+    githooks::mark_landing(&root);
     if args.first().map(String::as_str) == Some("--all") {
         let c = load(&root);
         let order = landing_order(&c);
@@ -2012,12 +2081,14 @@ fn cmd_land(args: &[String]) {
     let main = git_ok(&root, &["rev-parse", &c.main]);
     let mine = changed_paths(&a, &c.link);
     if mine.is_empty() { die(&format!("{name} has no changes")) }
+    if let Some(x) = conflicts(&root).into_iter().find(|x| x.agent == name) {
+        refuse_land(&root, &name, "conflict", &format!("land refused: {name} reported that its task and the tests contradict each other: {}\nNothing was merged. A person decides, then runs: gitta conflict --resolve {name}", x.reason));
+    }
     let mh = meaning_hazards(&root, &a, &main, &mine);
-    let (f, notes) = approval_findings(&root, &a, &mine, &mh, block_rank(&c));
-    let security = f.iter().any(|x| x.kind.starts_with("SECURITY"));
+    let f = approval_findings(&root, &a, &mine);
     if !f.is_empty() && !approvals(&root).iter().any(|x| x.agent == name && x.digest == findings_digest(&f)) {
         if !weakened_gate(&root, &c, &name, &f) {
-            let check = if security { "security" } else if f.iter().any(|x| x.kind == "CODE_PAGE") { "code page" } else { "weakened checks" };
+            let check = if f.iter().any(|x| x.kind == "CODE_PAGE") { "code page" } else { "weakened checks" };
             refuse_land(&root, &name, check, &format!("land refused: {}\nNothing was merged, because .gitta.toml sets weakened_checks to block. Restore what was removed, or change that setting in a reviewed commit.", weakened_lines(&name, &f).join("\n")));
         }
     }
@@ -2031,26 +2102,19 @@ fn cmd_land(args: &[String]) {
             refuse_land(&root, &name, "policy", &format!("land refused: {}", lines.join("\n")));
         }
     }
-    if let Some(w) = safety(&a, &mine).into_iter().find(|w| w.kind == "SECRET") {
-        let line = std::fs::read(Path::new(&a.path).join(&w.path)).ok().and_then(|b| new_secret(&a, &w.path, &String::from_utf8_lossy(&b))).map(|(l, _)| format!(":{l}")).unwrap_or_default();
-        refuse_land(&root, &name, "credentials", &format!("land refused: {}{line} looks like it contains a credential ({}); remove it and use configuration or a secret store", w.path, w.symbol.unwrap_or_default()))
-    }
     // Changed meaning: work that landed since this agent started may have changed what a symbol does (directly
     // or through the helpers it calls) while this agent's new code relies on the old behaviour. Text that merges
     // cleanly is not enough; refuse before the tests even run.
     // Changed meaning is information: the tests on the combined code decide.
-    for w in mh.iter().filter(|w| w.kind != "SECURITY") {
+    for w in &mh {
         let side = if w.changed_by.as_deref() == Some("head") { "main" } else { name.as_str() };
         let lander = story_lander(&root, side, &w.symbol.clone().unwrap_or_default(), &w.path, &name);
         println!("gitta: note: {}. The tests on the combined code decide.{}", meaning_story(&name, side, &w.symbol.clone().unwrap_or_default(), &w.path, lander.as_deref(), false), meaning_detail(&root, &a, &main, w));
     }
     let approved = !f.is_empty();
     let accepted = if approvals(&root).iter().any(|x| x.agent == name && x.digest == findings_digest(&f)) { "accepted with gitta approve" } else { "reported; weakened_checks is warn" };
-    let rank = block_rank(&c);
-    for n in notes.iter().filter(|n| !blocks(n, rank)) {
-        match &n.allowed { Some(r) => println!("gitta: allowed {} at {}:{} ({r})", n.rule, n.path, n.line), None => println!("gitta: {}", note_text(n)) }
-    }
     let mut gate_s = 0.0;
+    let mut tests_ran_now: Option<u64> = None;
     // Candidate = main + the agent's changes, merged file by file against the agent's base.
     let wt = Wt::open(&root, "land", &main, &c.link);
     let tmp = wt.path.clone();
@@ -2067,7 +2131,40 @@ fn cmd_land(args: &[String]) {
         println!("gitta: gate `{gate}` on the merged candidate...");
         let t0 = std::time::Instant::now();
         let _slot = acquire_gate_slot(&root, gate_cap(&c));
-        let (ok, out, code, _timed) = run_gate(gate, &tmp, _slot.path(), gate_timeout(&c));
+        let (mut ok, mut out, code, _timed) = run_gate(gate, &tmp, _slot.path(), gate_timeout(&c));
+        // A failing test that has nothing to do with this agent's change may be flaky. With flaky_rerun = true in
+        // .gitta.toml it runs once more; a pass then is recorded with both results as an intermittent failure, not blamed on the agent. A failing
+        // test whose name mentions a file the agent changed is never rerun.
+        if !ok && !_timed && team_setting(&root, "flaky_rerun").as_deref() == Some("true") {
+            let failing = failing_tests(&out);
+            let stems: Vec<String> = mine.iter().filter(|p| !gitta_core::guard::is_test(p))
+                .filter_map(|p| Path::new(p).file_stem().map(|s| s.to_string_lossy().to_lowercase())).filter(|s| s.len() > 2).collect();
+            // The symbols this agent changed, by their short name: a failing test whose file refers to one of them is
+            // about this change, not flaky.
+            let mine_new = read_tree(Path::new(&a.path), &mine);
+            let changed: BTreeSet<String> = gitta_core::provided_symbols(&blobs(&root, &a.base, &mine), &mine_new).into_iter()
+                .filter_map(|s| s.rsplit(['.', ':']).next().map(String::from)).filter(|s| s.len() > 1).collect();
+            let uses_change = |t: &str| test_file_of(t, &tmp).and_then(|f| std::fs::read_to_string(tmp.join(&f)).ok())
+                .map(|text| text.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| changed.contains(w))).unwrap_or(true);
+            let related = failing.iter().any(|t| { let tl = t.to_lowercase(); stems.iter().any(|s| tl.contains(s.as_str())) || uses_change(t) });
+            if !failing.is_empty() && !related {
+                println!("gitta: {} failed, and none of it touches {name_p} change; running the tests once more to see whether the failure repeats...", failing.join(", "));
+                let (ok2, out2, _, _) = run_gate(gate, &tmp, _slot.path(), gate_timeout(&c));
+                if ok2 {
+                    // A pass on the second run shows the failure comes and goes; it does not prove the test is at
+                    // fault. Both results are kept: the first run's failing tests with their first error lines, the
+                    // second run's result, and the commit tested.
+                    let errors: Vec<serde_json::Value> = failing.iter().map(|t| serde_json::json!({"test": t,
+                        "first_error": out.lines().find(|l| l.contains(t.rsplit(['.', ':', '/']).next().unwrap_or(t)) && (l.contains("Error") || l.contains("error") || l.contains("assert") || l.contains("FAIL"))).map(str::trim).unwrap_or("")})).collect();
+                    audit::record(&root, "intermittent", &name, &audit::actor(&root), serde_json::json!({"tests": failing, "first_run": {"result": "failed", "errors": errors, "output_tail": first_errors(&out, 6)},
+                        "second_run": {"result": "passed"}, "commit": main,
+                        "agent_commit": String::from_utf8_lossy(&git(Path::new(&a.path), &["rev-parse", "HEAD"]).stdout).trim()}));
+                    log(&root, "intermittent", &name, &format!("{} failed, then passed when run again, with nothing in {name_p} change touching it; both results recorded as an intermittent failure.", failing.join(", ")));
+                    eprintln!("gitta: {} failed, then passed when run again; both results recorded as an intermittent failure.", failing.join(", "));
+                    ok = true; out = out2;
+                }
+            }
+        }
         gate_s = t0.elapsed().as_secs_f64();
         if !ok {
             cleanup(&root, &tmp);
@@ -2094,7 +2191,26 @@ fn cmd_land(args: &[String]) {
             let errs = first_errors(&out, 6);
             let errs = if errs.is_empty() { String::new() } else { format!("\n{}", errs.iter().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")) };
             let defs = defs.iter().map(|d| format!("\nNow on {}: {d}", c.main.trim_start_matches("refs/heads/"))).collect::<String>();
+            let green = std::fs::read_to_string(root.join(".gitta").join(format!("{name}.green"))).ok()
+                .filter(|t| worktree_tree(Path::new(&a.path)).as_deref() != Some(t.as_str()))
+                .map(|t| format!("\nThe tests passed on an earlier version of {name_p} work. `git diff {} -- .` in its workspace shows what changed since.", &t[..t.len().min(12)]))
+                .unwrap_or_default();
+            // Alone vs combined: when main moved since the agent started, test its work on its own base too. A pass
+            // there means the failure comes from combining it with work that landed meanwhile, not from the work alone.
+            let alone = if a.base != main {
+                let w2 = Wt::open(&root, "alone", &a.base, &c.link);
+                for p in &mine { match theirs.get(p) { Some(b) => { let f = w2.path.join(p); if let Some(d) = f.parent() { std::fs::create_dir_all(d).ok(); } std::fs::write(f, b).ok(); } None => { let _ = std::fs::remove_file(w2.path.join(p)); } } }
+                let (ok_alone, _, _, _) = run_gate(gate, &w2.path, _slot.path(), gate_timeout(&c));
+                w2.release();
+                audit::record(&root, "alone_vs_combined", &name, &audit::actor(&root), serde_json::json!({"alone": ok_alone, "combined": false}));
+                if ok_alone { format!("\n{name_p} work passes its tests on its own. It fails only combined with work that reached {} since it started, so the two changes do not fit together.", c.main.trim_start_matches("refs/heads/")) } else { String::new() }
+            } else { String::new() };
+            let defs = format!("{defs}{green}{alone}");
             refuse_land(&root, &name, "tests", &format!("land refused: the tests failed on {name_p} work combined with what is already merged, so nothing was merged.{first}{errs}{defs}\nFix the code, then run the same command again."))
+        }
+        match after_gate(&root, &c, &name, &a.base, &mine, &tmp, gate, _slot.path(), &main, &out) {
+            Ok(n) => { if n.is_some() { tests_ran_now = n; } }
+            Err((check, msg)) => { cleanup(&root, &tmp); refuse_land(&root, &name, &check, &msg) }
         }
     }
     // Commit exactly the agent's paths: never gate output, caches or linked folders.
@@ -2122,7 +2238,7 @@ fn cmd_land(args: &[String]) {
         // moved meanwhile or if uncommitted edits in that checkout would be overwritten.
         Some(wt) => {
             // gitta land already ran every check: the git hooks stand aside for this move.
-            let ff = Command::new("git").arg("-C").arg(wt).args(["merge", "--ff-only", "--quiet", &new]).env("GITTA_LANDING", "1").output().unwrap_or_else(|e| die(&format!("git: {e}")));
+            let ff = Command::new("git").arg("-C").arg(wt).args(["merge", "--ff-only", "--quiet", &new]).output().unwrap_or_else(|e| die(&format!("git: {e}")));
             if !ff.status.success() {
                 die(&format!("land stopped: {} could not move forward in {wt}. Either someone changed it meanwhile, or files there have uncommitted edits that the landed work touches. Commit or stash those edits, then run the same command again.", c.main.trim_start_matches("refs/heads/")))
             }
@@ -2132,6 +2248,7 @@ fn cmd_land(args: &[String]) {
             if !up.status.success() { die("land refused: the target branch moved while the tests ran; run the same command again") }
         }
     }
+    if let Some(n) = tests_ran_now { std::fs::write(root.join(".gitta/tests-ran"), n.to_string()).ok(); }
     log(&root, "landed", &name, &format!("{}{name} was merged into {}.", if c.gate.is_some() { format!("Tests passed on {} combined with {name_p} changes. ", c.main.trim_start_matches("refs/heads/")) } else { String::new() }, c.main.trim_start_matches("refs/heads/")));
     println!("gitta: landed {name} as {}", &new[..10]);
     let _ = std::fs::remove_file(root.join(".gitta").join(format!("{name}.adapt")));
@@ -2144,20 +2261,12 @@ fn cmd_land(args: &[String]) {
         let files: Vec<serde_json::Value> = mine.iter().map(|p| { let o = git(&root, &["rev-parse", &format!("{new}:{p}")]);
             serde_json::json!({"path": p, "blob": if o.status.success() { String::from_utf8_lossy(&o.stdout).trim().to_string() } else { "deleted".into() }}) }).collect();
         let mut checks = vec![
-            serde_json::json!({"check": "weakened checks", "result": if f.iter().any(|x| !x.kind.starts_with("SECURITY")) { accepted } else { "none found" }}),
-            serde_json::json!({"check": "security", "result": if security { accepted } else { "none found" }}),
-            serde_json::json!({"check": "security rules", "block": c.security_block.clone().unwrap_or("high".into()),
-                "result": if notes.iter().any(|n| blocks(n, rank)) { accepted.to_string() } else if notes.iter().any(|n| n.allowed.is_none()) { format!("{} note(s), below the threshold", notes.iter().filter(|n| n.allowed.is_none()).count()) } else { "none found".into() },
-                "notes": notes.iter().map(note_json).collect::<Vec<_>>()}),
-            serde_json::json!({"check": "credentials", "result": "none found"}),
+            serde_json::json!({"check": "weakened checks", "result": if !f.is_empty() { accepted } else { "none found" }}),
             serde_json::json!({"check": "changed meaning", "result": "none found"}),
             serde_json::json!({"check": "merge", "result": "clean"})];
         if let Some(g) = &c.gate { checks.push(serde_json::json!({"check": "tests", "command": g, "result": "passed", "seconds": (gate_s * 10.0).round() / 10.0})); }
         let appr: Vec<serde_json::Value> = if approved { approvals(&root).into_iter().filter(|x| x.agent == name && x.digest == findings_digest(&f)).map(|x| serde_json::json!({"by": x.by, "reason": x.reason})).collect() } else { vec![] };
         let tool = tool_of(&a.path, a.owned);
-        for n in notes.iter().filter(|n| n.allowed.is_some()) {
-            audit::record(&root, "security_allowed", &name, &audit::actor(&root), serde_json::json!({"rule": n.rule, "path": n.path, "line": n.line, "reason": n.allowed, "added_by_change": n.allow_new}));
-        }
         audit::record(&root, "checks", &name, &audit::actor(&root), serde_json::json!({"onto": c.main, "checks": checks}));
         audit::record(&root, "landed", &name, &audit::actor(&root), serde_json::json!({"tool": tool, "onto": c.main, "from": main, "to": new, "files": files, "commits": commits, "checks": checks, "approvals": appr}));
         let last = audit::read(&root).last().cloned().unwrap_or_default();
@@ -2220,12 +2329,12 @@ fn after_merge(c: &mut Config, name: &str, new: &str) {
                 let sym = w.symbol.clone().unwrap_or_default();
                 // Either the landed work changed something this agent's new code uses, or this agent changed something
                 // the landed code uses: say which, so the agent knows what to fix.
-                let changed = w.security.as_ref().filter(|_| w.kind == "SECURITY").map(|n| n.what.clone()).unwrap_or("changed".into());
+                let changed = "changed";
                 let f = short_sym(&sym);
                 let what = if w.changed_by.as_deref() == Some("head") {
-                    format!("{name} {changed} `{f}`, which {o_p} new code in {} calls", w.path)
+                    format!("{name} {changed} `{f}`, which {o_p} new code in {} {}", w.path, uses_verb(&w.path))
                 } else {
-                    format!("{name} added code in {} that calls `{f}`, which {o} {changed}", w.path)
+                    format!("{name} added code in {} that {} `{f}`, which {o} {changed}", w.path, uses_verb(&w.path))
                 };
                 quiet_println!("gitta: {o} is not updated yet, because {what}. gitta tells {o} on its next step.");
                 continue;
@@ -2266,7 +2375,74 @@ fn repo_id(root: &Path) -> String {
     u.trim_end_matches('/').trim_end_matches(".git").to_string()
 }
 
-/// Send this agent's changed files (and their base versions) to the team server; returns its warnings.
+/// The host of a plain-http team-server URL whose bearer token would travel in clear, so sending the token to it
+/// must be refused. https and loopback (localhost, 127.0.0.0/8, ::1) return None, and GITTA_SERVER_ALLOW_HTTP is an
+/// explicit opt-in for an http server behind a trusted TLS-terminating proxy.
+fn insecure_http_host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("http://")?;
+    if std::env::var_os("GITTA_SERVER_ALLOW_HTTP").is_some() { return None; }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let hostport = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host = match hostport.strip_prefix('[') { Some(h) => h.split(']').next().unwrap_or(h),
+                                                  None => hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport) };
+    if host == "localhost" || host == "::1" || host.starts_with("127.") { None } else { Some(host.to_string()) }
+}
+
+/// Call a team-server URL with curl, keeping the bearer token off the command line: the Authorization header is fed
+/// on stdin (`-H @-`), where other local users cannot read it in the process arguments, and a request body (which
+/// is not the secret) goes in a 0600 temporary file so stdin stays free for the header. Plain http to a non-loopback
+/// host is refused, because the token would be sent in clear. `args` are the request flags and the URL; the caller
+/// parses the returned output.
+pub(crate) fn server_curl(url: &str, token: &str, args: &[&str], body: Option<&[u8]>) -> Result<std::process::Output, String> {
+    if let Some(h) = insecure_http_host(url) {
+        return Err(format!("refusing to send the team-server token in clear to http://{h}: use an https URL, or set GITTA_SERVER_ALLOW_HTTP=1 if TLS is terminated by a trusted proxy in front of the server"));
+    }
+    let mut c = Command::new("curl");
+    if let Ok(ca) = std::env::var("GITTA_SERVER_CA") { c.args(["--cacert", &ca]); }
+    c.args(args);
+    c.args(["-H", "@-"]); // Authorization header from stdin, never an argument other local users can read
+    let body_file = match body {
+        Some(b) => {
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let p = std::env::temp_dir().join(format!("gitta-req-{}-{n}.tmp", std::process::id()));
+            std::fs::write(&p, b).map_err(|e| e.to_string())?;
+            #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)); }
+            c.args(["--data-binary", &format!("@{}", p.display())]);
+            Some(p)
+        }
+        None => None,
+    };
+    let header = format!("Authorization: Bearer {token}\n");
+    let r = c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
+        .and_then(|mut ch| { ch.stdin.take().unwrap().write_all(header.as_bytes())?; ch.wait_with_output() })
+        .map_err(|e| e.to_string());
+    if let Some(p) = body_file { let _ = std::fs::remove_file(p); }
+    r
+}
+
+#[cfg(test)]
+mod server_url_tests {
+    use super::*;
+    #[test]
+    fn plain_http_to_a_remote_host_is_refused_but_https_and_loopback_are_allowed() {
+        std::env::remove_var("GITTA_SERVER_ALLOW_HTTP");
+        for ok in ["https://gitta.example.com", "https://203.0.113.5:8443", "http://localhost:8080",
+                   "http://127.0.0.1:9000/v1/whoami", "http://127.9.9.9", "http://[::1]:7000", "http://user@127.0.0.1:3000"] {
+            assert!(insecure_http_host(ok).is_none(), "should be allowed: {ok}");
+        }
+        for bad in ["http://gitta.example.com", "http://203.0.113.5:8080", "http://198.51.100.9/v1/audit", "http://server.internal:9000"] {
+            assert!(insecure_http_host(bad).is_some(), "should be refused: {bad}");
+        }
+        // The explicit opt-in allows http to a remote host.
+        std::env::set_var("GITTA_SERVER_ALLOW_HTTP", "1");
+        assert!(insecure_http_host("http://gitta.example.com").is_none());
+        std::env::remove_var("GITTA_SERVER_ALLOW_HTTP");
+    }
+}
+
+/// Send a summary of this agent's work to the team server: the symbols it changed and the names its new code
+/// uses, as names and paths only. No source text leaves the machine. Returns the server's warnings.
 /// Server URL and token: `gitta init --server URL --token T`, or GITTA_SERVER / GITTA_SERVER_TOKEN.
 /// Never blocks an agent for long: 4 s timeout, any failure means no team warnings this time.
 fn report_to_server(c: &Config, name: &str) -> Vec<serde_json::Value> {
@@ -2278,11 +2454,12 @@ fn report_to_server(c: &Config, name: &str) -> Vec<serde_json::Value> {
     if paths.is_empty() { return vec![]; }
     let base = blobs(root, &a.base, &paths);
     let cur = read_tree(Path::new(&a.path), &paths);
-    let txt = |b: &Vec<u8>| String::from_utf8_lossy(b).into_owned();
+    let base_snap: gitta_core::Snapshot = base.clone();
+    let mut cur_snap = base_snap.clone();
+    for p in &paths { match cur.get(p) { Some(v) => { cur_snap.insert(p.clone(), v.clone()); } None => { cur_snap.remove(p); } } }
+    let summary = gitta_core::summarize(&base_snap, &cur_snap);
     let machine = std::env::var("GITTA_MACHINE").ok().or_else(|| Command::new("hostname").output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())).unwrap_or("unknown".into());
-    let body = serde_json::json!({"repo": repo_id(root), "agent": name, "machine": machine,
-        "base": base.iter().map(|(k, v)| (k.clone(), serde_json::Value::String(txt(v)))).collect::<serde_json::Map<_, _>>(),
-        "current": paths.iter().map(|p| (p.clone(), cur.get(p).map(|v| serde_json::Value::String(txt(v))).unwrap_or(serde_json::Value::Null))).collect::<serde_json::Map<_, _>>()});
+    let body = serde_json::json!({"repo": repo_id(root), "agent": name, "machine": machine, "summary": summary});
     let body = body.to_string();
     // Every server gets the report at the same time; any one that answers is enough, and the warnings are combined
     let answers: Vec<Vec<serde_json::Value>> = std::thread::scope(|sc| {
@@ -2303,12 +2480,10 @@ fn post_report(root: &Path, url: &str, token: &str, body: &str) -> Vec<serde_jso
     let mark = root.join(".gitta").join(format!("server-down-{:016x}", h.finish()));
     let recent = |p: &Path| p.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|e| e.as_secs() < SERVER_DOWN_S);
     if recent(&mark) { return vec![]; }
-    let mut curl = Command::new("curl");
-    // A team server with a private certificate authority: GITTA_SERVER_CA points at its PEM
-    if let Ok(ca) = std::env::var("GITTA_SERVER_CA") { curl.args(["--cacert", &ca]); }
-    let out = curl.args(["-fsS", "--proto", "=http,https", "--connect-timeout", "1", "--max-time", "4", "-X", "POST", "-H", "Content-Type: application/json", "-H", &format!("Authorization: Bearer {token}"),
-        "--data-binary", "@-", &format!("{url}/v1/report")]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
-        .and_then(|mut ch| { ch.stdin.take().unwrap().write_all(body.as_bytes())?; ch.wait_with_output() });
+    // server_curl gives curl the bearer token on stdin, not the command line, and refuses plain http to a remote
+    // host. GITTA_SERVER_CA, if set, points at the server's private CA PEM (handled inside server_curl).
+    let ep = format!("{url}/v1/report");
+    let out = server_curl(url, token, &["-fsS", "--proto", "=http,https", "--connect-timeout", "1", "--max-time", "4", "-X", "POST", "-H", "Content-Type: application/json", &ep], Some(body.as_bytes()));
     let answer = out.ok().filter(|o| o.status.success()).and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok());
     match &answer { Some(_) => { let _ = std::fs::remove_file(&mark); } None => { let _ = std::fs::write(&mark, url); } }
     // A notice from the server (for example about its licence) travels as a warning of its own kind.
@@ -2328,7 +2503,7 @@ fn main_warnings(c: &Config, a: &Agent, mine: &BTreeSet<String>) -> Vec<Warning>
     if same_commit(root, &a.base, &main) { return vec![]; }   // nothing reached main since
     meaning_hazards(root, a, &main, mine).into_iter().map(|w| Warning {
         kind: w.kind, path: w.path, symbol: w.symbol, changed_by: Some("main".into()), referenced_by: Some(a.name.clone()),
-        severity: Some("high".into()), agents: vec![a.name.clone(), "main".into()], security: w.security }).collect()
+        severity: Some("high".into()), agents: vec![a.name.clone(), "main".into()] }).collect()
 }
 
 /// What an agent needs to fix a changed-meaning refusal in one go: the landed change to the symbol (file, line and
@@ -2370,9 +2545,46 @@ fn meaning_detail(root: &Path, a: &Agent, main: &str, w: &Warning) -> String {
         }
     }
     let mine = std::fs::read_to_string(Path::new(&a.path).join(&w.path)).unwrap_or_default();
-    let uses: Vec<String> = mine.lines().enumerate().filter(|(_, l)| l.contains(&short)).take(6).map(|(i, l)| format!("  {}:{}: {}", w.path, i + 1, l.trim())).collect();
+    let uses: Vec<String> = use_lines(&mine, &short).into_iter().take(6).map(|(i, l)| format!("  {}:{}: {}", w.path, i + 1, l.trim())).collect();
     if !uses.is_empty() { out += &format!("\nYour code that uses it:\n{}", uses.join("\n")); }
     out
+}
+
+/// Lines of `text` that use `short`: not comments, not docstrings, and not a definition of `short` itself.
+fn use_lines<'a>(text: &'a str, short: &str) -> Vec<(usize, &'a str)> {
+    let mut out = vec![];
+    let mut doc: Option<&str> = None;   // inside a Python triple-quoted string, or a block comment
+    for (i, l) in text.lines().enumerate() {
+        let t = l.trim();
+        if let Some(end) = doc { if t.contains(end) { doc = None; } continue; }
+        let opener = ["\"\"\"", "'''"].into_iter().find(|q| t.starts_with(q));
+        if let Some(q) = opener { if t.len() < 6 || !t[3..].contains(q) { doc = Some(q); } continue; }
+        if t.starts_with("/*") { if !t.contains("*/") { doc = Some("*/"); } continue; }
+        if ["#", "//", "*", "--", "<!--"].iter().any(|c| t.starts_with(c)) { continue; }
+        if !t.contains(short) { continue; }
+        let def = ["def ", "async def ", "fn ", "pub fn ", "pub(crate) fn ", "func ", "function ", "class ", "export function ", "export async function ", "async function "]
+            .iter().any(|k| t.strip_prefix(k).map(|r| r.starts_with(short) && !r[short.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')).unwrap_or(false))
+            || (t.starts_with("func (") && t.split_once(") ").map(|(_, r)| r.starts_with(short)).unwrap_or(false));
+        if !def { out.push((i, l)); }
+    }
+    out
+}
+
+#[cfg(test)]
+mod use_lines_tests {
+    #[test]
+    fn skips_comments_docs_and_own_def() {
+        let src = "def total(x):\n    \"\"\"total sums x.\n    Call total twice.\n    \"\"\"\n    # total is old\n    return x\n\ny = total(3)\n// total here\n";
+        let got: Vec<usize> = super::use_lines(src, "total").into_iter().map(|x| x.0).collect();
+        assert_eq!(got, vec![7]);
+        assert_eq!(super::use_lines("\"\"\"total\"\"\"\nz = total()", "total").len(), 1);
+        assert_eq!(super::use_lines("func (s *S) Total() {}\nx := s.Total()", "Total").len(), 1);
+    }
+    #[test]
+    fn refusal_lines_once() {
+        let x = gitta_core::guard::Finding { kind: "TEST_DELETED".into(), path: "a.py".into(), detail: "removed the check.".into() };
+        assert_eq!(super::weakened_lines("a1", &[x.clone(), x]), vec!["a1 removed the check in a.py.".to_string()]);
+    }
 }
 
 /// High-severity changed-meaning hazards between what landed since the agent's base and the agent's own work.
@@ -2383,12 +2595,12 @@ fn meaning_hazards(root: &Path, a: &Agent, main: &str, mine: &BTreeSet<String>) 
     // A hazard needs new code on the agent's side (code that uses what landed, or a changed symbol landed code
     // uses): an agent that changed no code has none, and nothing has to be read.
     if !mine.iter().any(|p| code(p)) { return vec![]; }
-    // The same base, main, agent files and security settings give the same answer: kept per agent, so a status
+    // The same base, main and agent files give the same answer: kept per agent, so a status
     // or hook run does not re-read the trees for agents whose work has not changed.
     let key = {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        (env!("CARGO_PKG_VERSION"), &a.base, main, &a.path, MARKED.get()).hash(&mut h);
+        (env!("CARGO_PKG_VERSION"), &a.base, main, &a.path).hash(&mut h);
         for p in mine { (p, file_hash(&Path::new(&a.path).join(p))).hash(&mut h); }
         format!("{:016x}", h.finish())
     };
@@ -2402,7 +2614,6 @@ fn meaning_hazards(root: &Path, a: &Agent, main: &str, mine: &BTreeSet<String>) 
 /// A finding whose changed function and the code that uses it come from the same agent: the agent's own work
 /// already landed on main (by an earlier merge) on the other side. Its own tests cover that; it is never reported.
 fn own_finding(root: &Path, name: &str, w: &Warning) -> bool {
-    if w.kind == "SECURITY" { return false; }
     let sym = w.symbol.clone().unwrap_or_default();
     let landing = |e: &serde_json::Value| e["event"] == "landed" || e["event"] == "merge_checked";
     let files = |e: &serde_json::Value| -> BTreeSet<String> { e["data"]["files"].as_array().map(|f| f.iter().filter_map(|x| x["path"].as_str().map(String::from)).collect()).unwrap_or_default() };
@@ -2486,7 +2697,7 @@ fn meaning_hazards_read(root: &Path, a: &Agent, main: &str, mine: &BTreeSet<Stri
     let (base, landed) = (blobs_at(root, &a.base, &paths), blobs_at(root, main, &paths));
     let mut agent = base.clone();
     for p in mine.iter().filter(|p| paths.contains(*p)) { match std::fs::read(Path::new(&a.path).join(p)) { Ok(b) => { agent.insert(p.clone(), b); } Err(_) => { agent.remove(p); } } }
-    gitta_core::merge_hazards(&base, &landed, &agent).into_iter().filter(|w| w.kind == "HAZARD" || w.kind == "SECURITY").collect()
+    gitta_core::merge_hazards(&base, &landed, &agent).into_iter().filter(|w| w.kind == "HAZARD").collect()
 }
 
 /// Installed dependencies that a fresh checkout lacks. Gate checkouts link them from the main checkout when they
@@ -2587,8 +2798,33 @@ fn gate_in(gate: &str, dir: &Path) -> (bool, String) {
         Ok(o) => { let t = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
                    let tail: Vec<&str> = t.lines().rev().take(12).collect(); let tail = tail.into_iter().rev().collect::<Vec<_>>().join("\n");
                    if !o.status.success() { if let Some(m) = missing_tool(&t, o.status.code()) { return (false, format!("{MISSING_TOOL}{m} was not found where the tests run. This is a setup problem for the user, not a fault in the code.")); } }
-                   (o.status.success(), tail) }
+                   (o.status.success(), repo_relative(&tail, dir)) }
         Err(e) => (false, e.to_string()),
+    }
+}
+
+/// Test output with the temporary checkout's path taken out, so paths read relative to the repository
+/// (`File "/tmp/gitta-prc-1/app/x.py"` becomes `File "app/x.py"`). Both the given and the resolved path count:
+/// on macOS a temp directory under /var is /private/var once resolved.
+fn repo_relative(text: &str, dir: &Path) -> String {
+    let mut prefixes: Vec<String> = vec![dir.to_string_lossy().trim_end_matches('/').to_string()];
+    if let Ok(c) = dir.canonicalize() { prefixes.push(c.to_string_lossy().trim_end_matches('/').to_string()); }
+    for p in prefixes.clone() { if let Some(r) = p.strip_prefix("/private") { prefixes.push(r.to_string()); } else { prefixes.push(format!("/private{p}")); } }
+    prefixes.retain(|p| p.len() > 1);
+    prefixes.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    prefixes.dedup();
+    let mut t = text.to_string();
+    for p in &prefixes { t = t.replace(&format!("{p}/"), "").replace(p.as_str(), "."); }
+    t
+}
+
+#[cfg(test)]
+mod repo_relative_tests {
+    #[test]
+    fn strips_checkout_prefix() {
+        let d = std::path::Path::new("/tmp/gitta-prc-42");
+        assert_eq!(super::repo_relative("File \"/tmp/gitta-prc-42/app/x.py\", line 3\nFile \"/private/tmp/gitta-prc-42/t.py\"", d), "File \"app/x.py\", line 3\nFile \"t.py\"");
+        assert_eq!(super::repo_relative("cwd /tmp/gitta-prc-42", d), "cwd .");
     }
 }
 
@@ -2713,7 +2949,10 @@ fn acquire_gate_slot(root: &Path, cap: usize) -> GateSlot {
             let p = dir.join(format!("{i}.lock"));
             if let Ok(pid) = std::fs::read_to_string(&p) { if !pid_is_live(&pid) { let _ = std::fs::remove_file(&p); } }
             // Write the pid first, then hard-link it in: the link is atomic and fails if the slot is taken.
-            let tmp = dir.join(format!(".{i}.{}.tmp", std::process::id()));
+            // A temp name unique to this attempt: threads of one process must never share it, or one thread's write
+            // would empty the file another thread just linked into a slot, and that slot would look free.
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let tmp = dir.join(format!(".{i}.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
             if std::fs::write(&tmp, std::process::id().to_string()).is_ok() {
                 let linked = std::fs::hard_link(&tmp, &p).is_ok();
                 let _ = std::fs::remove_file(&tmp);
@@ -2723,6 +2962,12 @@ fn acquire_gate_slot(root: &Path, cap: usize) -> GateSlot {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     }
+}
+
+/// How a warning says that code depends on a symbol: code calls a function; infrastructure code uses a name.
+fn uses_verb(path: &str) -> &'static str {
+    use gitta_core::Lang::*;
+    match gitta_core::lang_of(path) { Some(Hcl | CloudFormation | PulumiYaml | Ansible | Helm) => "uses", None if path.ends_with(".yaml") || path.ends_with(".yml") || path.ends_with(".json") => "uses", _ => "calls" }
 }
 
 fn cmd_check(args: &[String]) {
@@ -2996,9 +3241,25 @@ fn cmd_hook(args: &[String]) {
     let Ok(t) = std::fs::read_to_string(cfg_path(&root)) else { return };
     let Ok(mut c) = serde_json::from_str::<Config>(&t) else { return };
     if c.watch { refresh(&root, &mut c); }
-    apply_settings(&root, &c.security, &c.include);
+    apply_settings(&root, &c.include);
     prof("refresh");
     let Some(me) = agent_at(&c, &cwd) else { return };
+    // The agent ran the tests: remember which version of its work they ran on, so its "done" can be checked at stop.
+    if ev["tool_name"] == "Bash" {
+        if let (Some(cmd), Some(g)) = (ev["tool_input"]["command"].as_str(), c.gate.as_deref()) {
+            if runs_gate(cmd, g) {
+                let a = agent(&c, &me).clone();
+                let m = changed_paths(&a, &c.link);
+                std::fs::write(root.join(".gitta").join(format!("{me}.tested")), work_fingerprint(&a, &m, &main_commit(&c))).ok();
+                // A passing run is a checkpoint: if later edits break the work, gitta can point at the last version
+                // that passed (agents often reach working code and then break it again).
+                let out = format!("{}\n{}", ev["tool_response"]["stdout"].as_str().unwrap_or(""), ev["tool_response"]["stderr"].as_str().unwrap_or(""));
+                if gitta_core::guard::tests_passed(&out) == Some(true) {
+                    if let Some(tree) = worktree_tree(Path::new(&a.path)) { std::fs::write(root.join(".gitta").join(format!("{me}.green")), tree).ok(); }
+                }
+            }
+        }
+    }
     let mut notes = vec![];
     // What reached main since this agent started, checked before the sync below moves its base forward.
     let from_main = agent(&c, &me).clone();
@@ -3035,23 +3296,11 @@ fn cmd_hook(args: &[String]) {
     let mut all = v.warnings.clone(); all.extend(claim_warnings(&c, &v));
     for w in main_hz { if !all.contains(&w) { all.push(w); } }
     prof("claims");
-    // Security notes on this agent's added lines: once per finding, keyed on the line's text (not its number).
-    let rank = block_rank(&c);
-    for (_, n) in v.notes.iter().filter(|(ag, _)| *ag == me) {
-        if !shown.insert(format!("note:{}", n.key)) { continue; }
-        if let Some(r) = &n.allowed {
-            audit::record(&root, "security_allowed", &me, &audit::actor(&cwd), serde_json::json!({"rule": n.rule, "path": n.path, "line": n.line, "reason": r, "added_by_change": n.allow_new}));
-            if !blocks(n, rank) { continue; }
-        }
-        audit::record(&root, "warning", &me, &audit::actor(&cwd), serde_json::json!({"kind": "SECURITY_NOTE", "rule": n.rule, "path": n.path, "line": n.line, "severity": n.severity, "text": n.text}));
-        notes.push(format!("gitta: {}{}", note_text(n), if blocks(n, rank) { " gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge." } else { "" }));
-        if blocks(n, rank) { tell_person(&root, &format!("note|{me}|{}", n.key), &format!("{me} added code that {} ({}:{}). It is reported when the work is merged, and weakened_checks in .gitta.toml decides whether that warns or stops the merge.", n.text.trim_end_matches('.'), n.path, n.line)); }
-    }
     let mut told = 0;
     // High-severity clashes from one agent in one file go to the agent as one note, not one per function.
     let mut groups: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     let mut users: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
-    for w in all.iter().filter(|w| w.agents.contains(&me) && w.kind != "SECURITY_NOTE") {
+    for w in all.iter().filter(|w| w.agents.contains(&me)) {
         let other = w.agents.iter().find(|x| **x != me).cloned().unwrap_or_default();
         // Once per finding: the same symbol, file and agent, whatever its severity or which side saw it first.
         let key = format!("w:{}|{}|{}|{}", w.kind, w.symbol.clone().unwrap_or_default(), w.path, other);
@@ -3064,28 +3313,13 @@ fn cmd_hook(args: &[String]) {
                 log(&root, "note", &me, &format!("{me}'s new code in {} calls `{}`, which {other} changed inside. The tests at merge time decide.", w.path, short_sym(&sym)));
                 continue;
             }
-            audit::record(&root, "warning", &me, &audit::actor(&cwd), serde_json::json!({"kind": w.kind, "symbol": w.symbol, "path": w.path, "other": other, "severity": w.severity, "security": w.security}));
+            audit::record(&root, "warning", &me, &audit::actor(&cwd), serde_json::json!({"kind": w.kind, "symbol": w.symbol, "path": w.path, "other": other, "severity": w.severity}));
             hook_feed(&root, &me, &other, w, c.main.trim_start_matches("refs/heads/"));
             groups.entry((other.clone(), w.path.clone())).or_default().push(sym);
             told += 1;
             continue;
         }
         let note = match w.kind.as_str() {
-            "SECURITY" => {
-                let n = w.security.clone().unwrap_or(gitta_core::security::Note { what: "weakened".into(), risk: String::new() });
-                let sym = w.symbol.clone().unwrap_or_default();
-                if w.referenced_by.as_deref() == Some(me.as_str()) {
-                    let who = if other == "main" { format!("Work that reached {}", c.main.trim_start_matches("refs/heads/")) } else { format!("Agent {other}, working in parallel,") };
-                    format!("Gitta: SECURITY (high severity). {who} {} `{sym}`, which your new code in {} calls. {} Do not rely on that protection: add the check to your own code, or tell the user. Tell the user in one sentence. gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge.",
-                        n.what, w.path, n.risk)
-                } else {
-                    format!("Gitta: SECURITY (high severity). You {} `{sym}`, and agent {other} has new code in {} that calls it. {} Restore the check unless the user asked for this, and tell the user.",
-                        n.what, w.path, n.risk.replace("Your code", "Their code"))
-                }
-            }
-            "WEAKENED" if w.symbol.as_deref().map(|x| x.starts_with("SECURITY_WEAKENED")).unwrap_or(false) => format!(
-                "Gitta: SECURITY. You weakened a security control in {}: {} Do not remove or switch off security checks unless the user asked for it. If it must change, explain why to the user in the chat. gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge.",
-                w.path, w.symbol.clone().unwrap_or_default().trim_start_matches("SECURITY_WEAKENED: ")),
             // Work already on main: the tests at merge time decide, and a failing merge shows the new definition.
             // A note here only sent agents checking code that was fine (measured: 3 to 8 extra turns per note).
             "HAZARD" if other == "main" => {
@@ -3104,14 +3338,25 @@ fn cmd_hook(args: &[String]) {
             // for the agent to do, so it goes to the log only (measured: memfs agents got one such note per function
             // of a moved file).
             "OVERLAP" => { hook_feed(&root, &me, &other, w, c.main.trim_start_matches("refs/heads/")); continue; }
+            // Both agents wrote the same new function or class in different files: tell the later one, once.
+            "DUPLICATE" if w.referenced_by.as_deref() == Some(me.as_str()) => format!("Gitta: agent {other} also adds `{}`. You may be doing the same task twice. Check whether you can use {other}'s version instead of keeping two, and tell the user in one sentence if you are not sure.", w.symbol.clone().unwrap_or_default()),
+            "DUPLICATE" => continue,
+            // The other agent now sets shared state this agent's new code uses: a note, the tests decide.
+            "INTERFERENCE" if w.referenced_by.as_deref() == Some(me.as_str()) => format!("Gitta: agent {other} now also sets `{}`, which your new code in {} uses. Check that your code still works when {other}'s code changes it.", w.symbol.clone().unwrap_or_default(), w.path),
+            "INTERFERENCE" => continue,
             "CLAIMED" if w.referenced_by.as_deref() == Some(me.as_str()) => format!("Gitta: agent {other} has claimed {} ({}) and is changing it. Avoid building on its current form; coordinate or wait for them to land.", w.path, peer(&w.symbol.clone().unwrap_or_default(), 200)),
             "CLAIMED" => continue,
+            // The tests themselves: the sanctioned way out is a recorded conflict, never an edited test.
+            "WEAKENED" if w.symbol.as_deref().map(|x| ["TEST_", "ASSERTIONS_REMOVED", "ALWAYS_EQUAL"].iter().any(|k| x.starts_with(k))).unwrap_or(false) => format!(
+                "Gitta: you weakened the tests in {} ({}). Do not change tests so that they pass. If the tests and your task contradict each other, run `gitta conflict {me} \"<which test, which part of the task>\"` (or the gitta_conflict tool): gitta holds your work for a person. Then tell the user in one sentence. gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge.",
+                w.path, w.symbol.clone().unwrap_or_default()),
+            "WEAKENED" if w.symbol.as_deref().map(|x| x.starts_with("SCHEMA_NARROWED")).unwrap_or(false) => format!(
+                "Gitta: your change to {} narrows what a valid message may hold ({}). Every producer and consumer written for the old schema must still fit. Make the change only if the task asks for this schema version, and tell the user in one sentence which parts narrowed.",
+                w.path, w.symbol.clone().unwrap_or_default().trim_start_matches("SCHEMA_NARROWED: ")),
             "WEAKENED" => format!("Gitta: you weakened a safety check in {} ({}). Fix the code instead of the check; if the check really is wrong, explain why to the user in the chat. gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge.", w.path, w.symbol.clone().unwrap_or_default()),
-            "SECRET" => format!("Gitta: {} looks like it contains a credential ({}). Remove it; secrets come from configuration, never from code. gitta reports this when the work is merged, and the team policy in .gitta.toml decides whether it stops the merge.", w.path, w.symbol.clone().unwrap_or_default()),
-            "INSTRUCTIONS" => format!("Gitta: you changed {}, a file that coding agents follow as instructions. Do not change agent instructions unless the user asked for it.", w.path),
             _ => continue,
         };
-        audit::record(&root, "warning", &me, &audit::actor(&cwd), serde_json::json!({"kind": w.kind, "symbol": w.symbol, "path": w.path, "other": other, "severity": w.severity, "security": w.security}));
+        audit::record(&root, "warning", &me, &audit::actor(&cwd), serde_json::json!({"kind": w.kind, "symbol": w.symbol, "path": w.path, "other": other, "severity": w.severity}));
         hook_feed(&root, &me, &other, w, c.main.trim_start_matches("refs/heads/"));
         notes.push(note);
         told += 1;
@@ -3140,8 +3385,6 @@ fn cmd_hook(args: &[String]) {
         let (other, machine, sym, path) = (s("other"), s("other_machine"), s("symbol"), s("path"));
         audit::record(&root, "warning", &me, &audit::actor(&cwd), serde_json::json!({"kind": s("kind"), "symbol": sym, "path": path, "other": other, "machine": machine, "severity": s("severity"), "team": true}));
         match (s("kind").as_str(), s("changed_by").as_str()) {
-            ("SECURITY", "other") => notes.push(format!("Gitta (team): SECURITY (high severity). Agent {other} on {machine} {} `{sym}`, which your new code in {path} calls. {} Do not rely on that protection: add the check to your own code, or tell the user.", w["security"]["what"].as_str().unwrap_or("weakened"), w["security"]["risk"].as_str().unwrap_or(""))),
-            ("SECURITY", _) => notes.push(format!("Gitta (team): SECURITY (high severity). You {} `{sym}`, and agent {other} on {machine} has new code that calls it. Restore the check unless the user asked for this, and tell the user.", w["security"]["what"].as_str().unwrap_or("weakened"))),
             ("HAZARD", "other") => notes.push(format!("Gitta (team): agent {other} on {machine}, working in parallel, changed `{sym}`, which your new code in {path} uses ({} severity). Keep your code compatible with their change, or coordinate before landing.", s("severity"))),
             ("HAZARD", _) => notes.push(format!("Gitta (team): agent {other} on {machine} has new code that uses `{sym}`, which you changed. Keep it compatible or tell the user.")),
             ("OVERLAP", _) => notes.push(format!("Gitta (team): agent {other} on {machine} is also editing {path} {sym}. Both changes will need to be merged.")),
@@ -3209,17 +3452,12 @@ fn hook_feed(root: &Path, me: &str, other: &str, w: &Warning, main: &str) {
     let mine = w.referenced_by.as_deref() == Some(me);
     let (kind, text) = match w.kind.as_str() {
         "HAZARD" if other == "main" && told_before(root, me, &f) => return,
-        "HAZARD" if other == "main" => ("clash", format!("{me}'s new code in {} calls {f}, which changed on {main}. gitta told {me} to check its code against the new version.", w.path)),
-        "HAZARD" if mine => ("clash", format!("{me}'s new code in {} calls {f}, which {other} changed. gitta told {me} before anything reached {main}.", w.path)),
-        "SECURITY" if mine => ("clash", format!("{} weakened {f}, a security check that {me}'s new code in {} calls. gitta told {me}.", if other == "main" { format!("Work merged into {main}") } else { other.to_string() }, w.path)),
-        "SECURITY" => ("clash", format!("{me} weakened {f}, a security check that {other}'s new code calls. gitta told {me}.")),
+        "HAZARD" if other == "main" => ("clash", format!("{me}'s new code in {} {} {f}, which changed on {main}. gitta told {me} to check its code against the new version.", w.path, uses_verb(&w.path))),
+        "HAZARD" if mine => ("clash", format!("{me}'s new code in {} {} {f}, which {other} changed. gitta told {me} before anything reached {main}.", w.path, uses_verb(&w.path))),
         "CLAIMED" => ("clash", format!("{me} is editing {}, which {other} said it is changing. gitta told {me}.", w.path)),
         "OVERLAP" => ("check", format!("{me} and {other} both edit {}. gitta will merge the two changes function by function.", w.path)),
-        "SECRET" => ("warning", format!("{me} put what looks like a password or key in {}. gitta told {me} to remove it. It is reported when the work is merged, and weakened_checks in .gitta.toml decides whether that warns or stops the merge.", w.path)),
-        "INSTRUCTIONS" => {
-            tell_person(root, &format!("instructions|{me}|{}|{}", w.path, w.symbol.clone().unwrap_or_default()), &format!("{me} changed {}, a file of instructions every agent follows. Read the change before it is merged.", w.path));
-            return;
-        }
+        "INTERFERENCE" => ("check", format!("{other} newly sets `{}`, which {me}'s new code uses.", w.symbol.clone().unwrap_or_default())),
+        "DUPLICATE" => ("check", format!("{me} and {other} both add `{}`, possibly the same work twice.", w.symbol.clone().unwrap_or_default())),
         "WEAKENED" => {
             tell_person(root, &format!("weakened|{me}|{}|{}", w.path, w.symbol.clone().unwrap_or_default()), &format!("{me} weakened a check in {}. It is reported when the work is merged, and weakened_checks in .gitta.toml decides whether that warns or stops the merge.", w.path));
             return;
@@ -3241,7 +3479,7 @@ fn hook_activity(root: &Path, c: &Config, me: &str, v: &View, all: &[Warning], t
     let edited: Vec<String> = now.iter().filter(|(p, h)| before.get(*p) != Some(*h)).map(|(p, _)| p.clone()).collect();
     if now != before { let _ = std::fs::write(&seen_p, serde_json::to_string(&now).unwrap()); }
     // Clashes that point at this agent's code, now and after its last step.
-    let open: Vec<serde_json::Value> = all.iter().filter(|w| w.referenced_by.as_deref() == Some(me) && (matches!(w.kind.as_str(), "SECURITY" | "CLAIMED") || (w.kind == "HAZARD" && w.severity.as_deref() == Some("high"))))
+    let open: Vec<serde_json::Value> = all.iter().filter(|w| w.referenced_by.as_deref() == Some(me) && (w.kind == "CLAIMED" || (w.kind == "HAZARD" && w.severity.as_deref() == Some("high"))))
         .map(|w| serde_json::json!({"kind": w.kind, "symbol": w.symbol, "path": w.path, "other": w.changed_by})).collect();
     let open_p = root.join(".gitta").join(format!("{me}.open"));
     let was: Vec<serde_json::Value> = std::fs::read_to_string(&open_p).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
@@ -3256,7 +3494,7 @@ fn hook_activity(root: &Path, c: &Config, me: &str, v: &View, all: &[Warning], t
         }
     }
     // A change a sync brought in: say once when the agent's code that calls it has changed.
-    for p in adapt_pending(root, me).iter().filter(|p| p["security"].is_null()) {
+    for p in adapt_pending(root, me).iter() {
         let path = p["path"].as_str().unwrap_or("");
         let h = file_hash(&Path::new(&a.path).join(path));
         if h != p["hash"].as_str().unwrap_or("") {
@@ -3305,14 +3543,57 @@ fn hook_stop(ev: &serde_json::Value) {
     let Some(me) = agent_at(&c, &cwd) else { return };
     let a = agent(&c, &me).clone();
     let mine = changed_paths(&a, &c.link);
-    let Some(h) = std::fs::read_to_string(root.join(".gitta").join(format!("{me}.held"))).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) else { return };
-    if h["fingerprint"].as_str() != Some(work_fingerprint(&a, &mine, &main_commit(&c)).as_str()) { return; }
+    let fp = work_fingerprint(&a, &mine, &main_commit(&c));
+    let held = std::fs::read_to_string(root.join(".gitta").join(format!("{me}.held"))).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .filter(|h| h["fingerprint"].as_str() == Some(fp.as_str()));
+    let Some(h) = held else { return stop_unverified(&root, &c, &me, &mine, &fp) };
     // Told once per failed attempt: a repair turn that stops again is not sent back with the same text.
     let shown_path = root.join(".gitta").join(format!("{me}.shown"));
     let mut shown: BTreeSet<String> = std::fs::read_to_string(&shown_path).unwrap_or_default().lines().map(String::from).collect();
     if !shown.insert(format!("stop-held:{}", h["t"])) { return; }
     std::fs::write(&shown_path, shown.into_iter().collect::<Vec<_>>().join("\n")).ok();
     println!("{}", serde_json::json!({"decision": "block", "reason": format!("Gitta: {}\n{QUOTED_IS_DATA}", repair_text(&h, &c))}));
+}
+
+/// The tree of a workspace as it is now, tracked and new files, without touching its index.
+fn worktree_tree(dir: &Path) -> Option<String> {
+    let idx = std::env::temp_dir().join(format!("gitta-green-{}-{}", std::process::id(), dir.to_string_lossy().len()));
+    let run = |args: &[&str]| Command::new("git").args(args).current_dir(dir).env("GIT_INDEX_FILE", &idx).output().ok().filter(|o| o.status.success());
+    let tree = run(&["read-tree", "HEAD"]).and(run(&["add", "-A"])).and(run(&["write-tree"])).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    let _ = std::fs::remove_file(&idx);
+    tree.filter(|t| !t.is_empty())
+}
+
+/// The file a failing test lives in, from the name the runner printed: `tests/test_x.py::test_a` (pytest),
+/// `tests.test_x.T.test_a` (unittest), `src/x.test.ts` (Jest). None when no such file exists in `dir`.
+fn test_file_of(name: &str, dir: &Path) -> Option<String> {
+    let n = name.split("::").next().unwrap_or(name).trim();
+    if dir.join(n).is_file() { return Some(n.to_string()); }
+    let parts: Vec<&str> = n.split('.').collect();
+    (1..=parts.len()).rev().map(|k| format!("{}.py", parts[..k].join("/"))).find(|p| dir.join(p).is_file())
+}
+
+/// Whether a shell command runs the tests: the gate itself, or the same test runner the gate uses.
+fn runs_gate(cmd: &str, gate: &str) -> bool {
+    const RUNNERS: [&str; 15] = ["pytest", "unittest", "npm test", "npm run test", "yarn test", "pnpm test", "jest", "vitest", "go test", "cargo test", "mvn test", "gradle test", "dotnet test", "make test", "tox"];
+    cmd.contains(gate.trim()) || RUNNERS.iter().any(|r| cmd.contains(r) && gate.contains(r))
+}
+
+/// An agent that changed code is about to finish, but the tests never ran on its final version: send it back once to
+/// run them, so the user does not get "done" for work nobody tested.
+fn stop_unverified(root: &Path, c: &Config, me: &str, mine: &BTreeSet<String>, fp: &str) {
+    let Some(gate) = c.gate.as_deref() else { return };
+    // Opt-in (verify_done = true in .gitta.toml): it costs the agent a turn, so a team chooses it.
+    if team_setting(root, "verify_done").as_deref() != Some("true") { return; }
+    if mine.is_empty() || !mine.iter().any(|p| gitta_core::lang_of(p).is_some()) { return; }
+    if std::fs::read_to_string(root.join(".gitta").join(format!("{me}.tested"))).ok().as_deref() == Some(fp) { return; }
+    let shown_path = root.join(".gitta").join(format!("{me}.shown"));
+    let mut shown: BTreeSet<String> = std::fs::read_to_string(&shown_path).unwrap_or_default().lines().map(String::from).collect();
+    if !shown.insert(format!("stop-untested:{fp}")) { return; }
+    std::fs::write(&shown_path, shown.into_iter().collect::<Vec<_>>().join("\n")).ok();
+    log(root, "note", me, &format!("{me} was about to finish, but the tests had not run on its final code. gitta asked it to run them first."));
+    audit::record(root, "unverified_stop", me, &audit::actor(root), serde_json::json!({"gate": gate}));
+    println!("{}", serde_json::json!({"decision": "block", "reason": format!("Gitta: the tests have not run on your final code. Run `{gate}` now, and tell the user the result in one sentence before you finish.")}));
 }
 
 /// The one repair message for a merge whose tests failed: the failing tests, their first error lines, the new
@@ -3331,6 +3612,69 @@ struct Claim { agent: String, target: String, note: String }
 
 fn claims(root: &Path) -> Vec<Claim> { std::fs::read_to_string(root.join(".gitta/claims.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default() }
 fn save_claims(root: &Path, v: &[Claim]) { std::fs::write(root.join(".gitta/claims.json"), serde_json::to_string_pretty(v).unwrap()).ok(); }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct Conflict { agent: String, reason: String, t: u64 }
+
+fn conflicts(root: &Path) -> Vec<Conflict> { std::fs::read_to_string(root.join(".gitta/conflicts.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default() }
+fn save_conflicts(root: &Path, v: &[Conflict]) { std::fs::write(root.join(".gitta/conflicts.json"), serde_json::to_string_pretty(v).unwrap()).ok(); }
+
+/// The agent says its tests and its task contradict each other. gitta records it, holds the agent's work for a person
+/// and tells the agent to stop: the sanctioned way out instead of changing the tests to pass (ImpossibleBench: giving
+/// agents this option cut test exploitation from 54% to 9% for GPT-5).
+fn report_conflict(root: &Path, agent: &str, reason: &str) -> String {
+    let mut v = conflicts(root);
+    v.retain(|x| x.agent != agent);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    v.push(Conflict { agent: agent.into(), reason: reason.into(), t });
+    save_conflicts(root, &v);
+    log(root, "conflict", agent, &format!("{agent} reported that its task and the tests contradict each other: {reason}. Its work is held until a person decides."));
+    audit::record(root, "conflict_reported", agent, &audit::actor(root), serde_json::json!({"reason": reason}));
+    format!("Recorded. Your work is held until a person looks at it. Stop working on this task now, do not change the tests, \
+        and tell the user in one sentence: the tests and the task contradict each other ({reason}).")
+}
+
+/// `gitta conflict <agent> <reason>`, `gitta conflict --list`, `gitta conflict --resolve <agent>` (a person).
+fn cmd_conflict(args: &[String]) {
+    let root = root(); let c = load(&root);
+    match args.first().map(String::as_str) {
+        None | Some("-h") | Some("--help") => println!("gitta conflict <agent> <reason>   the agent's tests and task contradict each other: hold its work for a person\ngitta conflict --list\ngitta conflict --resolve <agent>   a person has decided; the agent's work can land again"),
+        Some("--list") => {
+            let v = conflicts(&root);
+            if v.is_empty() { println!("gitta: no open conflicts"); }
+            for x in v { println!("{}: {}", x.agent, x.reason); }
+        }
+        Some("--resolve") => {
+            let a = args.get(1).cloned().unwrap_or_else(|| die("usage: gitta conflict --resolve <agent>"));
+            if let Some(v) = agent_session() { die(&format!("only a person resolves a conflict, not an agent session ({v} is set). Ask the user to run this in their own terminal.")); }
+            let mut v = conflicts(&root); let before = v.len(); v.retain(|x| x.agent != a); save_conflicts(&root, &v);
+            if v.len() == before { die(&format!("{a} has no open conflict")); }
+            log(&root, "conflict", &a, &format!("A person resolved {a}'s conflict between its task and the tests."));
+            audit::record(&root, "conflict_resolved", &a, &audit::actor(&root), serde_json::json!({}));
+            println!("gitta: {a}'s conflict is resolved; its work can land again");
+        }
+        Some(a) => {
+            agent(&c, a);
+            let reason = args[1..].join(" ");
+            if reason.trim().is_empty() { die("usage: gitta conflict <agent> <reason>"); }
+            println!("gitta: {}", report_conflict(&root, a, &reason));
+        }
+    }
+}
+
+/// `gitta tests-ran [--reset]`: how many tests ran when work last landed; a person resets it after removing tests on purpose.
+fn cmd_tests_ran(args: &[String]) {
+    let root = root();
+    let f = root.join(".gitta/tests-ran");
+    if args.first().map(String::as_str) == Some("--reset") {
+        if let Some(v) = agent_session() { die(&format!("only a person resets the test count, not an agent session ({v} is set). Ask the user to run this in their own terminal.")); }
+        let _ = std::fs::remove_file(&f);
+        audit::record(&root, "tests_ran_reset", "", &audit::actor(&root), serde_json::json!({}));
+        println!("gitta: the test count is reset; the next landing sets it again");
+        return;
+    }
+    match std::fs::read_to_string(&f) { Ok(n) => println!("gitta: {} test(s) ran when work last landed", n.trim()), Err(_) => println!("gitta: no landing has recorded a test count yet") }
+}
 
 /// Write admission: declare a symbol (`module.name`, e.g. `shop.pricing.shipping`) or a path before changing it.
 fn claim(root: &Path, agent: &str, target: &str, note: &str) -> Result<String, String> {
@@ -3358,7 +3702,7 @@ fn claim_warnings(c: &Config, v: &View) -> Vec<Warning> {
             };
             if path_hit || sym_hit {
                 out.push(Warning { kind: "CLAIMED".into(), path: cl.target.clone(), symbol: Some(cl.note.clone()), changed_by: Some(cl.agent.clone()),
-                                   referenced_by: Some(name.clone()), severity: Some("high".into()), agents: vec![cl.agent.clone(), name.clone()], security: None });
+                                   referenced_by: Some(name.clone()), severity: Some("high".into()), agents: vec![cl.agent.clone(), name.clone()] });
             }
         }
     }
@@ -3387,6 +3731,7 @@ fn mcp_tools() -> serde_json::Value {
         {"name": "gitta_check", "description": "Test your work combined with other agents' work.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "with": {"type": "string"}}, "required": []}},
         {"name": "gitta_claim", "description": "Claim a symbol (module.name) or path you will change.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "target": {"type": "string"}, "note": {"type": "string"}}, "required": ["target"]}},
         {"name": "gitta_release", "description": "Release a claim.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "target": {"type": "string"}}, "required": ["target"]}},
+        {"name": "gitta_conflict", "description": "Use this when the tests and your task contradict each other, or a test cannot pass without changing what it checks. Do NOT edit, skip or weaken the tests to make them pass. gitta records the conflict, holds your work for a person and tells you what to say to the user.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "reason": {"type": "string", "description": "which test and which part of the task contradict each other"}}, "required": ["reason"]}},
         {"name": "gitta_failures", "description": "Recorded integration failures you can repair. With no id, lists them; with an id, shows that reproducible package: base/incoming/candidate revisions, the gate command, an environment fingerprint, the failing output and a rerun command. 'reproduced' is true only after a rerun confirmed the failure.", "inputSchema": {"type": "object", "properties": {"path": path, "id": {"type": "string"}}}}
     ])
 }
@@ -3423,6 +3768,7 @@ fn mcp_call(name: &str, a: &serde_json::Value) -> Result<String, String> {
         "gitta_claim" => { let me = who()?; claim(&root, &me, &arg("target").ok_or("missing target")?, &arg("note").unwrap_or_default()) }
         "gitta_release" => { let me = who()?; let t = arg("target").ok_or("missing target")?; let mut v = claims(&root); v.retain(|x| !(x.agent == me && x.target == t)); save_claims(&root, &v); Ok(format!("released {t}")) }
         "gitta_failures" => Ok(githooks::failures_json(&root, arg("id").as_deref())),
+        "gitta_conflict" => { let me = who()?; Ok(report_conflict(&root, &me, &arg("reason").ok_or("missing reason")?)) }
         _ => Err(format!("unknown tool {name}")),
     }
 }
@@ -3568,11 +3914,10 @@ fn status_json(c: &Config) -> serde_json::Value {
         "skipped": v.skipped.iter().map(|(n, why)| serde_json::json!({"name": n, "reason": why})).collect::<Vec<_>>(),
         "warnings": ws.iter().map(|w| serde_json::json!({"kind": w.kind, "severity": w.severity, "text": describe(w)})).collect::<Vec<_>>(),
         "claims": claims(root), "blocked": blocked,
-        "security_notes": v.notes.iter().map(|(ag, n)| { let mut j = note_json(n); j["agent"] = serde_json::json!(ag); j }).collect::<Vec<_>>(),
         "activity": std::fs::read_to_string(root.join(".gitta/activity.jsonl")).unwrap_or_default().lines().rev().take(60)
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).collect::<Vec<_>>(),
         "warnings_raw": ws.iter().map(|w| serde_json::json!({"kind": w.kind, "severity": w.severity, "path": w.path, "symbol": w.symbol,
-            "changed_by": w.changed_by, "referenced_by": w.referenced_by, "agents": w.agents, "security": w.security})).collect::<Vec<_>>(),
+            "changed_by": w.changed_by, "referenced_by": w.referenced_by, "agents": w.agents})).collect::<Vec<_>>(),
     })
 }
 
@@ -3580,6 +3925,7 @@ fn status_json(c: &Config) -> serde_json::Value {
 ///   gitta run --task "..." --task "..." [--tasks FILE] [--agent claude|codex|cmd] [--cmd 'TEMPLATE with {task}'] [--gate CMD] [--link DIR] [--land]
 fn cmd_run(args: &[String]) {
     let mut tasks: Vec<String> = vec![]; let (mut tool, mut tmpl, mut land) = ("claude".to_string(), None::<String>, false); let mut sandbox = false; let mut net: Vec<String> = vec![];
+    let mut schedule = false;
     let mut up_args: Vec<String> = vec![];
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -3589,6 +3935,7 @@ fn cmd_run(args: &[String]) {
             "--agent" => tool = it.next().cloned().unwrap_or_default(),
             "--cmd" => tmpl = it.next().cloned(),
             "--land" => land = true,
+            "--schedule" => schedule = true,
             "--sandbox" => sandbox = true,
             "--net-port" => net.push(it.next().cloned().unwrap_or_default()),
             "--gate" | "--link" => { up_args.push(a.clone()); up_args.push(it.next().cloned().unwrap_or_default()); }
@@ -3612,7 +3959,7 @@ fn cmd_run(args: &[String]) {
     });
     let logs = root.join(".gitta/logs"); std::fs::create_dir_all(&logs).ok();
     let quote = |t: &str| format!("'{}'", t.replace('\'', "'\\''"));
-    let mut kids = vec![];
+    let mut jobs: Vec<(String, String, String, String)> = vec![];
     for (a, t) in c.agents.iter().zip(&tasks) {
         let mut cmd = template.replace("{task}", &quote(&format!("{t}\n\nYou are agent {} in a team of AI agents working in parallel on this repository through Gitta. Other agents' changes will be merged with yours. Follow Gitta's notes; use the gitta MCP tools (status, claim, check, sync) when useful.", a.name)));
         if sandbox {
@@ -3642,14 +3989,71 @@ fn cmd_run(args: &[String]) {
             cmd = format!("{sb} --workspace {} --write {sbhome_q} {netargs} --env {keyvar} -- sh -c {}",
                 quote(&a.path), quote(&format!("export HOME={sbhome_q}; {cmd}")));
         }
-        let log = std::fs::File::create(logs.join(format!("{}.log", a.name))).unwrap();
-        println!("gitta: {} -> {}", a.name, t);
         let _ = std::fs::write(root.join(".gitta").join(format!("{}.task", a.name)), t);
-        kids.push((a.name.clone(), shell(&cmd).current_dir(&a.path).stdin(Stdio::null()).stdout(log.try_clone().unwrap()).stderr(log).spawn().unwrap_or_else(|e| die(&format!("start agent: {e}")))));
+        jobs.push((a.name.clone(), t.clone(), cmd, a.path.clone()));
     }
-    for (n, mut k) in kids { let st = k.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1); println!("gitta: {n} finished (exit {st}); log .gitta/logs/{n}.log"); }
+    // Conflict-aware scheduling (--schedule): a task that names files an earlier task names waits for it, so two
+    // agents never rework the same code at once (the Cassandra idea, Uber, applied before the work starts).
+    let deps: Vec<Vec<usize>> = if schedule { schedule_deps(&root, &tasks[..jobs.len()]) } else { vec![vec![]; jobs.len()] };
+    for (i, d) in deps.iter().enumerate() {
+        for j in d { println!("gitta: {} waits for {}: both tasks touch {}", jobs[i].0, jobs[*j].0, task_files(&root, &tasks[i]).intersection(&task_files(&root, &tasks[*j])).cloned().collect::<Vec<_>>().join(", ")); }
+    }
+    let start = |i: usize| {
+        let (name, t, cmd, path) = &jobs[i];
+        let log = std::fs::File::create(logs.join(format!("{name}.log"))).unwrap();
+        println!("gitta: {name} -> {t}");
+        shell(cmd).current_dir(path).stdin(Stdio::null()).stdout(log.try_clone().unwrap()).stderr(log).spawn().unwrap_or_else(|e| die(&format!("start agent: {e}")))
+    };
+    let mut running: Vec<(usize, std::process::Child)> = vec![];
+    let mut done: BTreeSet<usize> = BTreeSet::new();
+    let mut started: BTreeSet<usize> = BTreeSet::new();
+    loop {
+        for i in 0..jobs.len() {
+            if !started.contains(&i) && deps[i].iter().all(|j| done.contains(j)) {
+                // Its predecessors landed (with --land): bring their work in first, so this agent starts from it.
+                if land && !deps[i].is_empty() { Command::new(&exe).args(["sync", &jobs[i].0]).status().ok(); }
+                started.insert(i); running.push((i, start(i)));
+            }
+        }
+        if running.is_empty() { break; }
+        let mut finished = None;
+        while finished.is_none() {
+            for (k, (i, ch)) in running.iter_mut().enumerate() { if let Ok(Some(st)) = ch.try_wait() { finished = Some((k, *i, st.code().unwrap_or(-1))); break; } }
+            if finished.is_none() { std::thread::sleep(std::time::Duration::from_millis(200)); }
+        }
+        let (k, i, st) = finished.unwrap();
+        running.remove(k);
+        println!("gitta: {} finished (exit {st}); log .gitta/logs/{}.log", jobs[i].0, jobs[i].0);
+        // A task others wait for lands as soon as it is done, so they can build on it.
+        if land && deps.iter().any(|d| d.contains(&i)) { Command::new(&exe).args(["land", &jobs[i].0]).status().ok(); }
+        done.insert(i);
+    }
     Command::new(&exe).arg("status").status().ok();
     if land { Command::new(&exe).args(["land", "--all"]).status().ok(); }
+}
+
+/// The tracked files a task description points to: paths and file names it mentions, and files that define or use a
+/// code identifier it mentions (`snake_case`, `CamelCase` or `name()`), when that identifier occurs in few files.
+fn task_files(root: &Path, task: &str) -> BTreeSet<String> {
+    let files: Vec<String> = git_ok(root, &["ls-files"]).lines().map(String::from).collect();
+    let mut out = BTreeSet::new();
+    for w in task.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '`' | '"' | '\'' | '(' | ')')) {
+        let w = w.trim_end_matches(['.', ':']);
+        if w.is_empty() { continue; }
+        for f in &files { if f == w || (w.contains('.') && f.ends_with(&format!("/{w}"))) { out.insert(f.clone()); } }
+        let ident = w.len() > 3 && w.chars().all(|c| c.is_alphanumeric() || c == '_') && (w.contains('_') || w.chars().skip(1).any(|c| c.is_uppercase()));
+        if ident {
+            let hits: Vec<String> = git_ok(root, &["grep", "-l", "-w", "--", w]).lines().map(String::from).collect();
+            if !hits.is_empty() && hits.len() <= 5 { out.extend(hits); }
+        }
+    }
+    out
+}
+
+/// For each task, the earlier tasks it must wait for: those that point to a file it also points to.
+fn schedule_deps(root: &Path, tasks: &[String]) -> Vec<Vec<usize>> {
+    let sets: Vec<BTreeSet<String>> = tasks.iter().map(|t| task_files(root, t)).collect();
+    (0..tasks.len()).map(|i| (0..i).filter(|j| !sets[i].is_disjoint(&sets[*j])).collect()).collect()
 }
 
 /// Is `refref` checked out in any working tree of the repository?
@@ -3690,7 +4094,7 @@ fn cmd_adopt(args: &[String]) {
     branch_must_exist(&root, &onto);
     let mut c = if cfg_path(&root).exists() { load(&root) } else {
         std::fs::create_dir_all(root.join(".gitta")).unwrap();
-        Config { root: root.to_string_lossy().into(), agents: vec![], gate: None, link: vec![], auto_sync: false, parallel: 0, main: main.clone(), watch: false, server: None, server_token: None, security: vec![], security_block: None, include: vec![], notify: false, gate_env: vec![], gate_timeout: 0, weakened_checks: None }
+        Config { root: root.to_string_lossy().into(), agents: vec![], gate: None, link: vec![], auto_sync: false, parallel: 0, main: main.clone(), watch: false, server: None, server_token: None, include: vec![], notify: false, gate_env: vec![], gate_timeout: 0, weakened_checks: None }
     };
     set_gate(&root, &mut c, gate);
     // Worktrees: path + branch, from git itself.
@@ -3721,11 +4125,10 @@ fn cmd_adopt(args: &[String]) {
 ///   gitta pr-check --pr REF [--name N] --other REF[=NAME]... [--base REF] [--gate CMD] [--json]
 fn cmd_pr_check(args: &[String]) {
     let root = root();
-    // In CI there is usually no `gitta init`: the committed `.gitta-security` file still counts.
+    // In CI there is usually no `gitta init`: the saved include folders count when there are any.
     let saved = std::fs::read_to_string(cfg_path(&root)).ok().and_then(|t| serde_json::from_str::<Config>(&t).ok());
-    let saved_block = saved.as_ref().and_then(|c| c.security_block.clone());
-    let (sec, inc) = saved.map(|c| (c.security, c.include)).unwrap_or_default();
-    apply_settings(&root, &sec, &inc);
+    let inc = saved.map(|c| c.include).unwrap_or_default();
+    apply_settings(&root, &inc);
     let get = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
     let pr = get("--pr").unwrap_or_else(|| die("usage: gitta pr-check --pr REF --other REF[=NAME]... [--base REF] [--gate CMD] [--json]"));
     let pr_name = get("--name").unwrap_or(pr.clone());
@@ -3733,40 +4136,40 @@ fn cmd_pr_check(args: &[String]) {
     let target = get("--base").unwrap_or("HEAD".into());
     let gate = get("--gate").or(team_setting_at(&root, &target, "gate"));
     let diff = |a: &str, b: &str| -> BTreeSet<String> { git_ok(&root, &["diff", "--name-only", "--no-renames", a, b]).lines().filter(|x| !x.is_empty() && !junk(x)).map(String::from).collect() };
-    // Security notes on the lines the pull request adds, against where it branched from the target.
-    let notes = {
+    // Test notes: changed code with no test change (medium when the untested lines catch or throw), and new tests
+    // that will fail at random.
+    let untested_notes = {
         let mb = git_ok(&root, &["merge-base", &pr, &target]);
         let paths = diff(&mb, &pr);
         let v: Vec<String> = paths.iter().cloned().collect();
-        gitta_core::code_security::findings(&blobs(&root, &mb, &paths), &blobs(&root, &pr, &paths), &v)
+        let (bb, nb) = (blobs(&root, &mb, &paths), blobs(&root, &pr, &paths));
+        let mut n = gitta_core::test_notes::untested(&bb, &nb, &v);
+        n.extend(gitta_core::test_notes::flaky_tests(&bb, &nb, &v));
+        n
     };
-    let notes_json: Vec<serde_json::Value> = notes.iter().map(note_json).collect();
-    // Removed tests, weakened checks and blocking security rules in this pull request: reported always, and a
+    // Removed tests and weakened checks in this pull request: reported always, and a
     // failing check when the committed .gitta.toml (or the CI default) says block.
     let weakened: Vec<String> = {
         let mb = git_ok(&root, &["merge-base", &pr, &target]);
         let paths = diff(&mb, &pr);
         let v: Vec<String> = paths.iter().cloned().collect();
-        let mut f = gitta_core::guard::safety_net(&blobs(&root, &mb, &paths), &blobs(&root, &pr, &paths), &v);
-        let rank = match saved_block.as_deref() { Some("none") => 3, Some("medium") => 1, _ => 2 };
-        for n in notes.iter().filter(|n| blocks(n, rank)) { f.push(gitta_core::guard::Finding { kind: "SECURITY_RULE".into(), path: n.path.clone(), detail: format!("adds code that {} (line {})", n.text.trim_end_matches('.'), n.line) }); }
+        let (bb, nb) = (blobs(&root, &mb, &paths), blobs(&root, &pr, &paths));
+        let mut f = gitta_core::guard::safety_net(&bb, &nb, &v);
+        f.extend(hook_findings(&root, &mb, &pr, &target));
         weakened_lines(&pr_name, &f)
     };
-    // Credentials on the lines the pull request adds: a failing check whatever weakened_checks says, as in gitta land.
-    let credentials: Vec<String> = {
-        let mb = git_ok(&root, &["merge-base", &pr, &target]);
-        let paths = diff(&mb, &pr);
-        let (b, n) = (blobs(&root, &mb, &paths), blobs(&root, &pr, &paths));
-        let txt = |s: &gitta_core::Snapshot, p: &str| s.get(p).map(|x| String::from_utf8_lossy(x).to_string()).unwrap_or_default();
-        paths.iter().filter_map(|p| gitta_core::guard::secret_in_new_lines(&txt(&b, p), &txt(&n, p)).map(|(l, label)| format!("{p}:{l} looks like it contains a credential ({label})"))).collect()
-    };
-    let policy = std::env::var("GITTA_WEAKENED_CHECKS").ok().or(team_setting_at(&root, &target, "weakened_checks")).unwrap_or("block".into());
+    // A committed weakened_checks = block cannot be weakened by GITTA_WEAKENED_CHECKS; otherwise the env or the
+    // committed value applies, defaulting to block for the pull-request check.
+    let committed_wc = team_setting_at(&root, &target, "weakened_checks");
+    let policy = if committed_wc.as_deref() == Some("block") { "block".to_string() }
+        else { std::env::var("GITTA_WEAKENED_CHECKS").ok().or(committed_wc).unwrap_or("block".into()) };
     // The team's rules for agents. A pull request is agent work when a commit names an AI tool as co-author;
     // --approved: the pull request has an approving review.
     if let (Ok(url), Ok(tok)) = (std::env::var("GITTA_SERVER"), std::env::var("GITTA_SERVER_TOKEN")) {
         std::fs::create_dir_all(root.join(".gitta")).ok();
         for u in url.split(',').map(|u| u.trim().trim_end_matches('/')).filter(|u| !u.is_empty()) {
-            let o = Command::new("curl").args(["-fsS", "--connect-timeout", "2", "--max-time", "5", "-H", &format!("Authorization: Bearer {tok}"), &format!("{u}/v1/policy")]).output();
+            let ep = format!("{u}/v1/policy");
+            let o = server_curl(u, &tok, &["-fsS", "--connect-timeout", "2", "--max-time", "5", &ep], None);
             if let Some(o) = o.ok().filter(|o| o.status.success()) { policy::save_server(&root, &String::from_utf8_lossy(&o.stdout)); break; }
         }
     }
@@ -3804,9 +4207,8 @@ fn cmd_pr_check(args: &[String]) {
         prof("pr-check: merge");
         // An overlap the merge already resolves, where neither edit can change what other code means, is info.
         let quiet = |w: &Warning| merged.get(&w.path).map(|v| gitta_core::quiet_overlap(w, v.as_deref().unwrap_or_default())).unwrap_or(false);
-        let warnings: Vec<String> = all.iter().filter(|w| w.kind != "UNPARSED" && w.kind != "SECURITY" && !quiet(w)).map(describe).collect();
+        let warnings: Vec<String> = all.iter().filter(|w| w.kind != "UNPARSED" && !quiet(w)).map(describe).collect();
         let info: Vec<String> = all.iter().filter(|w| quiet(w)).map(describe).collect();
-        let security: Vec<String> = all.iter().filter(|w| w.kind == "SECURITY").map(describe).collect();
         let mut tests = None;
         if let (Some(g), None) = (&gate, &merge_error) {
             let tmp = tempdir("prc");
@@ -3823,27 +4225,23 @@ fn cmd_pr_check(args: &[String]) {
             if ok { let (pass, tail) = gate_in(g, &tmp); tests = Some((pass, tail)); }
             git(&root, &["worktree", "remove", "--force", tmp.to_str().unwrap()]);
         }
-        results.push(serde_json::json!({"other": oname, "weakened": weakened, "warnings": warnings, "info": info, "security": security, "security_notes": notes_json, "merges": merge_error.is_none(), "merge_error": merge_error,
+        results.push(serde_json::json!({"other": oname, "weakened": weakened, "warnings": warnings, "info": info, "merges": merge_error.is_none(), "merge_error": merge_error,
             "tests": tests.as_ref().map(|(p, _)| if *p { "PASS" } else { "FAIL" }), "test_output": tests.map(|(_, t)| t)}));
     }
-    let stop = (policy == "block" && !weakened.is_empty()) || !rule_lines.is_empty() || !credentials.is_empty();
-    for r in results.iter_mut() { r["policy"] = serde_json::json!(rule_lines); r["credentials"] = serde_json::json!(credentials); }
+    let stop = (policy == "block" && !weakened.is_empty()) || !rule_lines.is_empty();
+    for r in results.iter_mut() { r["untested"] = serde_json::json!(untested_notes); r["policy"] = serde_json::json!(rule_lines); }
     if args.iter().any(|a| a == "--json") { println!("{}", serde_json::to_string_pretty(&results).unwrap()); if stop { std::process::exit(3) } return; }
     // Markdown, ready to post as a PR comment.
-    let bad: Vec<&serde_json::Value> = results.iter().filter(|r| !r["merges"].as_bool().unwrap_or(true) || r["tests"] == "FAIL" || !r["warnings"].as_array().map(|w| w.is_empty()).unwrap_or(true)
-        || !r["security"].as_array().map(|w| w.is_empty()).unwrap_or(true)).collect();
+    let bad: Vec<&serde_json::Value> = results.iter().filter(|r| !r["merges"].as_bool().unwrap_or(true) || r["tests"] == "FAIL" || !r["warnings"].as_array().map(|w| w.is_empty()).unwrap_or(true)).collect();
     println!("### Gitta: {pr_name} against {} other open pull request(s)\n", results.len());
-    let open: Vec<_> = notes.iter().filter(|n| n.allowed.is_none()).collect();
     for l in &rule_lines { println!("- **Breaks a team rule**: {l}"); }
-    for l in &credentials { println!("- **Credential**: {l}. Remove it and use configuration or a secret store."); }
-    if bad.is_empty() && open.is_empty() && weakened.is_empty() && rule_lines.is_empty() && credentials.is_empty() { println!("No interference found with any other open pull request."); }
+    if bad.is_empty() && weakened.is_empty() && rule_lines.is_empty() { println!("No interference found with any other open pull request."); }
     for l in &weakened { println!("- **Weakens a check**: {l}{}", if policy == "block" { " This check fails, because weakened_checks is block. Restore it, or change .gitta.toml in a reviewed commit." } else { "" }); }
-    for n in &open { println!("- **Security**: {}:{} {} {} ({}, {})", n.path, n.line, n.text, n.safer, n.severity, n.rule); }
+    for n in &untested_notes { println!("- **Tests**: {}:{} {}.{} {}", n.path, n.line, n.detail.as_deref().unwrap_or(&n.text), if n.severity == "medium" { " The untested lines handle errors." } else { "" }, n.safer); }
     for r in bad {
         let o = r["other"].as_str().unwrap_or("");
         if r["tests"] == "FAIL" { println!("- **Breaks together with {o}**: the tests fail on the combination.\n\n  ```\n{}\n  ```", r["test_output"].as_str().unwrap_or("").lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")); }
         else if !r["merges"].as_bool().unwrap_or(true) { println!("- **Does not merge with {o}**: {}", r["merge_error"].as_str().unwrap_or("")); }
-        for w in r["security"].as_array().into_iter().flatten() { println!("- **Security** with {o}: {}", w.as_str().unwrap_or("").trim_start_matches("SECURITY potentially affected: ")); }
         for w in r["warnings"].as_array().into_iter().flatten() { println!("- {o}: {}", w.as_str().unwrap_or("")); }
     }
     for r in &results {
@@ -4019,10 +4417,10 @@ fn spec(cmd: &str) -> Option<&'static Spec> {
 }
 
 const SPECS: &[Spec] = &[
-    Spec { name: "init", usage: "gitta init [--onto BRANCH] [--gate CMD] [--notify on|off] [--weakened-checks warn|block] [--parallel N] [--security PATTERN]... [--security-block high|medium|none] [--server URL] [--token T] [--team] [--no-claude] [--no-cow]\n  Coordinate every worktree of this repository from now on (run once).",
-        values: &["--onto", "--gate", "--parallel", "--security", "--security-block", "--server", "--token", "--notify", "--weakened-checks"], flags: &["--team", "--no-claude", "--no-cow"], text_after: None },
-    Spec { name: "run", usage: "gitta run --task T... | --tasks FILE [--agent claude|codex] [--cmd TEMPLATE] [--gate CMD] [--link DIR] [--sandbox] [--net-port P] [--land]\n  Start one agent per task in its own workspace.",
-        values: &["--task", "--tasks", "--agent", "--cmd", "--gate", "--link", "--net-port"], flags: &["--land", "--sandbox"], text_after: None },
+    Spec { name: "init", usage: "gitta init [--onto BRANCH] [--gate CMD] [--notify on|off] [--weakened-checks warn|block] [--parallel N] [--server URL] [--token T] [--team] [--no-claude] [--no-cow]\n  Coordinate every worktree of this repository from now on (run once).",
+        values: &["--onto", "--gate", "--parallel", "--server", "--token", "--notify", "--weakened-checks"], flags: &["--team", "--no-claude", "--no-cow"], text_after: None },
+    Spec { name: "run", usage: "gitta run --task T... | --tasks FILE [--agent claude|codex] [--cmd TEMPLATE] [--gate CMD] [--link DIR] [--sandbox] [--net-port P] [--land] [--schedule]\n  Start one agent per task in its own workspace.",
+        values: &["--task", "--tasks", "--agent", "--cmd", "--gate", "--link", "--net-port"], flags: &["--land", "--sandbox", "--schedule"], text_after: None },
     Spec { name: "up", usage: "gitta up -n N [--gate CMD] [--link DIR] [--backend worktree|overlay|fuse] [--deny-read PATTERN]\n  Create N agent workspaces from HEAD.",
         values: &["-n", "--gate", "--link", "--backend", "--deny-read"], flags: &[], text_after: None },
     Spec { name: "status", usage: "gitta status [--json]\n  Agents, their changes and live warnings. Workspaces Gitta cannot read are skipped with a note.", values: &[], flags: &["--json"], text_after: None },
@@ -4031,14 +4429,15 @@ const SPECS: &[Spec] = &[
     Spec { name: "claim", usage: "gitta claim <agent> <module.symbol|path> [note]\n  Tell the other agents that this agent is changing something.", values: &[], flags: &[], text_after: Some(2) },
     Spec { name: "release", usage: "gitta release <agent> <module.symbol|path>\n  Drop a claim.", values: &[], flags: &[], text_after: Some(2) },
     Spec { name: "watch", usage: "gitta watch [--once]\n  What gitta does, as it happens, in plain words. Ctrl-C quits.", values: &[], flags: &["--once"], text_after: None },
-    Spec { name: "approve", usage: "gitta approve <agent> <reason>\n  A person approves what Gitta holds back (weakened checks, security hazards).", values: &[], flags: &[], text_after: Some(1) },
+    Spec { name: "approve", usage: "gitta approve <agent> <reason>\n  A person approves what Gitta holds back (weakened checks).", values: &[], flags: &[], text_after: Some(1) },
     Spec { name: "land", usage: "gitta land <agent>|--all [--pr [--remote origin]]\n  Merge an agent's work onto the main branch after the gate passes.", values: &["--remote"], flags: &["--all", "--pr", "--fits"], text_after: None },
     Spec { name: "adopt", usage: "gitta adopt [--onto BRANCH] [--gate CMD] [--all | PATH...]\ngitta adopt --reset <agent>\n  Coordinate worktrees another tool made; --reset restarts an agent whose start commit is gone.",
         values: &["--onto", "--gate", "--reset"], flags: &["--all"], text_after: None },
+    Spec { name: "tests-for", usage: "gitta tests-for <agent>\n  The test files that use what an agent changed, so it can run those first.", values: &[], flags: &[], text_after: Some(1) },
+    Spec { name: "main-check", usage: "gitta main-check [--revert]\n  Run the tests on main; when they fail, find the landed change that broke it, and with --revert undo it.", values: &[], flags: &["--revert"], text_after: None },
     Spec { name: "pr-check", usage: "gitta pr-check --pr REF [--name N] --other REF[=NAME]... [--base REF] [--gate CMD] [--approved] [--json]\n  Check one pull request against other open ones.",
         values: &["--pr", "--name", "--other", "--base", "--gate"], flags: &["--json", "--approved"], text_after: None },
     Spec { name: "hook", usage: "gitta hook claude|claude-stop|worktree-create|worktree-remove|worktree-setup\n  Run by the coding tools after each step; reads the event on stdin.", values: &[], flags: &[], text_after: None },
-    Spec { name: "scan", usage: "gitta scan [dirs]\n  Look for secrets and agent-instruction changes.", values: &[], flags: &[], text_after: None },
     Spec { name: "mcp", usage: "gitta mcp\n  MCP server on stdin/stdout.", values: &[], flags: &[], text_after: None },
     Spec { name: "install", usage: "gitta install claude|cursor|codex\n  Hook a coding tool up in every workspace.", values: &[], flags: &[], text_after: None },
     Spec { name: "login", usage: "gitta login [--server URL]\n  Sign in to the team server.", values: &["--server"], flags: &[], text_after: None },
@@ -4071,12 +4470,13 @@ fn check_args(sp: &Spec, args: &[String]) {
     }
 }
 
-const HELP: &str = "gitta watch | init [--onto BRANCH] [--gate CMD] (once; then work as usual) | run --task T... [--agent claude|codex] [--land] | up -n N [--gate CMD] [--link DIR] | status [--json] | sync <agent> [--from main|<agent>] | check <agent> [--with <agent>] | claim|release <agent> <target> [note] | approve <agent> <reason> | land <agent>|--all [--pr] | adopt [--onto B] [--all|PATH..] | pr-check --pr REF --other REF.. | hook claude|claude-stop | scan [dirs] | mcp | install claude|cursor|codex | login [--server URL] | team token create|revoke|list, team whoami | audit [verify] [--since DATE] [--agent A] [--event E] [--json|--csv] [--team] | update [--check] | version | down | uninstall [--everywhere]\n`gitta <command> --help` shows one command's options.";
+const HELP: &str = "gitta watch | init [--onto BRANCH] [--gate CMD] (once; then work as usual) | run --task T... [--agent claude|codex] [--land] | up -n N [--gate CMD] [--link DIR] | status [--json] | sync <agent> [--from main|<agent>] | check <agent> [--with <agent>] | claim|release <agent> <target> [note] | conflict <agent> <reason> | tests-ran [--reset] | approve <agent> <reason> | land <agent>|--all [--pr] | adopt [--onto B] [--all|PATH..] | pr-check --pr REF --other REF.. | main-check [--revert] | tests-for <agent> | hook claude|claude-stop | mcp | install claude|cursor|codex | login [--server URL] | team token create|revoke|list, team whoami | audit [verify] [--since DATE] [--agent A] [--event E] [--json|--csv] [--team] | update [--check] | version | down | uninstall [--everywhere]\n`gitta <command> --help` shows one command's options.";
 
 #[derive(Default)]
 pub struct Ext { pub server: Option<fn(&[String])>, pub discover: Option<fn(&[String])> }
 
 pub fn main_with(ext: &Ext) {
+    quiet_on_broken_pipe();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, rest) = args.split_first().map(|(a, b)| (a.as_str(), b.to_vec())).unwrap_or(("help", vec![]));
     if let Some(sp) = spec(cmd) { check_args(sp, &rest); }
@@ -4092,7 +4492,7 @@ pub fn main_with(ext: &Ext) {
     match cmd {
         "watch" => watch::watch(&rest), "git-hook" => githooks::run(&rest),
         "init" => cmd_init(&rest), "up" => cmd_up(&rest), "status" => cmd_status(&rest), "check" => cmd_check(&rest),
-        "claim" => cmd_claim(&rest, false), "release" => cmd_claim(&rest, true), "mcp" => cmd_mcp(), "approve" => cmd_approve(&rest), "scan" => cmd_scan(&rest), "run" => cmd_run(&rest), "adopt" => cmd_adopt(&rest), "pr-check" => cmd_pr_check(&rest), "install" => cmd_install(&rest), "sync" => cmd_sync(&rest), "land" => cmd_land(&rest), "failure" => githooks::run_failure(&rest),
+        "claim" => cmd_claim(&rest, false), "conflict" => cmd_conflict(&rest), "tests-ran" => cmd_tests_ran(&rest), "release" => cmd_claim(&rest, true), "mcp" => cmd_mcp(), "approve" => cmd_approve(&rest), "run" => cmd_run(&rest), "adopt" => cmd_adopt(&rest), "pr-check" => cmd_pr_check(&rest), "install" => cmd_install(&rest), "sync" => cmd_sync(&rest), "land" => cmd_land(&rest), "failure" => githooks::run_failure(&rest),
         "update" => update::cmd(&rest), "__update-refresh" => update::refresh(),
         "hook" => cmd_hook(&rest), "down" => cmd_down(), "uninstall" => cmd_uninstall(&rest), "server" => match ext.server { Some(f) => f(&rest), None => die("the team server is part of Gitta Enterprise; this build has the open-source features only") },
         "discover" => match ext.discover { Some(f) => f(&rest), None => die("gitta discover is part of Gitta Enterprise; this build has the open-source features only") },
@@ -4107,6 +4507,8 @@ pub fn main_with(ext: &Ext) {
         "team" => { let root = root(); let t = std::fs::read_to_string(cfg_path(&root)).ok().and_then(|t| serde_json::from_str::<Config>(&t).ok()).and_then(|c| team(&c)); team::cmd(&rest, t) }
         "report" => { let root = root(); let t = std::fs::read_to_string(cfg_path(&root)).ok().and_then(|t| serde_json::from_str::<Config>(&t).ok()).and_then(|c| team(&c)); report::cmd(&root, &rest, t) }
         "audit" => { let root = root(); let t = std::fs::read_to_string(cfg_path(&root)).ok().and_then(|t| serde_json::from_str::<Config>(&t).ok()).and_then(|c| team(&c)); audit::cmd(&root, &rest, t) }
+        "main-check" => cmd_main_check(&rest),
+        "tests-for" => cmd_tests_for(&rest),
         "version" | "--version" | "-V" => println!("gitta {}", update::current()),
         "help" | "--help" | "-h" => println!("{HELP}"),
         other => die(&format!("unknown command `{other}`; run `gitta help` for the list")),
@@ -4448,5 +4850,43 @@ mod gate_timeout_tests {
         let (ok, _out, code, timed) = run_gate("echo hi", &dir, None, 0);
         assert!(ok && !timed && code == Some(0), "a quick gate passes with no limit");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// `gitta init | head -1`: the reader closed the pipe. Exit quietly, as standard Unix tools do, instead of a
+/// panic and a backtrace. Rust ignores SIGPIPE, so the write fails with EPIPE and `println!` panics; the hook
+/// turns exactly that panic into a quiet exit. Sockets keep their own error handling.
+fn quiet_on_broken_pipe() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if broken_pipe_panic(&info.payload_as_str().unwrap_or("").to_string()) { std::process::exit(141) }   // 128 + SIGPIPE, as a shell reports it
+        prev(info)
+    }));
+}
+
+fn broken_pipe_panic(msg: &str) -> bool { msg.starts_with("failed printing to std") && (msg.contains("Broken pipe") || msg.contains("os error 32")) }
+
+#[cfg(test)]
+mod pipe_tests {
+    #[test]
+    fn knows_the_broken_pipe_panic() {
+        assert!(super::broken_pipe_panic("failed printing to stdout: Broken pipe (os error 32)"));
+        assert!(!super::broken_pipe_panic("index out of bounds"));
+    }
+}
+
+/// A note fragment that ends a sentence: adds a full stop when it ends without one. "(RFC 8212)" becomes "(RFC 8212)."
+pub fn full_stop(s: &str) -> String {
+    let t = s.trim_end();
+    if t.is_empty() || t.ends_with(['.', '!', '?']) { t.to_string() } else { format!("{t}.") }
+}
+
+#[cfg(test)]
+mod full_stop_tests {
+    #[test]
+    fn adds_missing_stop() {
+        assert_eq!(super::full_stop("drops the filter (RFC 8212)"), "drops the filter (RFC 8212).");
+        assert_eq!(super::full_stop("done."), "done.");
+        assert_eq!(super::full_stop(""), "");
     }
 }

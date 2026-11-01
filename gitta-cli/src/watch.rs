@@ -47,8 +47,7 @@ fn agent_lines(v: &serde_json::Value) -> Vec<(String, String)> {
             .map(|w| format!("{} changed {}", w["changed_by"].as_str().map(|x| if x == "head" || x == "main" { "main" } else { x }).unwrap_or(""), short_sym(w["symbol"].as_str().unwrap_or("")))).collect();
         let state = if files == 0 { g["merged_at"].as_f64().map(|t| format!("merged into main at {}, no new changes since", clock(t))).unwrap_or("no changes yet".into()) }
             else if has("tests") { "fixing tests that failed in its last merge".into() }
-            else if has("approval") || has("security") { "removes tests or weakens a security check; reported when merged, and .gitta.toml decides whether that stops the merge".into() }
-            else if has("credentials") { "has what looks like a password or key in its code; gitta told it".into() }
+            else if has("approval") { "removes tests or weakens a check; reported when merged, and .gitta.toml decides whether that stops the merge".into() }
             else if !told.is_empty() { format!("adapting, gitta told it that {}", told.join(" and ")) }
             else { format!("{} changed, nothing affected, ready to merge", if files == 1 { "1 file".to_string() } else { format!("{files} files") }) };
         (n, state)
@@ -60,7 +59,7 @@ fn person_lines(v: &serde_json::Value, target: &str) -> Vec<String> {
     let mut out = vec![];
     for g in v["agents"].as_array().cloned().unwrap_or_default() {
         let n = g["name"].as_str().unwrap_or("");
-        let h: Vec<serde_json::Value> = g["holds"].as_array().cloned().unwrap_or_default().into_iter().filter(|h| h["check"] == "approval" || h["check"] == "security").collect();
+        let h: Vec<serde_json::Value> = g["holds"].as_array().cloned().unwrap_or_default().into_iter().filter(|h| h["check"] == "approval").collect();
         if let Some(x) = h.first() {
             out.push(format!("{n}: {} in {}. Decide when you merge it: git merge {n} (on {target}) asks you.", x["text"].as_str().unwrap_or("").trim_end_matches('.'), x["path"].as_str().unwrap_or("")));
         }

@@ -1,5 +1,5 @@
 //! C and C++: symbols, uses, header fan-out, include resolution, preprocessor robustness, severity, merge,
-//! security rules and guard rules. Code shapes follow real C and C++ projects (Redis, curl, LevelDB, fmt).
+//! and guard rules. Code shapes follow real C and C++ projects (Redis, curl, LevelDB, fmt).
 use gitta_core::c_cpp;
 use gitta_core::merge::{line_merge, merge_file, MergeError};
 use gitta_core::{analyze, analyze_file, merge_hazards, Key, Snapshot, Warning};
@@ -443,75 +443,6 @@ fn c_structural_merge_and_conflicts() {
     let cs = cb.replace("    Clear();\n", "    MutexLock l(&mutex_);\n    Clear();\n");
     let m = String::from_utf8(merge_file("util/cache.cc", Some(cb.as_bytes()), Some(ch.as_bytes()), Some(cs.as_bytes())).unwrap().unwrap()).unwrap();
     assert_eq!(m.matches("MutexLock").count(), 2, "{m}");
-}
-
-// ---------------- security, layer 1 ----------------
-
-fn notes(path: &str, old: &str, new: &str) -> Vec<String> {
-    let base = snap(&[(path, old)]);
-    let n = snap(&[(path, new)]);
-    gitta_core::code_security::findings(&base, &n, &[path.to_string()]).into_iter().map(|x| x.rule).collect()
-}
-
-#[test]
-fn c_security_rules_flagged_and_safe() {
-    let p = "src/tool_operate.c";
-    let base = "#include <stdio.h>\n\nint run(const char *user, char *buf, size_t n) {\n  return 0;\n}\n";
-    let add = |line: &str| base.replace("  return 0;\n", &format!("  {line}\n  return 0;\n"));
-    let pairs: &[(&str, &str, &str)] = &[
-        ("unsafe-c-buffer", "strcpy(buf, user);", "snprintf(buf, n, \"%s\", user);"),
-        ("unsafe-c-buffer", "sprintf(buf, \"user=%s\", user);", "strcpy(buf, \"none\");"),
-        ("unsafe-c-buffer", "gets(buf);", "fgets(buf, (int)n, stdin);"),
-        ("unsafe-c-buffer", "sscanf(user, \"%s\", buf);", "sscanf(user, \"%63s\", buf);"),
-        ("unsafe-c-buffer", "memcpy(buf, user, len);", "memcpy(buf, user, sizeof(hdr));"),
-        ("unsafe-c-buffer", "memmove(buf, user, len);", "memmove(buf, user, 64);"),
-        ("unsafe-c-buffer", "memcpy(buf, user, len + 1);", "memcpy(buf, user, HDR_LEN + 1);"),
-        ("unsafe-c-buffer", "memcpy(buf, user, s->len);", "memcpy(buf, user, len < n ? len : n);"),
-        ("unsafe-c-buffer", "memcpy(buf, user, nread);", "memcpy(buf, user, MIN(nread, n));"),
-        ("format-string", "printf(user);", "printf(\"%s\", user);"),
-        ("format-string", "fprintf(stderr, user);", "fprintf(stderr, \"%s\\n\", user);"),
-        ("format-string", "syslog(LOG_ERR, user);", "syslog(LOG_ERR, \"%s\", user);"),
-        ("format-string", "printf(msg);", "printf(ok ? \"true\" : \"false\");"),
-        ("tls-off", "SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL);", "SSL_CTX_set_verify(ctx, insecure ? SSL_VERIFY_NONE : SSL_VERIFY_PEER, NULL);"),
-        ("shell-text", "system(cmd);", "system(\"clear\");"),
-        ("shell-text", "FILE *f = popen(cmd, \"r\");", "FILE *f = popen(\"ls\", \"r\");"),
-        ("shell-text", "execl(\"/bin/sh\", \"sh\", \"-c\", cmd, (char *)NULL);", "execl(\"/usr/bin/git\", \"git\", \"status\", (char *)NULL);"),
-        ("tls-off", "curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);", "curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);"),
-        ("tls-off", "SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);", "SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);"),
-        ("weak-password-hash", "MD5((unsigned char *)password, strlen(password), digest);", "MD5((unsigned char *)data, len, digest);"),
-        ("secret-in-log", "printf(\"token=%s\\n\", access_token);", "printf(\"token set: %d\\n\", access_token != NULL);"),
-        ("hardcoded-secret", "static const char *api_key = \"Xk29fj3Lq\";", "static const char *api_key = NULL;"),
-    ];
-    for (rule, bad, good) in pairs {
-        assert!(notes(p, base, &add(bad)).iter().any(|r| r == rule), "{rule} not flagged: {bad}");
-        assert!(!notes(p, base, &add(good)).iter().any(|r| r == rule), "{rule} flagged on safe code: {good}");
-    }
-    // The length was checked just before the copy.
-    let checked = base.replace("  return 0;\n", "  if (len > n) return -1;\n  memcpy(buf, user, len);\n  return 0;\n");
-    assert!(!notes(p, base, &checked).iter().any(|r| r == "unsafe-c-buffer"));
-    // Set from sizeof, or the destination was allocated with it: bounded. A `->` near the length is no check.
-    for (pre, flagged) in [("  size_t len = sizeof(hdr);\n", false), ("  char *buf2 = malloc(len + 1);\n", false),
-                           ("  len = s->len;\n", true), ("  len = strlen(user);\n", true)] {
-        let src = base.replace("  return 0;\n", &format!("{pre}  memcpy(buf, user, len);\n  return 0;\n"));
-        assert_eq!(notes(p, base, &src).iter().any(|r| r == "unsafe-c-buffer"), flagged, "{pre}");
-    }
-    // A line that was already there is not new.
-    let old = add("strcpy(buf, user);");
-    assert!(notes(p, &old, &old.replace("int run(", "int run2(")).is_empty());
-}
-
-#[test]
-fn c_security_layer_two_by_name() {
-    // A check named like one gains an early allow: a weakened control for code that calls it.
-    let base = "int ssl_verify_peer(SSL *ssl) {\n  if (SSL_get_verify_result(ssl) != X509_V_OK)\n    return -1;\n  return 0;\n}\n";
-    let weak = "int ssl_verify_peer(SSL *ssl) {\n  return 0;\n}\n";
-    let b = snap(&[("lib/vtls/check.c", base)]);
-    let a = snap(&[("lib/vtls/check.c", weak)]);
-    let mut c = b.clone(); c.insert("lib/vtls/conn.c".into(), b"int connect_tls(SSL *ssl) {\n  return ssl_verify_peer(ssl);\n}\n".to_vec());
-    let w = analyze(&b, ("a", &a), ("b", &c));
-    assert!(w.iter().any(|x| x.kind == "SECURITY" && x.symbol.as_deref() == Some("ssl_verify_peer")), "{w:?}");
-    let f = gitta_core::guard::safety_net(&b, &a, &["lib/vtls/check.c".to_string()]);
-    assert!(f.iter().any(|x| x.kind == "SECURITY_WEAKENED"), "{f:?}");
 }
 
 // ---------------- guard ----------------

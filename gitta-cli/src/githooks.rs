@@ -6,7 +6,7 @@
 
 use super::*;
 
-const HOOKS: [&str; 6] = ["pre-merge-commit", "post-merge", "pre-push", "reference-transaction", "post-rewrite", "post-commit"];
+const HOOKS: [&str; 7] = ["pre-merge-commit", "post-merge", "pre-push", "reference-transaction", "post-rewrite", "post-commit", "commit-msg"];
 
 /// Git 2.28 and later run `reference-transaction` for every ref update; older versions get a warning-only fallback.
 pub(crate) fn has_ref_transaction() -> bool {
@@ -160,7 +160,7 @@ fn source_of(root: &Path, git_dir: &Path, sub: &str, new: &str) -> String {
     new.to_string()
 }
 
-/// The check every merge path shares: weakened tests or security (asks the person), what changed under the
+/// The check every merge path shares: weakened tests and checks (asks the person), what changed under the
 /// incoming code (information), and the tests on the combined code in `dir`. Ok means the merge may go ahead.
 fn check(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incoming: &str, how: &str) -> Result<(), String> {
     check_from(root, c, at, target, onto, incoming, how, incoming)
@@ -191,30 +191,18 @@ fn check_from(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incom
         }
         return Ok(());
     }
-    // Removed tests, weakened checks and security rules: the person's merge command is the approval.
+    // Removed tests and weakened checks: the person's merge command is the approval.
     let (b, n) = (blobs(root, &base, &paths), blobs(root, incoming, &paths));
-    // Same guard for the reads that feed the safety-net and security checks: `paths` is non-empty here, so reading
+    // Same guard for the reads that feed the safety-net checks: `paths` is non-empty here, so reading
     // nothing at all on both sides is a read regression, not a real change -- never run the checks on empty content.
     if vacuous_read(paths.len(), &b, &n) {
-        die(&format!("gitta read no content at {base} or {incoming} for {} changed file(s); refusing to run the safety-net and security checks on data it could not read", paths.len()));
+        die(&format!("gitta read no content at {base} or {incoming} for {} changed file(s); refusing to run the safety-net checks on data it could not read", paths.len()));
     }
     let list: Vec<String> = paths.iter().cloned().collect();
-    // A credential on a line the merge adds is refused on every route, as `gitta land` refuses it.
-    let txt = |s: &gitta_core::Snapshot, p: &str| s.get(p).map(|x| String::from_utf8_lossy(x).to_string()).unwrap_or_default();
-    for p in &list {
-        let Some((line, label)) = gitta_core::guard::secret_in_new_lines(&txt(&b, p), &txt(&n, p)) else { continue };
-        let what = format!("{p}:{line} looks like it contains a credential ({label})");
-        audit::record(root, "blocked", &who, &audit::actor(root), serde_json::json!({"setting": "credentials", "findings": [what]}));
-        log(root, "refused", &who, &format!("{who} was not merged: {what}."));
-        return Err(format!("{who} was not merged: {what}; {{state}}. Remove it and use configuration or a secret store."));
-    }
     let mut f = gitta_core::guard::safety_net(&b, &n, &list);
-    let rank = block_rank(c);
-    for x in gitta_core::code_security::findings(&b, &n, &list).iter().filter(|x| blocks(x, rank)) {
-        f.push(gitta_core::guard::Finding { kind: "SECURITY_RULE".into(), path: x.path.clone(), detail: format!("adds code that {} (line {})", x.text.trim_end_matches('.'), x.line) });
-    }
+    f.extend(crate::hook_findings(root, &base, incoming, onto));
     if !weakened_gate(root, c, &who, &f) {
-        return Err(format!("{who} was not merged: .gitta.toml sets weakened_checks to block; {{state}}. Restore what it removed."));
+        return Err(format!("{}\n{who} was not merged: .gitta.toml sets weakened_checks to block; {{state}}. Restore what it removed.", crate::weakened_lines(&who, &f).join("\n")));
     }
     // The team's rules for agents ([policy] in .gitta.toml, plus the team server's): a person running the merge
     // outside an agent session is the approval that needs_approval asks for.
@@ -232,7 +220,7 @@ fn check_from(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incom
         let a2 = Agent { base: base.clone(), ..a.clone() };
         let mine: BTreeSet<String> = paths.clone();
         hz = meaning_hazards(root, &a2, onto, &mine);
-        for w in hz.iter().filter(|w| w.kind != "SECURITY" && !told_before(root, &who, &format!("`{}`", short_sym(&w.symbol.clone().unwrap_or_default())))) {
+        for w in hz.iter().filter(|w| !told_before(root, &who, &format!("`{}`", short_sym(&w.symbol.clone().unwrap_or_default())))) {
             let side = if w.changed_by.as_deref() == Some("head") { "main" } else { who.as_str() };
             let lander = story_lander(root, side, &w.symbol.clone().unwrap_or_default(), &w.path, &who);
             log(root, "note", &who, &format!("{}. The tests on the combined code decide.", meaning_story(&who, side, &w.symbol.clone().unwrap_or_default(), &w.path, lander.as_deref(), true).replace(" now has the new version", " gets the new version in this merge").replace(" now has that code too", " gets that code in this merge")));
@@ -264,6 +252,23 @@ fn check_from(root: &Path, c: &Config, at: &str, target: &str, onto: &str, incom
             log(root, "warning", &who, &format!("The test command exited 0 but ran no tests ({sig}); gitta is not treating that as a verified pass."));
             audit::record(root, "merge_stopped", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "tests": {"command": gate, "result": "no_tests_ran", "signature": sig}, "features": gitta_core::guard::features()}));
             return Err(format!("the test command ran no tests ({sig}), so nothing was verified; {{state}}. Point .gitta.toml's gate at the test suite and run the same git command again."));
+        }
+        // The optional checks of the committed .gitta.toml (coverage, SARIF, revert check, mutation testing) need the gate's own output files, so they run the gate once more in a
+        // checkout of the combined code, as `gitta land` does.
+        let wanted = ["coverage_report", "sarif_reports", "revert_check", "mutation_budget"]
+            .iter().any(|k| team_setting(root, k).is_some_and(|v| v != "false" && v != "0"));
+        if wanted {
+            let w = Wt::open(root, "hook-checks", at, &c.link);
+            let slot = acquire_gate_slot(root, gate_cap(c));
+            let (ok2, out2, _, _) = run_gate(gate, &w.path, slot.path(), gate_timeout(c));
+            let r = if ok2 { after_gate(root, c, &who, &base, &paths, &w.path, gate, slot.path(), onto, &out2).map(|_| ()) } else { Err(("tests".into(), "the tests failed in the second run on the combined code".into())) };
+            w.release();
+            if let Err((check, msg)) = r {
+                let first = msg.lines().next().unwrap_or("").trim_start_matches("land refused: ").to_string();
+                audit::record(root, "merge_stopped", &who, &audit::actor(root), serde_json::json!({"onto": target, "incoming": incoming, "how": how, "check": check, "reason": first}));
+                log(root, "refused", &who, &format!("gitta stopped the {how}: {first}"));
+                return Err(format!("{who} was not merged: {}; {{state}}.", first.trim_end_matches('.')));
+            }
         }
         // Silent when the combined tests pass: git's own output is all the agent needs; the story is in the log.
         let _ = (&what, &noted);
@@ -339,12 +344,49 @@ fn verified(root: &Path) -> PathBuf { root.join(".gitta/verified") }
 fn mark_verified(root: &Path, rev: &str) { if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(verified(root)) { let _ = writeln!(f, "{rev}"); } }
 fn is_verified(root: &Path, rev: &str) -> bool { std::fs::read_to_string(verified(root)).unwrap_or_default().lines().any(|l| l == rev) }
 
+/// The branch gitta most likely protects, for when .gitta/config.json (which records it) is gone: the remote's
+/// default branch, else a local main or master, else the current branch. Returned as a full ref (refs/heads/<b>),
+/// the form config.json stores and the rest of the hook compares against.
+fn detect_main(here: &Path) -> String {
+    let g = |args: &[&str]| -> Option<String> {
+        let o = Command::new("git").arg("-C").arg(here).args(args).output().ok()?;
+        o.status.success().then(|| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| !s.is_empty())
+    };
+    if let Some(h) = g(&["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) { return format!("refs/heads/{}", h.strip_prefix("origin/").unwrap_or(&h)); }
+    for b in ["main", "master"] { if g(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{b}")]).is_some() { return format!("refs/heads/{b}"); } }
+    g(&["symbolic-ref", "HEAD"]).unwrap_or_else(|| "refs/heads/main".into())
+}
+
+/// A minimal Config for when .gitta/config.json is missing or unreadable: protect `main` with the committed
+/// .gitta.toml (no local gate, no agent syncing), rather than let the hook skip every check.
+fn fallback_config(root: &Path, main: &str) -> Config {
+    Config { root: root.to_string_lossy().into(), agents: vec![], gate: None, link: vec![], auto_sync: false, parallel: 0, main: main.to_string(), watch: false, server: None, server_token: None, include: vec![], notify: false, gate_env: vec![], gate_timeout: 0, weakened_checks: None }
+}
+
+/// commit-msg: the hooks ran for this commit. `git commit --no-verify` skips pre-commit and commit-msg together, so
+/// the trailer is the trace a server checks (guard::hook_bypass). Written only when the repository has a pre-commit
+/// hook to skip, and never twice.
+fn commit_msg(file: &Path) {
+    let here = std::env::current_dir().unwrap_or_default();
+    let dir = hooks_dir(&here);
+    let has_pre_commit = ["pre-commit", "pre-commit.pre-gitta"].iter().any(|h| dir.join(h).is_file());
+    if !has_pre_commit { return; }
+    let msg = std::fs::read_to_string(file).unwrap_or_default();
+    if msg.contains(gitta_core::guard::HOOK_TRAILER) { return; }
+    let (k, v) = gitta_core::guard::HOOK_TRAILER.split_once(": ").unwrap_or(("Gitta-Hooks", "ran"));
+    let _ = Command::new("git").arg("-C").arg(&here).args(["interpret-trailers", "--in-place", "--if-exists", "doNothing", "--trailer", &format!("{k}: {v}")]).arg(file).status();
+}
+
 /// `gitta git-hook <name>`: run by Git. Exit 0 lets the command go ahead.
 pub(crate) fn run(args: &[String]) {
     // Git sets these for its hooks; gitta's own git calls work in other folders and need them gone.
     let name = args.first().map(String::as_str).unwrap_or("");
     if name == "merge-driver" && args.len() >= 4 { merge_driver(&args[1..]) }
-    if std::env::var_os("GITTA_LANDING").is_some() { return; }
+    if name == "commit-msg" { if let Some(f) = args.get(1) { commit_msg(Path::new(f)); } return; }
+    // A git command gitta itself runs reaches this hook. Stand aside for it, but only when GITTA_LANDING names
+    // gitta's own live marker. A value set by hand or left in the environment (for example `GITTA_LANDING=1`) has
+    // no marker, so the operation is checked like any other. To skip a real merge on purpose, use GITTA_SKIP.
+    if std::env::var_os("GITTA_LANDING").is_some() && internal_landing(&root()) { return; }
     // Every ref update in the repository runs this hook: everything but the target branch leaves at once.
     if name == "reference-transaction" && args.get(1).map(String::as_str) != Some("prepared") { return; }
     let mut input = String::new();
@@ -353,8 +395,8 @@ pub(crate) fn run(args: &[String]) {
         let here = std::env::current_dir().unwrap_or_default();
         let common = Command::new("git").arg("-C").arg(&here).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().ok().map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
         let main = common.and_then(|g| g.parent().map(|r| r.join(".gitta/config.json"))).and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).and_then(|v| v["main"].as_str().map(String::from));
-        let Some(main) = main else { return };
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).and_then(|v| v["main"].as_str().map(String::from))
+            .unwrap_or_else(|| detect_main(&here)); // config.json gone: fall back to the default branch so main stays protected
         if !input.lines().any(|l| l.split_whitespace().nth(2) == Some(main.as_str())) { return; }
         // A plain commit is the person's own work and leaves at once. An agent's commit is checked like a merge.
         let gd = Command::new("git").arg("-C").arg(&here).args(["rev-parse", "--path-format=absolute", "--git-dir"]).output().map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())).unwrap_or_default();
@@ -366,17 +408,27 @@ pub(crate) fn run(args: &[String]) {
     let rev = |dir: &Path, r: &str| -> String { let o = git(dir, &["rev-parse", "-q", "--verify", &format!("{r}^{{commit}}")]); if o.status.success() { String::from_utf8_lossy(&o.stdout).trim().to_string() } else { String::new() } };
     let here = std::env::current_dir().unwrap_or_default();
     let root = root();
-    let Ok(t) = std::fs::read_to_string(cfg_path(&root)) else { return };
-    let Ok(mut c) = serde_json::from_str::<Config>(&t) else { return };
+    let mut c = match std::fs::read_to_string(cfg_path(&root)).ok().and_then(|t| serde_json::from_str::<Config>(&t).ok()) {
+        Some(c) => c,
+        None => {
+            // gitta's hook is running, so gitta is set up here, but .gitta/config.json is missing or unreadable. Do
+            // not silently skip the checks: say so, record it, and protect the repository's default branch with the
+            // committed .gitta.toml policy, so deleting the local config cannot turn gitta off.
+            let main = detect_main(&here);
+            say(&format!(".gitta/config.json is missing or unreadable. Protecting {} with the committed .gitta.toml. Run `gitta init` to restore the settings, or `gitta uninstall` to remove gitta.", main.trim_start_matches("refs/heads/")));
+            audit::record(&root, "config_missing", "", &audit::actor(&root), serde_json::json!({"branch": main}));
+            fallback_config(&root, &main)
+        }
+    };
     // The gate committed in .gitta.toml on the target branch wins, as in every other command.
     if let Some(g) = team_setting(&root, "gate") { c.gate = Some(g); }
     if c.watch { refresh(&root, &mut c); }
-    apply_settings(&root, &c.security, &c.include);
+    apply_settings(&root, &c.include);
     let target = c.main.trim_start_matches("refs/heads/").to_string();
     let branch = String::from_utf8_lossy(&git(&here, &["symbolic-ref", "-q", "HEAD"]).stdout).trim().to_string();
     let stop = |e: String| -> ! { say(&e); std::process::exit(1) };
     // gitta's own git commands below (moving a branch back, cancelling a merge) need no second check.
-    std::env::set_var("GITTA_LANDING", "1");
+    mark_landing(&root);
     match name {
         "pre-merge-commit" => {
             if branch != c.main { return; }
@@ -769,6 +821,45 @@ fn wait_running(root: &Path, tree: &str) {
         if !pid_alive(&pid) { let _ = std::fs::remove_file(&p); break; }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+}
+
+// ---- Internal-landing marker -------------------------------------------------
+// gitta runs git itself to move the target branch (during `land`), to test a merge it is about to let through,
+// and to undo a stopped merge. Those git commands must not re-enter this hook. gitta marks them with GITTA_LANDING,
+// set to a one-time token that names a marker file, under .gitta/landing/, that only a running gitta writes. The
+// hook stands aside only when GITTA_LANDING matches such a marker whose gitta process is still alive. A value set
+// by hand or left in the environment by an earlier run has no live marker, so it skips nothing.
+fn landing_dir(root: &Path) -> PathBuf { root.join(".gitta/landing") }
+
+/// Mark the git commands gitta runs next (in this process and the children it spawns) as gitta's own, so this
+/// hook stands aside for them. Called once per gitta operation that moves the target branch itself.
+pub(crate) fn mark_landing(root: &Path) {
+    let dir = landing_dir(root);
+    let _ = std::fs::create_dir_all(&dir);
+    // Drop markers left behind by gitta processes that have since ended, so the folder does not grow and a stale
+    // token can never match.
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let live = e.file_name().to_str().and_then(|n| n.split_once('.')).map(|(p, _)| pid_alive(p)).unwrap_or(false);
+            if !live { let _ = std::fs::remove_file(e.path()); }
+        }
+    }
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let tok = format!("{}.{:x}{:x}", std::process::id(), t, n);
+    let _ = std::fs::write(dir.join(&tok), b"");
+    std::env::set_var("GITTA_LANDING", &tok);
+}
+
+/// True only when GITTA_LANDING names a marker a still-running gitta wrote: this hook was reached from a git
+/// command gitta itself runs, so it stands aside. Any other value is a normal operation and is checked.
+fn internal_landing(root: &Path) -> bool {
+    let Ok(tok) = std::env::var("GITTA_LANDING") else { return false };
+    let Some((pid, rest)) = tok.split_once('.') else { return false };
+    if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) { return false }
+    if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_hexdigit()) { return false }
+    landing_dir(root).join(&tok).exists() && pid_alive(pid)
 }
 
 /// The gate's result on `tree` (checked out from `at`): kept from an earlier run of the same test command on the

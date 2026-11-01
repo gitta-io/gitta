@@ -9,14 +9,13 @@
 <table>
   <tr><th>Event</th><th>When</th><th>Content</th></tr>
   <tr><td><code>agent_started</code></td><td>A new agent worktree appears</td><td>Tool, branch, starting commit, path</td></tr>
-  <tr><td><code>warning</code></td><td>An agent is told about another agent's change, or about a security note on its own new code</td><td>Kind, symbol, file, the other agent and its machine. For a security note: the rule, severity, file and line</td></tr>
-  <tr><td><code>security_allowed</code></td><td>An allow marker or an <code>[allow]</code> entry covers a security note</td><td>The rule, file, line and reason, and whether the agent's own change added the allow</td></tr>
+  <tr><td><code>warning</code></td><td>An agent is told about another agent's change</td><td>Kind, symbol, file, the other agent and its machine</td></tr>
   <tr><td><code>merge_checked</code></td><td>A <code>git merge</code>, <code>git pull</code> or <code>git push</code> to the protected branch passes the checks</td><td>The target branch, the incoming commit, the git command, the files and the test command with its result and time</td></tr>
   <tr><td><code>merge_stopped</code></td><td>gitta stops a merge, pull or push because the tests fail on the combined code</td><td>The target branch, the incoming commit, the git command and the failing tests</td></tr>
   <tr><td><code>checks_skipped</code></td><td>A merge ran with <code>--no-verify</code>, or a command moved the protected branch with <code>GITTA_SKIP</code></td><td>The target branch, the merge commit and the command</td></tr>
   <tr><td><code>warned</code></td><td>A merge removes tests or weakens a check, and <code>weakened_checks</code> is <code>warn</code></td><td>The findings, the setting and who ran the merge</td></tr>
   <tr><td><code>blocked</code></td><td>The same, and <code>weakened_checks</code> is <code>block</code>, so the merge stops</td><td>The findings, the setting and who ran the merge</td></tr>
-  <tr><td><code>checks</code></td><td>Before <code>gitta land</code> moves main</td><td>Each check and its result: weakened checks, security, security rules with each note and the threshold, credentials, changed meaning, merge and tests. Also the test command and its time</td></tr>
+  <tr><td><code>checks</code></td><td>Before <code>gitta land</code> moves main</td><td>Each check and its result: weakened checks, changed meaning, merge and tests. Also the test command and its time</td></tr>
   <tr><td><code>land_refused</code></td><td>A landing is stopped</td><td>The check that stopped it, and why</td></tr>
   <tr><td><code>landed</code></td><td><code>gitta land</code> moves main</td><td>Old and new commit, exact file versions, the agent's commits with authors and trailers such as <code>Co-Authored-By</code>, approvals</td></tr>
   <tr><td><code>reached_main</code></td><td>Work arrives by another route, for example a merged pull request, a push or <code>git merge</code></td><td>The commits, authors, committers, trailers, and how many name an AI co-author</td></tr>
@@ -88,10 +87,8 @@ $ gitta audit --follow --event landed</term>
   <tr><td>Who made this change, and was an AI agent involved?</td><td><code>agent_started</code>, <code>landed</code>, <code>reached_main</code></td><td>CC8.1</td><td>8.32, 8.4</td></tr>
   <tr><td>Was the change tested before it reached production code?</td><td><code>merge_checked</code>, <code>merge_stopped</code>, <code>checks</code></td><td>CC8.1</td><td>8.29, 8.25</td></tr>
   <tr><td>Were checks weakened or skipped, and who merged it?</td><td><code>warned</code>, <code>blocked</code>, <code>checks_skipped</code>, <code>approved</code></td><td>CC8.1, CC6.8</td><td>8.32, 8.28</td></tr>
-  <tr><td>Were security controls weakened, or risky code added, and who merged it?</td><td><code>warning</code>, <code>checks</code>, <code>approved</code>, <code>security_allowed</code></td><td>CC8.1, CC6.8</td><td>8.28, 8.32</td></tr>
-  <tr><td>Can secrets end up in the code?</td><td><code>warned</code> and <code>blocked</code> for credentials</td><td>CC6.1</td><td>8.28</td></tr>
   <tr><td>Are conflicts between parallel changes found?</td><td><code>warning</code></td><td>CC7.2</td><td>8.16</td></tr>
   <tr><td>Can the record be trusted?</td><td>Hash chain, <code>gitta audit verify</code>, server copies</td><td>CC7.2</td><td>8.15, 5.33</td></tr>
 </table>
 
-<p>To map these records to SOC 2 and ISO 27001 controls in more detail, see <a href="https://gitta.io/docs/compliance.html">Compliance</a>. For what gitta checks in each change, see <a href="https://gitta.io/docs/security.html">Security and data</a>.</p>
+<p>To map these records to SOC 2 and ISO 27001 controls in more detail, see <a href="https://gitta.io/docs/compliance.html">Compliance</a>.</p>

@@ -240,13 +240,13 @@ pub fn cmd(root: &std::path::Path, args: &[String], team: Option<(String, String
     if o.team {
         let Some((urls, token, _)) = team else { eprintln!("gitta: no team server configured (gitta init --server URL --token T)"); std::process::exit(1) };
         for url in urls.split(',').map(|u| u.trim().trim_end_matches('/')).filter(|u| !u.is_empty()) {
-            let mut curl = std::process::Command::new("curl");
-            if let Ok(ca) = std::env::var("GITTA_SERVER_CA") { curl.args(["--cacert", &ca]); }
-            curl.args(["-fsS", "--connect-timeout", "2", "--max-time", "60", "-H", &format!("Authorization: Bearer {token}"), "--get"]);
+            let mut a: Vec<String> = ["-fsS", "--connect-timeout", "2", "--max-time", "60", "--get"].iter().map(|s| s.to_string()).collect();
             for (k, v) in [("period", Some(format!("{:?}", o.period).to_lowercase())), ("by", Some(o.by.name().to_string())), ("since", o.since.clone()), ("until", o.until.clone())] {
-                if let Some(v) = v { curl.args(["--data-urlencode", &format!("{k}={v}")]); }
+                if let Some(v) = v { a.push("--data-urlencode".into()); a.push(format!("{k}={v}")); }
             }
-            let out = curl.arg(format!("{url}/v1/usage")).output();
+            a.push(format!("{url}/v1/usage"));
+            let aref: Vec<&str> = a.iter().map(String::as_str).collect();
+            let out = crate::server_curl(url, &token, &aref, None);
             if let Some(v) = out.ok().filter(|x| x.status.success()).and_then(|x| serde_json::from_slice::<Value>(&x.stdout).ok()) {
                 print!("{}", render(v["rows"].as_array().map(Vec::as_slice).unwrap_or(&[]), o.by, &o.fmt));
                 return;

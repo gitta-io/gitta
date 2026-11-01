@@ -1,10 +1,9 @@
-//! Gitta core: symbol extraction and cross-agent hazard analysis (Python, TypeScript, TSX, Go, Rust, Java, C#, Kotlin, C, C++, COBOL, JCL).
+//! Gitta core: symbol extraction and cross-agent hazard analysis (Python, TypeScript, TSX, Go, Rust, Java, C#, Kotlin, C, C++).
 //!
 //! Given a base snapshot and the current states of two agents, report
 //!   OVERLAP  both agents changed the same symbol (or the same non-code file)
 //!   HAZARD   one agent changed/removed a symbol that the other agent's NEW code references
 //!   UNPARSED a changed source file does not parse (not analyzed, never treated as clean)
-//!   SECURITY one agent weakened a security control (see security.rs) that the other agent's NEW code uses
 //! Semantics match the Python prototype (merge_ts.hazards / watch.analyze) and add TypeScript.
 
 use serde::Serialize;
@@ -13,16 +12,36 @@ use tree_sitter::{Node, Parser, Tree};
 
 pub mod merge;
 pub mod guard;
-pub mod security;
-pub mod code_security;
+/// Coverage of the lines a change touched, read from the coverage report the team's test run writes.
+pub mod proof;
 pub mod c_cpp;
+/// Test notes: changed code with no test change, and new tests that will fail at random.
+pub mod test_notes;
 
 pub type Snapshot = BTreeMap<String, Vec<u8>>;
 pub const ATTR: &str = "<attribute>";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, serde::Deserialize)]
 pub enum Lang {
-    Python, TypeScript, Tsx, Go, Rust, Java, CSharp, Kotlin, C, Cpp,
+    Python, TypeScript, Tsx, Go, Rust, Java, CSharp, Kotlin, C, Cpp, Fortran, Sql, Hcl,
+    /// Infrastructure as Code beyond Terraform, read by iac.rs.
+    CloudFormation, PulumiYaml, Ansible, Helm,
+    /// Embedded build configuration (gitta Enterprise readers).
+    Kconfig, KconfigValues, Devicetree,
+    /// Build files that compile code only under a Kconfig option: Kbuild `obj-$(CONFIG_X)`, CMake `*_ifdef(CONFIG_X ...)`.
+    BuildRules,
+    /// Cisco IOS and IOS-XE device configuration, read by ios.rs.
+    CiscoIos,
+    /// Yocto / BitBake metadata (gitta Enterprise reader).
+    BitBake,
+    /// XML Schema, read by xsd.rs.
+    Xsd,
+    /// Nagios, Naemon and Icinga 1 object configuration, read by nagios.rs.
+    Nagios,
+    /// Juniper Junos configuration, read by junos.rs.
+    Junos,
+    /// Icinga 2 object configuration, read by icinga.rs.
+    Icinga,
 }
 
 pub fn lang_of(path: &str) -> Option<Lang> {
@@ -34,17 +53,38 @@ pub fn lang_of(path: &str) -> Option<Lang> {
     else if path.ends_with(".kt") || path.ends_with(".kts") { Some(Lang::Kotlin) }
     else if path.ends_with(".tsx") || path.ends_with(".jsx") { Some(Lang::Tsx) }
     else if [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].iter().any(|e| path.ends_with(e)) { Some(Lang::TypeScript) }
-    else { abap_lang(path).or_else(|| other_lang_of(path)) }
+    else if sql_lang(path).is_some() { Some(Lang::Sql) }
+    else if iac_lang(path).is_some() { iac_lang(path) }
+    else if let Some(l) = net_lang(path) { Some(l) }
+    else if let Some(l) = xsd_lang(path) { Some(l) }
+    else { fortran_lang(path).or_else(|| abap_lang(path)).or_else(|| ibmi_lang(path)).or_else(|| other_lang_of(path)) }
 }
 
+fn fortran_lang(_path: &str) -> Option<Lang> { None }
+fn sql_lang(_path: &str) -> Option<Lang> { None }
+fn iac_lang(_path: &str) -> Option<Lang> { None }
+fn iac_sniff(_path: &str, _src: &[u8]) -> Option<Lang> { None }
+
+fn xsd_lang(_path: &str) -> Option<Lang> { None }
+fn net_lang(_path: &str) -> Option<Lang> { None }
+fn net_sniff(_path: &str, _src: &[u8]) -> Option<Lang> { None }
+
 fn abap_lang(_path: &str) -> Option<Lang> { None }
+
+fn ibmi_lang(_path: &str) -> Option<Lang> { None }
 
 fn other_lang_of(path: &str) -> Option<Lang> { c_cpp::lang_of(path) }
 
 /// The language a file is read in, with its text: a `.h` file may be C or C++ (see c_cpp.rs).
 pub fn lang_for(path: &str, src: &[u8]) -> Option<Lang> {
     if path.ends_with(".h") { return Some(c_cpp::header_lang(path, Some(src))); }
-    lang_of(path)
+    lang_of(path).or_else(|| iac_sniff(path, src)).or_else(|| net_sniff(path, src))
+}
+
+/// Whether a file with these versions is read as code: by its name, or by its text (a CloudFormation template, or a
+/// build file that compiles code under a Kconfig option).
+fn is_code(path: &str, versions: &[Option<&Vec<u8>>]) -> bool {
+    lang_of(path).is_some() || versions.iter().flatten().any(|v| iac_sniff(path, v).is_some() || net_sniff(path, v).is_some())
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, serde::Deserialize)]
@@ -62,14 +102,10 @@ impl Key {
     fn bound(&self) -> Option<&str> {
         match self { Key::Def(n) | Key::Class(n) | Key::Assign(n) => Some(n), _ => None }
     }
-    /// The same kind of key with another name (for a key whose symbol is listed in `FileInfo::symbols`).
-    fn renamed(&self, n: &str) -> Key {
-        match self { Key::Def(_) => Key::Def(n.into()), Key::Class(_) => Key::Class(n.into()), Key::Assign(_) => Key::Assign(n.into()), k => k.clone() }
-    }
     fn label(&self) -> String {
         match self {
             Key::Def(n) => format!("def {n}"), Key::Class(n) => format!("class {n}"), Key::Assign(n) => format!("assign {n}"),
-            Key::Import(t) => format!("import {t}"), Key::Docstring => "docstring".into(), Key::Opaque(_) => "statement".into(),
+            Key::Import(t) if t.starts_with('#') => "an import line".into(), Key::Import(t) => format!("import {t}"), Key::Docstring => "docstring".into(), Key::Opaque(_) => "statement".into(),
             Key::Member(c, k) => format!("{c}.{}", k.label()),
         }
     }
@@ -235,6 +271,16 @@ pub(crate) fn parser(lang: Lang) -> Parser {
         Lang::Kotlin => tree_sitter_kotlin_ng::LANGUAGE.into(),
         Lang::C => tree_sitter_c::LANGUAGE.into(),
         Lang::Cpp => tree_sitter_cpp::LANGUAGE.into(),
+        // Enterprise readers; not part of this build.
+        Lang::Fortran | Lang::Sql | Lang::Hcl | Lang::CloudFormation | Lang::PulumiYaml | Lang::Ansible | Lang::Helm => return p,
+        // Enterprise readers; no structural merge.
+        Lang::Kconfig | Lang::KconfigValues | Lang::Devicetree | Lang::BuildRules => return p,
+        // Read by ios.rs line by line; device configurations merge as text.
+        Lang::CiscoIos | Lang::Nagios | Lang::Junos | Lang::Icinga => return p,
+        // Enterprise reader; metadata merges as text.
+        Lang::BitBake => return p,
+        // Read by xsd.rs; schemas merge as text.
+        Lang::Xsd => return p,
     };
     p.set_language(&l).expect("grammar");
     p
@@ -845,8 +891,14 @@ impl Stored {
 }
 
 fn analyze_file_uncached(path: &str, src: &[u8]) -> Option<FileInfo> {
-    let lang = lang_of(path)?;
+    analyze_file_inner(path, src)
+}
+
+fn analyze_file_inner(path: &str, src: &[u8]) -> Option<FileInfo> {
+    // A CloudFormation template may have any YAML or JSON name: it is known by what it declares.
+    let lang = lang_of(path).or_else(|| iac_sniff(path, src)).or_else(|| net_sniff(path, src))?;
     if matches!(lang, Lang::C | Lang::Cpp) { return c_cpp::analyze(path, src, lang); }
+    if matches!(lang, Lang::Kconfig | Lang::KconfigValues | Lang::Devicetree | Lang::BuildRules | Lang::BitBake) { return None; }
     let tree: Tree = parser(lang).parse(src, None)?;
     let root = tree.root_node();
     if root.has_error() { return None; }
@@ -1048,8 +1100,6 @@ pub struct Warning {
     #[serde(skip_serializing_if = "Option::is_none")] pub referenced_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")] pub severity: Option<String>,
     pub agents: Vec<String>,
-    /// SECURITY: how the control was weakened. HAZARD: set when the changed symbol is a security check.
-    #[serde(skip_serializing_if = "Option::is_none")] pub security: Option<security::Note>,
 }
 
 struct Side {
@@ -1059,15 +1109,15 @@ struct Side {
     unparsed: BTreeSet<String>,
     removed: BTreeMap<String, BTreeSet<Key>>, // path -> keys deleted on this side
     classes: BTreeSet<String>,                // `module.Class` keys in `changed` (member changes)
-    weak: BTreeMap<(String, String), security::Note>, // keys of `changed` whose security control was weakened
-    secure: BTreeSet<(String, String)>,       // keys of `changed` that are security checks (changed otherwise)
+    added: BTreeMap<String, BTreeSet<String>>, // path -> names of new top-level functions and classes
+    writes: BTreeSet<(String, String)>,        // (module, name) of shared state that changed code newly assigns
 }
 
 /// Both versions of each changed code file, parsed in order of `paths`. Large changes (a branch far behind the
 /// other) parse thousands of files, so they are parsed on a few threads.
 fn parse_changed(base: &Snapshot, x: &Snapshot, paths: &BTreeSet<&String>) -> Vec<(Option<FileInfo>, Option<FileInfo>)> {
     let todo: Vec<(&String, Option<&Vec<u8>>, Option<&Vec<u8>>)> = paths.iter().map(|p| (*p, base.get(*p), x.get(*p)))
-        .filter(|(p, b, v)| b != v && lang_of(p).is_some()).collect();
+        .filter(|(p, b, v)| b != v && is_code(p, &[*b, *v])).collect();
     let one = |(p, b, v): &(&String, Option<&Vec<u8>>, Option<&Vec<u8>>)| {
         let f = |src: Option<&Vec<u8>>| match src { Some(s) => analyze_file(p, s), None => Some(FileInfo::default()) };
         (f(*b), f(*v))
@@ -1082,13 +1132,13 @@ fn parse_changed(base: &Snapshot, x: &Snapshot, paths: &BTreeSet<&String>) -> Ve
 }
 
 fn side_changes(base: &Snapshot, x: &Snapshot) -> Side {
-    let mut s = Side { changed: BTreeMap::new(), touched: BTreeMap::new(), files: BTreeSet::new(), unparsed: BTreeSet::new(), removed: BTreeMap::new(), classes: BTreeSet::new(), weak: BTreeMap::new(), secure: BTreeSet::new() };
+    let mut s = Side { changed: BTreeMap::new(), touched: BTreeMap::new(), files: BTreeSet::new(), unparsed: BTreeSet::new(), removed: BTreeMap::new(), classes: BTreeSet::new(), added: BTreeMap::new(), writes: BTreeSet::new() };
     let paths: BTreeSet<&String> = base.keys().chain(x.keys()).collect();
     let mut parsed = parse_changed(base, x, &paths).into_iter();
     for path in paths {
         let (bv, xv) = (base.get(path), x.get(path));
         if bv == xv { continue; }
-        if lang_of(path).is_none() { s.files.insert(path.clone()); continue; }
+        if !is_code(path, &[bv, xv]) { s.files.insert(path.clone()); continue; }
         let (bi, xi) = parsed.next().expect("one parse per changed code file");
         let (Some(bi), Some(xi)) = (bi, xi) else { s.unparsed.insert(path.clone()); continue; };
         let module = if bv.is_some() { &bi } else { &xi }.module.clone();
@@ -1103,22 +1153,6 @@ fn side_changes(base: &Snapshot, x: &Snapshot) -> Side {
             let new = xi.items.get(k);
             if new.map(|i| &i.text) == Some(&item.text) { continue; }
             let sev = severity(item, new, bi.lang.or(xi.lang));
-            if let Some(lang) = bi.lang {
-                // Security controls: the same keys as `changed`, so a hit on the symbol finds the note.
-                let skey = match k { _ if bi.symbols.contains_key(k) => bi.symbols.get(k).cloned(), Key::Member(c, inner) => inner.bound().map(|n| (format!("{module}.{c}"), n.to_string())), _ => k.bound().map(|n| (module.clone(), n.to_string())) };
-                // A key with its own symbol (a nested COBOL program's paragraph) is judged under that symbol.
-                let (smod, sk) = match bi.symbols.get(k) { Some((m, n)) => (m.clone(), k.renamed(n)), None => (module.clone(), k.clone()) };
-                if let Some(skey) = skey {
-                    match security::weakening(path, &smod, &sk, item, new, lang) {
-                        Some(note) => {
-                            // A weakened member weakens its class for code that uses the class (a view, a controller).
-                            if let Key::Member(c, _) = k { s.weak.entry((module.clone(), c.clone())).or_insert_with(|| note.clone()); }
-                            s.weak.insert(skey, note);
-                        }
-                        None => if sev == "high" && security::relevant(path, &smod, &sk, item, lang) { s.secure.insert(skey); },
-                    }
-                }
-            }
             // Extension methods are called as `value.name(...)`: any use of `.name` may reach them.
             if item.ext { if let Some(n) = k.bound().or(if let Key::Member(_, i) = k { i.bound() } else { None }) { put((ATTR.into(), n.to_string()), sev); } }
             if let Some(sym) = bi.symbols.get(k).or_else(|| xi.symbols.get(k)) { put(sym.clone(), sev); continue; }
@@ -1144,6 +1178,23 @@ fn side_changes(base: &Snapshot, x: &Snapshot) -> Side {
         let diff: BTreeSet<Key> = xi.items.iter().filter(|(k, i)| bi.items.get(*k).map(|b| &b.text) != Some(&i.text)).map(|(k, _)| k.clone()).collect();
         let member_classes: BTreeSet<String> = diff.iter().filter_map(|k| if let Key::Member(c, _) = k { Some(c.clone()) } else { None }).collect();
         s.touched.insert(path.clone(), diff.into_iter().filter(|k| !matches!(k, Key::Class(c) if member_classes.contains(c))).collect());
+        if !guard::is_test(path) {
+            let new: BTreeSet<String> = xi.items.keys().filter(|k| matches!(k, Key::Def(_) | Key::Class(_)) && !bi.items.contains_key(*k))
+                .filter_map(|k| k.bound()).filter(|n| distinctive(n)).map(String::from).collect();
+            if !new.is_empty() { s.added.insert(path.clone(), new); }
+        }
+        // Shared state the changed functions newly assign: module-level names and instance attributes.
+        let globals: BTreeSet<String> = bi.items.keys().chain(xi.items.keys()).filter_map(|k| if let Key::Assign(n) = k { Some(n.clone()) } else { None }).collect();
+        for (k, it) in xi.items.iter().filter(|(k, _)| matches!(k, Key::Def(_) | Key::Member(_, _))) {
+            let before = bi.items.get(k).map(|b| assigned(&b.text)).unwrap_or_default();
+            for w in assigned(&it.text).difference(&before) {
+                match w.strip_prefix("self.").or_else(|| w.strip_prefix("this.")) {
+                    Some(a) if xi.instance_attrs.contains(a) || bi.instance_attrs.contains(a) => { s.writes.insert((module.clone(), format!("self.{a}"))); }
+                    None if globals.contains(w) => { s.writes.insert((module.clone(), w.clone())); }
+                    _ => {}
+                }
+            }
+        }
     }
     c_cpp::receivers(x, &mut s.changed);
     s
@@ -1208,7 +1259,7 @@ fn propagate(x: &Snapshot, side: &mut Side) {
         let names: BTreeSet<&str> = high.iter().flat_map(|(m, n)| [Some(text_name(m, n)), side.classes.contains(m).then(|| m.rsplit('.').next().unwrap_or(m))]).flatten().collect();
         // One prepared substring search per name: the text of every file is searched for every name.
         let finders: Vec<(&str, memchr::memmem::Finder)> = names.iter().filter(|n| !n.is_empty()).map(|n| (*n, memchr::memmem::Finder::new(n.as_bytes()))).collect();
-        let todo: Vec<(&String, &Vec<u8>)> = x.iter().filter(|(p, _)| lang_of(p).is_some() && !parsed.contains_key(*p))
+        let todo: Vec<(&String, &Vec<u8>)> = x.iter().filter(|(p, v)| is_code(p, &[Some(*v)]) && !parsed.contains_key(*p))
             .filter(|(p, v)| { let ci = caseless(p); finders.iter().any(|(n, f)| if ci { v.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n.as_bytes())) } else { f.find(v).is_some() }) }).collect();
         for (p, v) in todo { parsed.insert(p.clone(), analyze_file(p, v)); }
         let infos: Vec<(&String, &FileInfo)> = parsed.iter().filter_map(|(p, i)| i.as_ref().map(|i| (p, i))).collect();
@@ -1255,8 +1306,29 @@ fn text_name<'a>(m: &str, n: &'a str) -> &'a str { if c_cpp::display(m, n).is_so
 /// Modules a file imports (as `module_name` spells them; Go packages as `go:<import path>`; C and C++ includes as
 /// `cinc:` candidates, see `c_cpp::resolve_include`).
 pub fn imports_of(path: &str, src: &[u8]) -> BTreeSet<String> {
+    let js = [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts"].iter().any(|e| path.ends_with(e));
     // A C or C++ file's own module (`c:<path>`) is in its `opens` but is not something it imports.
-    analyze_file(path, src).map(|i| i.aliases.into_values().map(|(m, _)| m).chain(i.opens.into_iter().filter(|m| !m.starts_with("c:"))).collect()).unwrap_or_default()
+    let mut out: BTreeSet<String> = analyze_file(path, src).map(|i| i.aliases.into_values().map(|(m, _)| m).chain(i.opens.into_iter().filter(|m| !m.starts_with("c:"))).collect()).unwrap_or_default();
+    // CommonJS `require('m')` and dynamic `import('m')` with a literal (or folded) module string.
+    if js { out.extend(literal_module_calls(&String::from_utf8_lossy(src)).into_iter().map(|m| resolve_ts(path, &m))); }
+    out
+}
+
+/// The literal arguments of `require(...)` and `import(...)` calls in JavaScript or TypeScript text.
+fn literal_module_calls(s: &str) -> Vec<String> {
+    let mut out = vec![];
+    for kw in ["require(", "import("] {
+        for (i, _) in s.match_indices(kw) {
+            if s[..i].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '.') { continue; }
+            let r = s[i + kw.len()..].trim_start();
+            let Some(q) = r.chars().next().filter(|c| matches!(c, '\'' | '"' | '`')) else { continue };
+            let Some(e) = r[1..].find(q) else { continue };
+            let lit = &r[1..1 + e];
+            if lit.contains("${") || !r[1 + e + 1..].trim_start().starts_with(')') { continue; }
+            out.push(lit.to_string());
+        }
+    }
+    out
 }
 
 /// Names whose meaning one side changed (directly or through helpers in `x`). A file that mentions none of
@@ -1303,72 +1375,204 @@ pub fn merge_hazards(base: &Snapshot, head: &Snapshot, sub: &Snapshot) -> Vec<Wa
         }
     }
     analyze_with(base, ("head", &head), ("submitted", &sub), true).into_iter()
-        .filter(|w| w.kind == "UNPARSED" || w.kind == "SECURITY" || (w.kind == "HAZARD" && w.severity.as_deref() == Some("high"))).collect()
+        .filter(|w| w.kind == "UNPARSED" || (w.kind == "HAZARD" && w.severity.as_deref() == Some("high"))).collect()
 }
 
 fn analyze_with(base: &Snapshot, a: (&str, &Snapshot), b: (&str, &Snapshot), transitive: bool) -> Vec<Warning> {
-    let (an, asnap) = a; let (bn, bsnap) = b;
-    let mut sa = side_changes(base, asnap); let mut sb = side_changes(base, bsnap);
-    if transitive { propagate(asnap, &mut sa); propagate(bsnap, &mut sb); }
+    let (sa, sb) = (summarize_with(base, a.1, transitive, false), summarize_with(base, b.1, transitive, false));
+    analyze_summaries((a.0, &sa), (b.0, &sb))
+}
+
+fn both_names(a: &str, b: &str) -> Vec<String> { vec![a.to_string(), b.to_string()] }
+
+/// Names a piece of code assigns: `x = ...`, `x += ...`, `self.x = ...`, `this.x = ...` (not `==`, `<=`, `:=`, `=>`).
+fn assigned(text: &str) -> BTreeSet<String> {
+    let b = text.as_bytes();
+    let mut out = BTreeSet::new();
+    for (i, _) in text.match_indices('=') {
+        let next = b.get(i + 1).copied().unwrap_or(b' ');
+        let prev = if i > 0 { b[i - 1] } else { b' ' };
+        if next == b'=' || next == b'>' || matches!(prev, b'=' | b'!' | b'<' | b'>' | b':') { continue; }
+        let mut j = i;
+        if matches!(prev, b'+' | b'-' | b'*' | b'/' | b'%' | b'|' | b'&' | b'^') { j -= 1; }
+        while j > 0 && b[j - 1] == b' ' { j -= 1; }
+        let end = j;
+        while j > 0 && (b[j - 1].is_ascii_alphanumeric() || b[j - 1] == b'_' || b[j - 1] == b'.') { j -= 1; }
+        let name = &text[j..end];
+        // A declaration (`let x =`, `var x =`, `int x =`) makes a local, not a write to shared state.
+        let before = text[..j].trim_end();
+        let decl = ["let", "var", "const", "auto", "int", "char", "float", "double", "long", "bool", "mut"].iter().any(|d| before.ends_with(d) && before[..before.len() - d.len()].ends_with(|c: char| !c.is_alphanumeric()));
+        if !name.is_empty() && !decl && !name.starts_with(|c: char| c.is_ascii_digit()) && name.matches('.').count() <= 1 && (!name.contains('.') || name.starts_with("self.") || name.starts_with("this.")) { out.insert(name.to_string()); }
+    }
+    out
+}
+
+/// A new name specific enough that two agents adding it in different files likely wrote the same thing twice.
+fn distinctive(n: &str) -> bool {
+    n.len() >= 6 && !matches!(n, "main" | "setup" | "teardown" | "handler" | "helper" | "helpers" | "init" | "run" | "execute" | "process" | "default" | "config")
+        && !n.starts_with("test") && !n.starts_with("__") && n.chars().any(|c| c.is_alphabetic())
+}
+
+/// What one agent changed and what its new code uses, relative to its base, as names and paths only: never
+/// source text. Each machine computes its own summary; the team server compares summaries (`analyze_summaries`)
+/// and so never needs the code.
+#[derive(Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Summary {
+    pub unparsed: BTreeSet<String>,
+    /// Changed files gitta does not read as code (an OVERLAP when both sides change one).
+    pub files: BTreeSet<String>,
+    /// Per code file: the keys added or modified, and the keys deleted.
+    pub touched: BTreeMap<String, BTreeSet<Key>>,
+    pub removed: BTreeMap<String, BTreeSet<Key>>,
+    /// Symbols whose meaning changed: (module, name, severity).
+    pub changed: Vec<(String, String, String)>,
+    /// `module.Class` symbols whose members changed.
+    pub classes: BTreeSet<String>,
+    /// Per code file with new or edited code: the names that code newly uses.
+    pub uses: BTreeMap<String, Uses>,
+    /// Per code file outside the tests: the new top-level functions and classes (two agents adding the same one in
+    /// different files is likely duplicate work).
+    #[serde(default)]
+    pub added: BTreeMap<String, BTreeSet<String>>,
+    /// Shared state (module-level names and `self.` attributes) that the changed functions newly assign.
+    #[serde(default)]
+    pub writes: BTreeSet<(String, String)>,
+}
+
+/// The names one file's new or edited code uses that base did not.
+#[derive(Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Uses {
+    pub module: String,
+    pub lang: Option<Lang>,
+    pub bare: BTreeSet<String>,
+    pub qual: BTreeSet<(String, String)>,
+    /// Names the edited keys define themselves, and classes whose members they are.
+    pub own: BTreeSet<String>,
+    pub member_classes: BTreeSet<String>,
+    /// COBOL EXTERNAL data the edited keys declare.
+    pub externals: BTreeSet<(String, String)>,
+}
+
+/// The summary of one agent's work `x` against `base`.
+/// Statement and import keys are named by a hash of their text, so the summary holds no line of code.
+pub fn summarize(base: &Snapshot, x: &Snapshot) -> Summary { summarize_with(base, x, false, true) }
+
+fn summarize_with(base: &Snapshot, x: &Snapshot, transitive: bool, hide_text: bool) -> Summary {
+    let mut side = side_changes(base, x);
+    if transitive { propagate(x, &mut side); }
+    let mut uses = BTreeMap::new();
+    for (path, keys) in &side.touched {
+        // An import or re-export line names a symbol but does not depend on what it does; the code that calls
+        // it does, and that code is its own key.
+        let keys: BTreeSet<Key> = keys.iter().filter(|k| !matches!(k, Key::Import(_))).cloned().collect();
+        if keys.is_empty() { continue; }
+        let Some(info) = x.get(path).and_then(|s| analyze_file(path, s)) else { continue };
+        let (mut bare, mut qual) = references(&info, &keys);
+        if let Some(binfo) = base.get(path).and_then(|s| analyze_file(path, s)) {
+            // Only NEW references are hazards: base callers were exercised by the changing side's own checks.
+            let (ob, oq) = references(&binfo, &keys);
+            let grown: BTreeSet<String> = BTreeSet::new();
+            bare.retain(|n| !ob.contains(n) || grown.contains(n));
+            qual.retain(|q| !oq.contains(q) || grown.contains(&q.1));
+        }
+        let externals = BTreeSet::new();
+        uses.insert(path.clone(), Uses {
+            module: info.module.clone(), lang: info.lang, bare, qual,
+            own: keys.iter().filter_map(|k| k.bound()).map(String::from).collect(),
+            member_classes: keys.iter().filter_map(|k| if let Key::Member(c, _) = k { Some(c.clone()) } else { None }).collect(),
+            externals,
+        });
+    }
+    // A statement or import key is named by its text: send a hash, which still tells two edits of the same
+    // statement apart from different ones, so no line of code is in the summary.
+    let hide = |m: BTreeMap<String, BTreeSet<Key>>| -> BTreeMap<String, BTreeSet<Key>> { m.into_iter().map(|(p, ks)| (p, ks.into_iter().map(|k| if hide_text { hidden_key(k) } else { k }).collect())).collect() };
+    Summary {
+        unparsed: side.unparsed, files: side.files, touched: hide(side.touched), removed: hide(side.removed),
+        changed: side.changed.iter().map(|((m, n), s)| (m.clone(), n.clone(), s.to_string())).collect(),
+        classes: side.classes,
+        uses, added: side.added, writes: side.writes,
+    }
+}
+
+/// A key whose name is source text (a statement, an import line), as a hash of that text.
+fn hidden_key(k: Key) -> Key {
+    // FNV-1a: the same on every machine and every gitta version, so two machines' hashes of one statement match.
+    let h = |t: &str| format!("#{:016x}", t.bytes().fold(0xcbf29ce484222325u64, |a, b| (a ^ b as u64).wrapping_mul(0x100000001b3)));
+    match k {
+        Key::Opaque(t) => Key::Opaque(h(&t)),
+        Key::Import(t) => Key::Import(h(&t)),
+        Key::Member(c, inner) => Key::Member(c, Box::new(hidden_key(*inner))),
+        k => k,
+    }
+}
+
+/// The warnings between two agents, from their summaries alone.
+pub fn analyze_summaries(a: (&str, &Summary), b: (&str, &Summary)) -> Vec<Warning> {
+    let (an, sa) = a; let (bn, sb) = b;
     let mut out = vec![];
-    for (agent, side) in [(an, &sa), (bn, &sb)] {
-        for p in &side.unparsed { out.push(Warning { kind: "UNPARSED".into(), path: p.clone(), symbol: None, changed_by: None, referenced_by: None, severity: None, agents: vec![agent.into()], security: None }); }
+    for (agent, side) in [(an, sa), (bn, sb)] {
+        for p in &side.unparsed { out.push(Warning { kind: "UNPARSED".into(), path: p.clone(), symbol: None, changed_by: None, referenced_by: None, severity: None, agents: vec![agent.into()] }); }
     }
     let both = vec![an.to_string(), bn.to_string()];
-    let edited = |side: &Side, p: &str| -> BTreeSet<Key> {
+    let edited = |side: &Summary, p: &str| -> BTreeSet<Key> {
         side.touched.get(p).into_iter().chain(side.removed.get(p)).flatten().cloned().collect()
     };
     for path in sa.touched.keys() {
         if sb.touched.contains_key(path) {
-            let (ka, kb) = (edited(&sa, path), edited(&sb, path));
+            let (ka, kb) = (edited(sa, path), edited(sb, path));
             for k in ka.intersection(&kb) {
                 if matches!(k, Key::Opaque(_)) { continue; }
-                out.push(Warning { kind: "OVERLAP".into(), path: path.clone(), symbol: Some(k.label()), changed_by: None, referenced_by: None, severity: None, agents: both.clone(), security: None });
+                out.push(Warning { kind: "OVERLAP".into(), path: path.clone(), symbol: Some(k.label()), changed_by: None, referenced_by: None, severity: None, agents: both.clone() });
             }
         }
     }
     for f in sa.files.intersection(&sb.files) {
-        out.push(Warning { kind: "OVERLAP".into(), path: f.clone(), symbol: None, changed_by: None, referenced_by: None, severity: None, agents: both.clone(), security: None });
+        out.push(Warning { kind: "OVERLAP".into(), path: f.clone(), symbol: None, changed_by: None, referenced_by: None, severity: None, agents: both.clone() });
+    }
+    // Static interference (low): one side newly writes shared state that the other side's new code reads or also
+    // writes, with no definition changed (de Jesus et al., ICSE-Companion 2024; such checks reach about F1 0.5, so
+    // this is a note, never a block).
+    for (ch, chn, other, on) in [(sa, an, sb, bn), (sb, bn, sa, an)] {
+        for (m, n) in &ch.writes {
+            let both = other.writes.contains(&(m.clone(), n.clone()));
+            for (path, u) in &other.uses {
+                if u.module != *m || !(both || (!n.starts_with("self.") && u.bare.contains(n))) { continue; }
+                if out.iter().any(|w: &Warning| w.kind == "INTERFERENCE" && w.symbol.as_deref() == Some(n.as_str())) { continue; }
+                out.push(Warning { kind: "INTERFERENCE".into(), path: path.clone(), symbol: Some(n.clone()), changed_by: Some(chn.into()),
+                    referenced_by: Some(on.into()), severity: Some("low".into()), agents: both_names(an, bn) });
+            }
+        }
+    }
+    // The same new function or class written by both agents in different files: likely the same task done twice
+    // (24% of rejected agent pull requests are duplicates, MSR 2026). Reported once, on the second agent's file.
+    let mut dup: BTreeSet<String> = BTreeSet::new();
+    for (pa, na) in &sa.added {
+        for (pb, nb) in sb.added.iter().filter(|(pb, _)| *pb != pa) {
+            for n in na.intersection(nb).filter(|n| dup.insert((*n).clone())) {
+                out.push(Warning { kind: "DUPLICATE".into(), path: pb.clone(), symbol: Some(format!("{n} (also new in {pa})")), changed_by: Some(an.into()),
+                    referenced_by: Some(bn.into()), severity: Some("low".into()), agents: both.clone() });
+            }
+        }
     }
     if !sa.unparsed.is_empty() || !sb.unparsed.is_empty() { return out; }
-    for (ch, chname, other, oname, osnap) in [(&sa, an, &sb, bn, bsnap), (&sb, bn, &sa, an, asnap)] {
-        for (path, keys) in &other.touched {
-            // An import or re-export line names a symbol but does not depend on what it does; the code that calls
-            // it does, and that code is its own key.
-            let keys: &BTreeSet<Key> = &keys.iter().filter(|k| !matches!(k, Key::Import(_))).cloned().collect();
-            if keys.is_empty() { continue; }
-            let Some(info) = osnap.get(path).and_then(|s| analyze_file(path, s)) else { continue };
-            let (mut bare, mut qual) = references(&info, keys);
-            if let Some(binfo) = base.get(path).and_then(|s| analyze_file(path, s)) {
-                // Only NEW references are hazards: base callers were exercised by the changing side's own checks.
-                let (ob, oq) = references(&binfo, keys);
-                let grown: BTreeSet<String> = BTreeSet::new();
-                bare.retain(|n| !ob.contains(n) || grown.contains(n));
-                qual.retain(|q| !oq.contains(q) || grown.contains(&q.1));
-            }
-            let module = info.module.clone();
-            let own: BTreeSet<&str> = keys.iter().filter_map(|k| k.bound()).collect();
-            for ((cm, name), sev) in &ch.changed {
+    for (ch, chname, other, oname) in [(sa, an, sb, bn), (sb, bn, sa, an)] {
+        for (path, u) in &other.uses {
+            let module = &u.module;
+            for (cm, name, sev) in &ch.changed {
                 // A changed method or property used as `this.name` / `x.name` by code that works with that class.
-                let class_member = ch.classes.contains(cm) && cm.rsplit_once('.').map(|(_, c)| (keys.iter().any(|k| matches!(k, Key::Member(kc, _) if kc == c)) || bare.contains(c))
-                    && qual.contains(&(ATTR.to_string(), name.clone()))).unwrap_or(false);
+                let class_member = ch.classes.contains(cm) && cm.rsplit_once('.').map(|(_, c)| (u.member_classes.contains(c) || u.bare.contains(c))
+                    && u.qual.contains(&(ATTR.to_string(), name.clone()))).unwrap_or(false);
                 // Java, C# and Kotlin call members of their own class without `this.`: a new member of the class
                 // (another part of a C# partial class, say) that names a changed member uses it.
-                let own_class = info.lang.map(|l| matches!(l, Lang::Java | Lang::CSharp | Lang::Kotlin)).unwrap_or(false) && bare.contains(name)
-                    && keys.iter().any(|k| matches!(k, Key::Member(kc, _) if cm == &format!("{module}.{kc}")));
+                let own_class = u.lang.map(|l| matches!(l, Lang::Java | Lang::CSharp | Lang::Kotlin)).unwrap_or(false) && u.bare.contains(name)
+                    && u.member_classes.iter().any(|kc| cm == &format!("{module}.{kc}"));
                 let mf = false;
-                let hit = class_member || own_class || mf || (cm == &module && bare.contains(name) && !own.contains(name.as_str())) || qual.contains(&(cm.clone(), name.clone()))
-                    || (!cm.is_empty() && qual.iter().any(|(m, n)| n == name && m.strip_prefix("go:").map(|r| r == cm || r.ends_with(&format!("/{cm}"))).unwrap_or(false)));
+                let hit = class_member || own_class || mf || (cm == module && u.bare.contains(name) && !u.own.contains(name)) || u.qual.contains(&(cm.clone(), name.clone()))
+                    || (!cm.is_empty() && u.qual.iter().any(|(m, n)| n == name && m.strip_prefix("go:").map(|r| r == cm || r.ends_with(&format!("/{cm}"))).unwrap_or(false)));
                 if hit {
-                    let key = (cm.clone(), name.clone());
-                    let (kind, sev, note) = match ch.weak.get(&key) {
-                        Some(n) => ("SECURITY", "high", Some(n.clone())),
-                        None if ch.secure.contains(&key) => ("HAZARD", *sev, Some(security::Note { what: "changed the interface of".into(), risk: "It is a security check: make sure your code still gets the protection it expects.".into() })),
-                        None => ("HAZARD", *sev, None),
-                    };
                     let symbol = c_cpp::display(cm, name).unwrap_or_else(|| format!("{cm}.{name}"));
-                    out.push(Warning { kind: kind.into(), path: path.clone(), symbol: Some(symbol),
-                        changed_by: Some(chname.into()), referenced_by: Some(oname.into()), severity: Some(sev.to_string()), agents: both.clone(), security: note });
+                    out.push(Warning { kind: "HAZARD".into(), path: path.clone(), symbol: Some(symbol),
+                        changed_by: Some(chname.into()), referenced_by: Some(oname.into()), severity: Some(sev.to_string()), agents: both.clone() });
                 }
             }
         }
@@ -1454,4 +1658,21 @@ mod csharp_kotlin_layout_tests {
         // Enclosing namespaces are in scope in C#.
         assert!(analyze_file("a.cs", b"namespace Shop.Web.Pages;\nclass A {}\n").unwrap().opens.contains("Shop.Web"));
     }
+}
+
+/// Whether a file's code uses any of `changed` (`module.name`, as `provided_symbols` names them): through an import
+/// or alias, a module member (`m.name`), a name of its own module, or a reference the reader already resolved.
+/// Test selection from the symbol graph: which tests exercise a change.
+pub fn uses_any(path: &str, src: &[u8], changed: &BTreeSet<String>) -> bool {
+    let Some(info) = analyze_file(path, src) else { return false };
+    let hit = |m: &str, n: &str| changed.contains(&format!("{m}.{n}"));
+    info.items.values().any(|it| {
+        it.refs.qual.iter().any(|(m, n)| hit(m, n))
+            || it.refs.idents.iter().any(|id| match info.aliases.get(id) {
+                Some((m, Some(n))) => hit(m, n),
+                Some((_, None)) => false,
+                None => hit(&info.module, id),
+            })
+            || it.refs.members.iter().any(|(obj, prop)| matches!(info.aliases.get(obj), Some((m, None)) if hit(m, prop)))
+    })
 }

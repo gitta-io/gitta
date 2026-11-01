@@ -15,10 +15,10 @@
 <p>Yes. When two agents change the same function or the same lines, both get an <b>also editing</b> note. When one agent changes code that the other agent's new code uses, in any file, the second agent gets a warning with the other agent's new definition. Your tests run on both changes together when you merge. See <a href="warnings.html">Warnings and sync</a>.</p>
 
 <h2>Does gitta replace code review of AI pull requests?</h2>
-<p>No. A person still reviews the code. gitta tells the reviewer what changed under an agent's work, which other pull requests touch the same code, and whether the combination passes your tests. It also reports weakened tests and removed security controls, and in CI it stops such a merge by default. See <a href="pull-requests.html#review-agent-pull-requests">Review agent pull requests</a>.</p>
+<p>No. A person still reviews the code. gitta tells the reviewer what changed under an agent's work, which other pull requests touch the same code, and whether the combination passes your tests. It also reports weakened tests and CI, and in CI it stops such a merge by default. See <a href="pull-requests.html#review-agent-pull-requests">Review agent pull requests</a>.</p>
 
 <h2>Does gitta send my code anywhere?</h2>
-<p>No. gitta runs on your machines and uses no AI model. With Enterprise, the team server runs in your own cloud account or cluster and receives only the files an agent changed. Nothing goes to gitta's company. See <a href="https://gitta.io/docs/security.html">Security and data</a>.</p>
+<p>No. gitta runs on your machines and uses no AI model. With Enterprise, the team server runs in your own cloud account or cluster and receives only the files an agent changed. Nothing goes to gitta's company.</p>
 
 <h2>Does the EU AI Act require logging of AI-written code?</h2>
 <p>The AI Act's record-keeping duty in Article 12 is for high-risk AI systems, and most of its duties fall on providers and deployers of AI systems. Whether it reaches your code depends on what you build, so ask your legal advisers. When you want a record of how agents took part in your development, gitta's audit trail gives one. See <a href="https://gitta.io/docs/compliance.html#eu-regulations">EU regulations</a>.</p>

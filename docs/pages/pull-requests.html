@@ -99,19 +99,10 @@ steps:
 <p>With <code>--json</code>, each result has an <code>info</code> field next to <code>warnings</code>.</p>
 <p>The check runs in a blob-less clone (<code>git clone --filter=blob:none</code>) too. It fetches the files it needs in one request, so its time follows the size of the change, not the size of the repository.</p>
 
-<h2>Security line</h2>
-<p>When the other branch removes or switches off a security control that the new code of this pull request calls, the comment has a <b>Security</b> line. With <code>--json</code>, each result has a <code>security</code> field with the same text.</p>
-<term>$ gitta pr-check --pr short-links --other public-profiles --base main
-### Gitta: short-links against 1 other open pull request(s)
-
-- **Security** with public-profiles: public-profiles removed the login check (`@login_required`) from `app.main.routes.user`, which short-links' new code in app/main/routes.py calls. That code may now run without a logged-in user.</term>
-<p>The check reads the committed <code>.gitta-security</code> file, so your own security checks count in CI too.</p>
-
 <h2>Review agent pull requests</h2>
 <p>A person still reviews each pull request. The gitta comment tells the reviewer what changed around the pull request, so the review can focus on the code itself.</p>
 <ol class="steps">
   <li>Read the gitta comment first. It names the other open pull requests that touch the same code, and whether the combination merges and passes your gate.</li>
-  <li>Look at every <b>Security</b> line. It names a security control that another pull request removed while this one calls the code it protected.</li>
   <li>Check changes to tests and CI. When the work is merged, gitta reports weakened checks in the merge output and the CI log, and records them in the <a href="audit.html">audit trail</a>.</li>
   <li>Check changes to <code>AGENTS.md</code>, <code>CLAUDE.md</code> and similar files. They change how every agent works.</li>
 </ol>

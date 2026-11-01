@@ -13,7 +13,7 @@ After every step an agent takes, gitta looks at what it changed. When one agent 
 Merging works as always, with git merge, git pull or git push. gitta hooks into those commands and runs `python3 -m unittest -q` on the combined code first. If the tests fail, it stops the merge and says which test failed and why.
 Claude Code hooks added to ~/.claude/settings.json (backup next to it). They stay silent outside gitta repositories.
 When gitta tells an agent about a clash, the agent fixes its code itself and mentions it to you in one sentence in its chat.
-gitta never asks you anything. When a merge removes tests or weakens a security check, it says so in the merge output and in the log. The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block.
+gitta never asks you anything. When a merge removes tests or weakens a check, it says so in the merge output and in the log. The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block.
 To share the test command and rules with your team and the CI check, run `gitta init --team` and commit .gitta.toml.
 
 Start your agents the way you always do. `gitta watch` shows what gitta does as it happens, and `tail -f .gitta/gitta.log` follows the same story as plain lines.</term>

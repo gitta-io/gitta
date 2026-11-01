@@ -129,12 +129,9 @@ pub fn send_pending(root: &Path, urls: &str, token: &str, repo: &str) {
                 let new: Vec<&Value> = events.iter().filter(|e| e["seq"].as_u64().unwrap_or(0) > sent).take(500).collect();
                 let Some(last) = new.last().and_then(|e| e["seq"].as_u64()) else { return };
                 let body = json!({"repo": repo, "source": source(root), "events": new}).to_string();
-                let mut curl = Command::new("curl");
-                if let Ok(ca) = std::env::var("GITTA_SERVER_CA") { curl.args(["--cacert", &ca]); }
-                let ok = curl.args(["-fsS", "--proto", "=http,https", "--connect-timeout", "1", "--max-time", "4", "-X", "POST", "-H", "Content-Type: application/json",
-                        "-H", &format!("Authorization: Bearer {token}"), "--data-binary", "@-", &format!("{url}/v1/audit")])
-                    .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn()
-                    .and_then(|mut ch| { ch.stdin.take().unwrap().write_all(body.as_bytes())?; ch.wait() }).map(|s| s.success()).unwrap_or(false);
+                let ep = format!("{url}/v1/audit");
+                let ok = crate::server_curl(url, token, &["-fsS", "--proto", "=http,https", "--connect-timeout", "1", "--max-time", "4", "-X", "POST", "-H", "Content-Type: application/json", &ep], Some(body.as_bytes()))
+                    .map(|o| o.status.success()).unwrap_or(false);
                 if ok { let _ = std::fs::write(&cursor, last.to_string()); }
             });
         }
@@ -149,12 +146,14 @@ pub(crate) fn summary(e: &Value) -> String {
     let s = |k: &str| d[k].as_str().unwrap_or("").to_string();
     match e["event"].as_str().unwrap_or("") {
         "agent_started" => format!("{} workspace on branch {} from {}", s("tool"), s("branch"), short(&s("base"))),
-        "warning" if s("kind") == "SECURITY_NOTE" => format!("SECURITY_NOTE {} ({}) at {}:{}", s("rule"), s("severity"), s("path"), d["line"]),
-        "security_allowed" => format!("{} at {}:{} allowed: {}{}", s("rule"), s("path"), d["line"], s("reason"), if d["added_by_change"].as_bool() == Some(true) { " (added in this change)" } else { "" }),
         "warning" => format!("{} {} in {}{}", s("kind"), s("symbol"), s("path"), if s("other").is_empty() { String::new() } else { format!(" (with {}{})", s("other"), if s("machine").is_empty() { String::new() } else { format!(" on {}", s("machine")) }) }),
         "checks" => d["checks"].as_array().map(|c| c.iter().map(|x| format!("{} {}", x["check"].as_str().unwrap_or(""), x["result"].as_str().unwrap_or(""))).collect::<Vec<_>>().join(", ")).unwrap_or_default(),
         "land_refused" => format!("{}: {}", s("check"), s("reason")),
         "landed" => format!("{} file(s), {} -> {}{}", d["files"].as_array().map(|f| f.len()).unwrap_or(0), short(&s("from")), short(&s("to")), if d["approvals"].as_array().is_some_and(|a| !a.is_empty()) { ", with approval" } else { "" }),
+        "merge_checked" => format!("{} onto {}: tests {}{}", s("how"), s("onto"), d["tests"]["result"].as_str().unwrap_or("not run"), match d["files"].as_array().map(|f| f.len()) { Some(n) if n > 0 => format!(", {n} file(s)"), _ => String::new() }),
+        "merge_stopped" => format!("{} onto {} stopped: {}", s("how"), s("onto"), d["failing"].as_array().filter(|f| !f.is_empty()).map(|f| format!("{} failing test(s): {}", f.len(), f.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", "))).unwrap_or_else(|| format!("tests {}", d["tests"]["result"].as_str().unwrap_or("failed")))),
+        "intermittent" => format!("{} failed, then passed when run again", d["tests"].as_array().map(|t| t.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default()),
+        "flaky" => format!("{} passed when run again", d["tests"].as_array().map(|t| t.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default()),
         "approved" => format!("{} approved: {}", e["actor"]["name"].as_str().unwrap_or(""), s("reason")),
         _ => String::new(),
     }
@@ -164,9 +163,8 @@ pub(crate) fn summary(e: &Value) -> String {
 pub(crate) fn fetch_team(team: Option<(String, String, String)>) -> Vec<Value> {
     let Some((urls, token, repo)) = team else { eprintln!("gitta: no team server configured (gitta init --server URL --token T)"); std::process::exit(1) };
     for url in urls.split(',').map(|u| u.trim().trim_end_matches('/')).filter(|u| !u.is_empty()) {
-        let mut curl = Command::new("curl");
-        if let Ok(ca) = std::env::var("GITTA_SERVER_CA") { curl.args(["--cacert", &ca]); }
-        let out = curl.args(["-fsS", "--connect-timeout", "2", "--max-time", "30", "-H", &format!("Authorization: Bearer {token}"), "--get", "--data-urlencode", &format!("repo={repo}"), &format!("{url}/v1/audit")]).output();
+        let (ep, repo_arg) = (format!("{url}/v1/audit"), format!("repo={repo}"));
+        let out = crate::server_curl(url, &token, &["-fsS", "--connect-timeout", "2", "--max-time", "30", "--get", "--data-urlencode", &repo_arg, &ep], None);
         if let Some(v) = out.ok().filter(|o| o.status.success()).and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok()).and_then(|v| v["events"].as_array().cloned()) { return v; }
     }
     eprintln!("gitta: no team server answered"); std::process::exit(1)
@@ -290,5 +288,12 @@ mod tail_tests {
         record(&root, "warning", "a", &json!({}), json!({"findings": "y"}));
         assert_eq!(verify(&read(&root)), Ok(2));
         let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn git_merge_events_have_a_summary() {
+        let stopped = json!({"event": "merge_stopped", "data": {"onto": "main", "how": "git merge", "failing": ["more.thirds", "test_seven"]}});
+        assert_eq!(summary(&stopped), "git merge onto main stopped: 2 failing test(s): more.thirds, test_seven");
+        let checked = json!({"event": "merge_checked", "data": {"onto": "main", "how": "git merge", "files": [{"path": "a.py"}], "tests": {"result": "passed"}}});
+        assert_eq!(summary(&checked), "git merge onto main: tests passed, 1 file(s)");
     }
 }

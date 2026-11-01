@@ -19,7 +19,7 @@
 </figure>
 
 <h2>Work that reached main</h2>
-<p>Work can reach main by a local <code>git merge</code>, a merged pull request or a push. gitta checks each agent's work against main as it is when that agent merges. When new code of an agent calls something that changed on main, gitta writes a note to <code>.gitta/gitta.log</code>, and the tests at merge time decide. A failed merge shows the new definition on main. A security control removed on main reaches the agents whose new code calls the code it protected, as a security warning at their next step.</p>
+<p>Work can reach main by a local <code>git merge</code>, a merged pull request or a push. gitta checks each agent's work against main as it is when that agent merges. When new code of an agent calls something that changed on main, gitta writes a note to <code>.gitta/gitta.log</code>, and the tests at merge time decide. A failed merge shows the new definition on main.</p>
 
 <h2>Blocking routes</h2>
 <table>
@@ -27,16 +27,6 @@
   <tr><td><code>git merge</code>, <code>git pull</code>, <code>git push</code></td><td>The <a href="landing.html">git hooks</a> that <code>gitta init</code> adds run your gate on the combined code before main moves, and stop the merge when the tests fail. This also applies when a merge stopped on a conflict and is finished with <code>git commit</code>. <code>--no-verify</code> skips them, and the audit trail records it.</td></tr>
   <tr><td>Pull request</td><td>The <a href="pull-requests.html">gitta check</a> fails when the pull request breaks together with another open pull request. It blocks the merge only when branch protection requires it.</td></tr>
   <tr><td>Push from a machine without gitta</td><td>No check runs there. The next merge on a machine with gitta runs the tests on code that includes it.</td></tr>
-</table>
-
-<h2>Security controls on each route</h2>
-<p>When an agent removes or switches off a security control, such as a login check, gitta handles it like this:</p>
-<table>
-  <tr><th>Route</th><th>What happens</th></tr>
-  <tr><td>Agent session</td><td>The agent that removed the control and each agent whose new code calls the code it protected get a security warning at their next step.</td></tr>
-  <tr><td><code>git merge</code>, <code>git pull</code>, <code>git push</code></td><td>Reported in the output, <code>.gitta/gitta.log</code> and the audit trail. With <code>weakened_checks</code> set to <code>block</code>, the merge stops.</td></tr>
-  <tr><td>Pull request</td><td>The gitta check adds a <b>Security</b> line to its comment, and a <code>security</code> field to its JSON result.</td></tr>
-  <tr><td>Push from a machine without gitta</td><td>Not stopped. Agents whose new code relies on the control get a security warning.</td></tr>
 </table>
 
 <h2>Make the checks mandatory</h2>

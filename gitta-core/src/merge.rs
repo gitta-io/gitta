@@ -60,7 +60,7 @@ pub fn line_merge(base: &[u8], head: &[u8], sub: &[u8]) -> Result<Vec<u8>, Merge
 
 /// Myers diff over lines: (base start, base end, replacement) hunks. None when the edit distance is too
 /// large for the in-process path (the caller then falls back to `git merge-file`).
-fn myers<T: PartialEq + Clone>(a: &[T], b: &[T]) -> Option<Vec<(usize, usize, Vec<T>)>> {
+pub(crate) fn myers<T: PartialEq + Clone>(a: &[T], b: &[T]) -> Option<Vec<(usize, usize, Vec<T>)>> {
     // Common prefix and suffix are never part of a hunk.
     let pre = a.iter().zip(b).take_while(|(x, y)| x == y).count();
     let suf = a[pre..].iter().rev().zip(b[pre..].iter().rev()).take_while(|(x, y)| x == y).count();

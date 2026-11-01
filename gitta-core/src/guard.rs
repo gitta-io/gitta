@@ -3,15 +3,18 @@
 //! Deterministic and cheap (one pass over each changed file, base vs new). Findings:
 //!   TEST_DELETED       a test file was removed, or CTest registrations (`add_test` ...) were taken out of CMake files
 //!   ASSERTIONS_REMOVED a test file has fewer assertions than before
+//!   ASSERTIONS_WEAKENED value checks (assertEqual, toEqual, assert x == y ...) replaced by weaker ones that check only
+//!                      truth or presence (assertTrue(x), `is not None`, toBeTruthy ...)
 //!   TEST_SKIPPED       new skip / xfail / ignore / .only markers (C and C++: `DISABLED_`, `GTEST_SKIP`, `SKIP`, tests
 //!                      put under `#if 0`)
 //!   CI_WEAKENED        CI configuration now tolerates failures or lost test/lint/scan steps
 //!   THRESHOLD_LOWERED  a coverage or quality threshold went down
 //!   CHECK_SILENCED     new suppression comments (nosec, noqa, eslint-disable, @ts-ignore, #[allow] ...)
-//!   SECURITY_WEAKENED  a security control was removed or switched off in code (see security.rs), or mainframe code
-//!                      newly does something security-relevant (see mainframe_security.rs)
-//!   CODE_PAGE          code page conversion changed characters: lines that differ only in characters EBCDIC code
-//!                      pages store differently, replacement characters, mixed encodings (see codepage.rs)
+//!   TEST_EXIT          test code or test setup newly exits or skips the run itself (`sys.exit`, `os._exit`,
+//!                      `process.exit`, `os.Exit`, `raise SkipTest` ...), so the tests after it never run
+//!   TEST_RUNNER_CHANGED the test runner's configuration changed (conftest.py, pytest.ini, jest/vitest config ...)
+//!   ALWAYS_EQUAL       a new equality method that answers true for everything (`__eq__` returning True,
+//!                      `equals` returning true, `fn eq` returning true), which makes every comparison pass
 //! Agents are known to "fix" failing work this way; Gitta's promise that only tested work lands depends on it not happening silently.
 
 use crate::Snapshot;
@@ -30,6 +33,12 @@ pub fn features() -> Vec<&'static str> {
     let mut v = Vec::new();
     if cfg!(feature = "mainframe") { v.push("mainframe"); }
     if cfg!(feature = "abap") { v.push("abap"); }
+    if cfg!(feature = "ibmi") { v.push("ibmi"); }
+    if cfg!(feature = "fortran") { v.push("fortran"); }
+    if cfg!(feature = "sql") { v.push("sql"); }
+    if cfg!(feature = "iac") { v.push("iac"); }
+    if cfg!(feature = "network") { v.push("network"); }
+    if cfg!(feature = "iso20022") { v.push("iso20022"); }
     v
 }
 
@@ -39,6 +48,13 @@ pub fn is_test(p: &str) -> bool {
         || f.starts_with("test_") || f.contains("_test.") || f.contains(".test.") || f.contains(".spec.") || ["Test.java", "Tests.java", "Test.kt", "Tests.kt", "Test.cs", "Tests.cs"].iter().any(|e| f.ends_with(e))
         || mainframe_test(f)
         || is_c_test(f)
+        || is_rust_test_module(p, f)
+}
+
+/// Rust unit test modules kept in their own file: `src/foo/tests.rs` or `src/foo/test.rs` (the `#[cfg(test)] mod
+/// tests;` form), and module files under a `tests/` directory inside src (`src/foo/tests/bar.rs`).
+fn is_rust_test_module(p: &str, f: &str) -> bool {
+    p.ends_with(".rs") && (f == "tests.rs" || f == "test.rs" || p.split('/').rev().skip(1).any(|d| d == "tests"))
 }
 
 fn mainframe_test(_: &str) -> bool { false }
@@ -77,7 +93,7 @@ fn tests_under_if0(t: &str) -> usize {
     n
 }
 
-fn is_ci(p: &str) -> bool {
+pub(crate) fn is_ci(p: &str) -> bool {
     p.starts_with(".github/workflows/") || p == ".gitlab-ci.yml" || p.ends_with("Jenkinsfile") || p.starts_with(".circleci/") || p == "azure-pipelines.yml"
         || p.starts_with(".buildkite/") || p == ".travis.yml" || p == "bitbucket-pipelines.yml" || p.ends_with(".pre-commit-config.yaml")
 }
@@ -100,6 +116,41 @@ const SKIPS: &[&str] = &["@pytest.mark.skip", "@pytest.mark.xfail", "@unittest.s
     "DISABLED_", "GTEST_SKIP", "SKIP(", "\"[.]", "[!mayfail]", "doctest::skip(", "boost::unit_test::disabled(", "TEST_IGNORE("];
 const SILENCERS: &[&str] = &["nosec", "noqa", "type: ignore", "eslint-disable", "@ts-ignore", "@ts-nocheck", "@ts-expect-error", "@SuppressWarnings", "#[allow(",
     "#![allow(", "//nolint", "// nolint", "pylint: disable", "NOLINT", "rubocop:disable", "nolint:", "istanbul ignore", "c8 ignore", "pragma: no cover", "noinspection", "#pragma warning disable", "[SuppressMessage", "@Suppress("];
+/// Calls that end the process or skip the run from inside test code or test setup.
+const TEST_EXITS: &[&str] = &["sys.exit(", "os._exit(", "raise SystemExit", "raise SkipTest", "raise unittest.SkipTest", "pytest.exit(",
+    "process.exit(", "process.kill(process.pid", "os.Exit(", "std::process::exit(", "System.exit(", "Environment.Exit(", "exitProcess(", "_exit("];
+
+/// Settings in runner configuration that decide which tests run or whether a failure counts. A fixture or a
+/// helper added to conftest.py is ordinary work; these are not.
+const RUNNER_SELECTORS: &[&str] = &["collect_ignore", "pytest_collection_modifyitems", "pytest_ignore_collect", "pytest_runtest_", "pytest_report", "addopts", "testpaths",
+    "python_files", "python_classes", "python_functions", "norecursedirs", "--deselect", "--ignore", " -k ", "xfail_strict", "filterwarnings",
+    "testMatch", "testRegex", "testPathIgnorePatterns", "modulePathIgnorePatterns", "passWithNoTests", "bail", "exclude", "include", "testNamePattern",
+    "grep", "invert", "forbidOnly", "retries", "spec:", "\"spec\"", "<exclude", "<testsuite", "<groups"];
+
+/// Files that configure how the test runner finds, runs or reports tests.
+fn is_test_runner_config(p: &str) -> bool {
+    let f = file(p);
+    matches!(f, "conftest.py" | "pytest.ini" | "tox.ini" | ".mocharc.js" | ".mocharc.json" | ".mocharc.yml" | ".mocharc.yaml" | "karma.conf.js" | "phpunit.xml" | "phpunit.xml.dist" | "jest.setup.js" | "jest.setup.ts" | "vitest.setup.ts")
+        || f.starts_with("jest.config.") || f.starts_with("vitest.config.") || f.starts_with("playwright.config.") || f.starts_with("cypress.config.")
+}
+
+/// Equality methods whose body answers true whatever they are given: `__eq__` returning True, `equals`
+/// returning true, Rust `fn eq` returning true. Counted per text, so only new ones are reported.
+fn always_equal(text: &str) -> usize {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut n = 0;
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim();
+        let head = t.starts_with("def __eq__(") || (t.contains(" equals(") && t.contains("boolean")) || t.starts_with("fn eq(&self") || t.contains("bool Equals(");
+        if !head { continue; }
+        // The first statement of the body (the same line for a one-line body).
+        let body = std::iter::once(t.split_once('{').map(|(_, b)| b).unwrap_or("")).chain(lines[i + 1..].iter().map(|x| x.trim()))
+            .map(|x| x.trim().trim_end_matches('}').trim()).find(|x| !x.is_empty() && !x.starts_with('#') && !x.starts_with("//") && !x.starts_with("\"\"\""));
+        if matches!(body, Some("return True") | Some("return true;") | Some("true") | Some("return true")) { n += 1; }
+    }
+    n
+}
+
 const CI_TOLERATE: &[&str] = &["continue-on-error: true", "|| true", "allow_failure: true", "allow-failure: true", "set +e", "--no-verify", "exit 0"];
 const CI_CHECKS: &[&str] = &["test", "lint", "audit", "scan", "check", "codeql", "semgrep", "coverage", "typecheck", "tsc", "clippy", "mypy", "pytest", "vitest", "jest"];
 
@@ -121,25 +172,11 @@ fn thresholds(text: &str) -> Vec<(String, f64)> {
 
 /// Weakening of the safety net between `base` and `new` for the given changed paths.
 pub fn safety_net(base: &Snapshot, new: &Snapshot, paths: &[String]) -> Vec<Finding> {
-    let mut out = crate::security::weakened(base, new, paths);
-    for p in paths {
-        if let Some(n) = new.get(p) {
-            let _ = n;
-        }
-    }
+    let mut out = vec![];
     let txt = |s: &Snapshot, p: &str| s.get(p).map(|b| String::from_utf8_lossy(b).to_string());
     for p in paths {
         let (b, n) = (txt(base, p), txt(new, p));
         let f = |kind: &str, detail: String| Finding { kind: kind.into(), path: p.clone(), detail };
-        if p == ".gitta-security" {
-            // The repository's own list of security checks: an entry taken off it stops protecting that code.
-            // Mainframe lists count too: a library taken off `[jcl-libraries]` is no longer flagged.
-            // `[allow]` entries are layer 1 allows: taking one off makes the checks stricter.
-            let marks = |t: &Option<String>| -> Vec<String> { crate::security::entries(t.as_deref().unwrap_or("")).into_iter().filter(|e| !e.starts_with("[allow]")).collect() };
-            let now = marks(&n);
-            let gone: Vec<String> = marks(&b).into_iter().filter(|m| !now.contains(m)).collect();
-            if !gone.is_empty() { out.push(f("SECURITY_WEAKENED", format!("took {} off the list of security checks", gone.join(", ")))); }
-        }
         match (&b, &n) {
             (Some(_), None) if is_test(p) => { out.push(f("TEST_DELETED", "test file removed".into())); continue; }
             (_, None) => continue,
@@ -149,6 +186,11 @@ pub fn safety_net(base: &Snapshot, new: &Snapshot, paths: &[String]) -> Vec<Find
         if is_test(p) || n.contains("#[test]") || n.contains("#[cfg(test)]") || (crate::c_cpp::lang_of(p).is_some() && c_test_code(&b)) {
             let (ab, an) = (count(&b, ASSERTS), count(&n, ASSERTS));
             if an < ab { out.push(f("ASSERTIONS_REMOVED", format!("{} fewer assertion(s) ({ab} → {an})", ab - an))); }
+            let ((strong_b, weak_b), (strong_n, weak_n)) = (assertion_strength(&b), assertion_strength(&n));
+            if strong_n < strong_b && weak_n > weak_b {
+                let k = (strong_b - strong_n).min(weak_n - weak_b);
+                out.push(f("ASSERTIONS_WEAKENED", format!("{k} value check(s) replaced by weaker ones that only check truth, presence or no error ({strong_b} → {strong_n} value checks)")));
+            }
             let (sb, sn) = (count(&b, SKIPS) + tests_under_if0(&b), count(&n, SKIPS) + tests_under_if0(&n));
             if sn > sb { out.push(f("TEST_SKIPPED", format!("{} new skip/ignore/only marker(s)", sn - sb))); }
         }
@@ -157,6 +199,18 @@ pub fn safety_net(base: &Snapshot, new: &Snapshot, paths: &[String]) -> Vec<Find
             let (rb, rn) = (count(&b, CTEST), count(&n, CTEST));
             if rn < rb { out.push(f("TEST_DELETED", format!("{} CTest registration(s) removed ({rb} → {rn})", rb - rn))); }
         }
+        if is_test(p) || is_test_runner_config(p) {
+            let (xb, xn) = (count(&b, TEST_EXITS), count(&n, TEST_EXITS));
+            if xn > xb { out.push(f("TEST_EXIT", format!("{} new call(s) that end or skip the test run from inside the tests", xn - xb))); }
+        }
+        if is_test_runner_config(p) && !b.is_empty() {
+            // Only lines that change which tests run or whether a failure counts, added or taken out.
+            let (old, new): (std::collections::BTreeSet<&str>, std::collections::BTreeSet<&str>) = (b.lines().map(str::trim).collect(), n.lines().map(str::trim).collect());
+            let hits: Vec<&str> = new.symmetric_difference(&old).copied().filter(|l| RUNNER_SELECTORS.iter().any(|k| l.contains(k))).collect();
+            if !hits.is_empty() { out.push(f("TEST_RUNNER_CHANGED", format!("changed which tests the runner collects or counts ({})", hits.iter().take(2).cloned().collect::<Vec<_>>().join("; ")))); }
+        }
+        let (eb, en) = (always_equal(&b), always_equal(&n));
+        if en > eb { out.push(f("ALWAYS_EQUAL", format!("{} new equality method(s) that answer true for everything", en - eb))); }
         let (qb, qn) = (count(&b, SILENCERS), count(&n, SILENCERS));
         if qn > qb { out.push(f("CHECK_SILENCED", format!("{} new suppression comment(s)", qn - qb))); }
         if is_ci(p) {
@@ -165,6 +219,7 @@ pub fn safety_net(base: &Snapshot, new: &Snapshot, paths: &[String]) -> Vec<Find
             let checks = |t: &str| t.lines().filter(|l| { let l = l.to_lowercase(); (l.contains("run:") || l.contains("script:") || l.contains("- ") || l.contains("uses:")) && CI_CHECKS.iter().any(|c| l.contains(c)) }).count();
             let (cb, cn) = (checks(&b), checks(&n));
             if cn < cb { out.push(f("CI_WEAKENED", format!("{} test/lint/scan step(s) removed", cb - cn))); }
+            for d in ci_structure(p, &b, &n) { out.push(f("CI_WEAKENED", d)); }
         }
         if is_threshold_config(p) {
             let (tb, tn) = (thresholds(&b), thresholds(&n));
@@ -176,68 +231,89 @@ pub fn safety_net(base: &Snapshot, new: &Snapshot, paths: &[String]) -> Vec<Find
     out
 }
 
-/// Credential patterns: (label, prefix-or-marker, minimum tail length of [A-Za-z0-9_-]).
-const SECRETS: &[(&str, &str, usize)] = &[("private key", "-----BEGIN ", 0), ("AWS access key", "AKIA", 16), ("GitHub token", "ghp_", 30),
-    ("GitHub token", "github_pat_", 30), ("Slack token", "xoxb-", 20), ("Slack token", "xoxp-", 20), ("OpenAI key", "sk-proj-", 30),
-    ("Anthropic key", "sk-ant-", 30), ("Stripe key", "sk_live_", 20), ("Google API key", "AIza", 30)];
-
-/// The first credential in `text`, by label: well-known key formats, and secret-named settings with a real-looking value.
-pub fn find_secret(text: &str) -> Option<String> { find_secret_at(text).map(|(_, l)| l) }
-
-/// The first credential in `text` with its 1-based line number.
-pub fn find_secret_at(text: &str) -> Option<(usize, String)> {
-    let line_of = |at: usize| text[..at].matches('\n').count() + 1;
-    for (label, marker, min) in SECRETS {
-        let mut from = 0;
-        while let Some(i) = text[from..].find(marker) {
-            let at = from + i + marker.len();
-            let tail = text[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').count();
-            if *marker == "-----BEGIN " { if text[at..].starts_with("RSA PRIVATE KEY") || text[at..].starts_with("PRIVATE KEY") || text[at..].starts_with("OPENSSH PRIVATE KEY") || text[at..].starts_with("EC PRIVATE KEY") { return Some((line_of(from + i), label.to_string())); } }
-            else if tail >= *min { return Some((line_of(from + i), label.to_string())); }
-            from = at;
-        }
-    }
-    for (n, line) in text.lines().enumerate() {
-        if assigned_secret(line) { return Some((n + 1, "hard-coded credential".into())); }
-    }
-    None
+/// `if: false` and the forms that mean the same (`if: ${{ false }}`, `if: 0`): a job or step that never runs.
+fn if_false(t: &str) -> usize {
+    t.lines().filter(|l| {
+        let s: String = l.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_lowercase().replace('\'', "\"");
+        let s = s.trim_start_matches('-');
+        ["if:false", "if:${{false}}", "if:0", "if:\"false\"", "if:${{0}}"].contains(&s)
+    }).count()
 }
 
-/// A credential on a line of `text` that `base` does not have, with its 1-based line number. A credential that was
-/// already there does not stop an unrelated edit.
-pub fn secret_in_new_lines(base: &str, text: &str) -> Option<(usize, String)> {
-    let old: std::collections::BTreeSet<&str> = base.lines().collect();
-    // Keep line numbers: lines that were already there are blanked, not dropped.
-    let fresh: String = text.lines().map(|l| if old.contains(l) { "" } else { l }).collect::<Vec<_>>().join("\n");
-    find_secret_at(&fresh)
-}
+fn indent(l: &str) -> usize { l.len() - l.trim_start().len() }
 
-/// `password = "literal"`, `"api_key": "literal"`, `secret_key => 'literal'`: a secret-named setting that is given
-/// a real-looking literal. The name must be assigned the value; a name that only appears inside a string or a
-/// template (`"{conn.password}@".format(...)`) is not a setting.
-fn assigned_secret(line: &str) -> bool {
-    // ASCII only: full lowercasing changes the length of some letters (`İ`), and `line` is sliced at positions in `l`.
-    let l = line.to_ascii_lowercase();
-    for k in ["password", "passwd", "secret_key", "api_key", "apikey", "auth_token"] {
-        let mut from = 0;
-        while let Some(i) = l[from..].find(k) {
-            let start = from + i;
-            from = start + k.len();
-            // The rest of the setting name (`password_hash`, `api_key2`), then an optional closing quote of a key.
-            let rest = &line[from..];
-            let name_end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')).unwrap_or(rest.len());
-            let after = rest[name_end..].trim_start_matches(['"', '\'', ']']).trim_start();
-            let Some(op) = ["=>", ":=", "=", ":"].iter().find(|o| after.starts_with(**o)) else { continue };
-            if after.starts_with("==") { continue; }
-            let v = after[op.len()..].trim_start();
-            let Some(q) = v.chars().next().filter(|c| *c == '"' || *c == '\'') else { continue };
-            let val: String = v[1..].chars().take_while(|c| *c != q).collect();
-            let fake = val.contains(' ') || val.contains("${") || val.contains('{') || val.contains('(') || val.contains('<') || val.contains('%')
-                || ["example", "xxx", "changeme", "placeholder", "dummy"].iter().any(|w| val.to_lowercase().contains(w));
-            if val.len() >= 12 && !fake { return true; }
+/// The jobs of a GitHub Actions workflow (keys under `jobs:`) or a GitLab CI file (top-level keys with a script).
+pub(crate) fn ci_jobs(p: &str, t: &str) -> Vec<String> {
+    let lines: Vec<&str> = t.lines().filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#')).collect();
+    let key = |l: &str| l.trim().strip_suffix(':').map(|k| k.trim_matches(['"', '\'']).to_string()).filter(|k| !k.contains(' ') || k.starts_with('.'));
+    let mut out = vec![];
+    if p.starts_with(".github/workflows/") {
+        let Some(j) = lines.iter().position(|l| indent(l) == 0 && l.trim() == "jobs:") else { return out };
+        let child = lines.get(j + 1).map(|l| indent(l)).unwrap_or(2);
+        for l in &lines[j + 1..] {
+            if indent(l) == 0 { break; }
+            if indent(l) == child { if let Some(k) = key(l) { out.push(k); } }
+        }
+    } else if p.ends_with(".gitlab-ci.yml") {
+        const RESERVED: &[&str] = &["stages", "variables", "default", "include", "workflow", "image", "services", "before_script", "after_script", "cache"];
+        for (i, l) in lines.iter().enumerate() {
+            if indent(l) != 0 { continue; }
+            let Some(k) = key(l) else { continue };
+            if RESERVED.contains(&k.as_str()) || k.starts_with('.') { continue; }
+            if lines[i + 1..].iter().take_while(|x| indent(x) > 0).any(|x| { let t = x.trim(); t.starts_with("script:") || t.starts_with("trigger:") || t.starts_with("extends:") }) { out.push(k); }
         }
     }
-    false
+    out
+}
+
+/// What a CI change takes away beyond failures tolerated and checks removed: a job or step switched off with
+/// `if: false`, or a job removed.
+pub fn ci_structure(p: &str, old: &str, new: &str) -> Vec<String> {
+    let mut out = vec![];
+    let (fo, fn_) = (if_false(old), if_false(new));
+    if fn_ > fo { out.push(format!("{} job(s) or step(s) switched off with `if: false`", fn_ - fo)); }
+    let now = ci_jobs(p, new);
+    let gone: Vec<String> = ci_jobs(p, old).into_iter().filter(|j| !now.contains(j)).collect();
+    if !gone.is_empty() && !new.is_empty() { out.push(format!("removed CI job(s) {}", gone.join(", "))); }
+    out
+}
+
+/// The trailer gitta's commit-msg hook writes. `git commit --no-verify` skips the commit-msg hook together with the
+/// pre-commit hook, so a commit without it did not run the hooks.
+pub const HOOK_TRAILER: &str = "Gitta-Hooks: ran";
+
+/// The repository configures pre-commit hooks of its own: the committed configuration a server or CI can see.
+pub fn hooks_configured(paths: &[String]) -> bool {
+    paths.iter().any(|p| matches!(p.as_str(), ".pre-commit-config.yaml" | ".pre-commit-config.yml" | ".husky/pre-commit" | "lefthook.yml" | "lefthook.yaml" | ".lefthook.yml" | ".githooks/pre-commit" | ".overcommit.yml"))
+}
+
+/// Commits that reached the server without the trace the hooks write, while the repository configures hooks and
+/// its history shows the trace is in use. `commits`: (sha, message, number of parents). Merge commits and
+/// commits gitta made are left out.
+pub fn hook_bypass(commits: &[(String, String, usize)], configured: bool, trace_in_use: bool) -> Vec<Finding> {
+    if !configured || !(trace_in_use || commits.iter().any(|c| c.1.contains(HOOK_TRAILER))) { return vec![]; }
+    let missed: Vec<&str> = commits.iter().filter(|(_, m, parents)| *parents <= 1 && !m.contains(HOOK_TRAILER) && !m.starts_with("gitta:")).map(|(s, _, _)| &s[..s.len().min(10)]).collect();
+    if missed.is_empty() { return vec![]; }
+    vec![Finding { kind: "CI_WEAKENED".into(), path: "(commits)".into(), detail: format!("{} commit(s) skipped the repository's pre-commit hooks (no {HOOK_TRAILER} trailer, as after git commit --no-verify): {}", missed.len(), missed.join(", ")) }]
+}
+
+/// Strong and weak assertions in test text: (strong, weak). A strong one compares a value (assertEqual, toEqual,
+/// assert x == y, EXPECT_EQ, assert.Equal ...); a weak one checks only truth, presence or that nothing failed
+/// (assertTrue(x), `is not None`, toBeTruthy, toBeDefined, assertNotNull, assert!(x), require.NoError ...).
+pub fn assertion_strength(t: &str) -> (usize, usize) {
+    const STRONG: &[&str] = &["assertEqual(", "assertEquals(", "assertNotEqual(", "assertListEqual(", "assertDictEqual(", "assertCountEqual(", "assertAlmostEqual(", "assertIn(", "assertRaises(", "assert_eq!(", "assert_ne!(", "assert_matches!(",
+        "isEqualTo(", "containsExactly(", "toEqual(", "toStrictEqual(", "toBe(", "toHaveLength(", "toContain(", "toThrow(", "toMatchObject(", "toHaveBeenCalledWith(", "EXPECT_EQ(", "ASSERT_EQ(", "EXPECT_STREQ(", "ASSERT_STREQ(", "REQUIRE(", "CHECK_EQ(",
+        "assert.Equal(", "require.Equal(", "assert.EqualValues(", "assert.ElementsMatch(", "assert.equal(", "assert.strictEqual(", "assert.deepEqual(", "assert.deepStrictEqual(", "assert.throws(", "Assert.AreEqual(", "Assert.Equal(", "Assert.Throws", "assertThrows(", "pytest.raises(", "assertArrayEquals(", "should.equal(", ".should.eql(", "expect(err).To(Equal", "Equal("];
+    const WEAK: &[&str] = &["assertTrue(", "assertFalse(", "assertIsNotNone(", "assertIsNone(", "assertNotNull(", "assertNull(", "is not None", "toBeTruthy()", "toBeFalsy()", "toBeDefined()", "not.toBeNull()", "not.toBeUndefined()", "assert.ok(",
+        "assert.NotNil(", "require.NotNil(", "assert.NoError(", "require.NoError(", "assert.True(", "require.True(", "Assert.IsNotNull(", "Assert.NotNull(", "Assert.True(", "Assert.IsTrue(", "EXPECT_TRUE(", "ASSERT_TRUE(", ".should.exist", "assertNotNull("];
+    let (mut s, mut w) = (0, 0);
+    for l in t.lines() {
+        let x = l.trim();
+        if x.starts_with("//") || x.starts_with('#') && !x.starts_with("#[") { continue; }
+        if STRONG.iter().any(|m| x.contains(m)) || (x.starts_with("assert ") && ["==", "!=", " in ", "<", ">"].iter().any(|o| x.contains(o)) && !x.contains("is not None")) || (x.starts_with("assert!(") && (x.contains("==") || x.contains("!="))) { s += 1; }
+        else if WEAK.iter().any(|m| x.contains(m)) || x.starts_with("assert ") || x.starts_with("assert!(") || (x.starts_with("expect(") && x.ends_with(");") && x.matches('(').count() == 1) { w += 1; }
+    }
+    (s, w)
 }
 
 #[cfg(test)]
@@ -251,7 +327,124 @@ mod feature_visibility_tests {
         let f = features();
         assert_eq!(f.contains(&"mainframe"), cfg!(feature = "mainframe"), "mainframe presence must match the build");
         assert_eq!(f.contains(&"abap"), cfg!(feature = "abap"), "abap presence must match the build");
+        for (name, on) in [("ibmi", cfg!(feature = "ibmi")), ("fortran", cfg!(feature = "fortran")), ("sql", cfg!(feature = "sql")),
+                           ("iac", cfg!(feature = "iac")), ("network", cfg!(feature = "network")), ("iso20022", cfg!(feature = "iso20022"))] {
+            assert_eq!(f.contains(&name), on, "{name} presence must match the build");
+        }
         // Only the known optional features ever appear.
-        assert!(f.iter().all(|x| ["mainframe", "abap"].contains(x)));
+        assert!(f.iter().all(|x| ["mainframe", "abap", "ibmi", "fortran", "sql", "iac", "network", "iso20022"].contains(x)));
     }
+}
+
+/// How many tests a gate run executed, read from the summary lines test runners print: pytest, unittest, Jest,
+/// Vitest, Mocha, cargo test, `go test -v`, Maven/Gradle (JUnit) and .NET. Skipped tests do not count: they did not
+/// run. None when no summary was recognised (an unknown runner is never reported as a drop).
+pub fn tests_ran(output: &str) -> Option<u64> {
+    let num = |s: &str, after: &str| -> Option<u64> {
+        let i = s.find(after)?;
+        s[..i].trim_end().rsplit(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    };
+    let field = |s: &str, key: &str| -> Option<u64> {
+        let i = s.find(key)? + key.len();
+        s[i..].trim_start().chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok()
+    };
+    let (mut total, mut seen) = (0u64, false);
+    let mut maven: Option<u64> = None;
+    let mut go = 0u64;
+    let mut junit: Option<u64> = None;
+    for l in output.lines() {
+        let t = l.trim();
+        // go test -json: one event per finished test (package events carry no "Test").
+        if t.starts_with('{') && t.contains("\"Test\":") && (t.contains("\"Action\":\"pass\"") || t.contains("\"Action\":\"fail\"")) { go += 1; continue; }
+        // JUnit XML: the <testsuite> elements; <testsuites> totals are left out so nothing is counted twice.
+        for el in t.split('<').skip(1).filter(|e| e.starts_with("testsuite ")) {
+            let attr = |k: &str| -> u64 { el.split(&format!(" {k}=\"")).nth(1).and_then(|r| r.split('"').next()).and_then(|v| v.parse().ok()).unwrap_or(0) };
+            *junit.get_or_insert(0) += attr("tests").saturating_sub(attr("skipped") + attr("disabled"));
+        }
+        // cargo test: one summary per test binary, summed.
+        if t.starts_with("test result:") {
+            total += num(t, " passed").unwrap_or(0) + num(t, " failed").unwrap_or(0); seen = true; continue;
+        }
+        // pytest when nothing was collected or the run ended before the tests (an exit at import): zero ran.
+        if t.contains("no tests ran") { seen = true; continue; }
+        // pytest: "=== 12 passed, 1 failed, 2 skipped in 0.3s ===".
+        if t.starts_with('=') && t.contains(" in ") && (t.contains(" passed") || t.contains(" failed") || t.contains(" error")) {
+            total += num(t, " passed").unwrap_or(0) + num(t, " failed").unwrap_or(0) + num(t, " error").unwrap_or(0) + num(t, " xpassed").unwrap_or(0);
+            seen = true; continue;
+        }
+        if t.starts_with("Ran ") && t.contains(" test") { if let Some(n) = field(t, "Ran ") { total += n; seen = true; } continue; }
+        // Jest: "Tests:       1 failed, 12 passed, 13 total"; Vitest: "Tests  12 passed (12)".
+        if t.starts_with("Tests:") || (t.starts_with("Tests ") && t.contains(" passed")) {
+            total += num(t, " passed").unwrap_or(0) + num(t, " failed").unwrap_or(0); seen = true; continue;
+        }
+        // Mocha: "12 passing", "1 failing".
+        if t.ends_with(" passing") || t.contains(" passing (") { total += num(t, " passing").unwrap_or(0); seen = true; continue; }
+        if t.ends_with(" failing") { total += num(t, " failing").unwrap_or(0); seen = true; continue; }
+        // Maven / Gradle (JUnit): the last "Tests run:" line is the total.
+        if t.contains("Tests run:") && t.contains("Failures:") {
+            let run = field(t, "Tests run:").unwrap_or(0);
+            maven = Some(run.saturating_sub(field(t, "Skipped:").unwrap_or(0)));
+            continue;
+        }
+        // .NET: "Passed!  - Failed: 0, Passed: 12, Skipped: 0, Total: 12".
+        if t.contains("Total:") && t.contains("Passed:") && t.contains("Failed:") {
+            total += field(t, "Passed:").unwrap_or(0) + field(t, "Failed:").unwrap_or(0); seen = true; continue;
+        }
+        // go test -v: one line per finished test.
+        if t.starts_with("--- PASS:") || t.starts_with("--- FAIL:") { go += 1; }
+    }
+    if let Some(m) = maven { total += m; seen = true; }
+    if go > 0 { total += go; seen = true; }
+    if let Some(j) = junit { total += j; seen = true; }
+    seen.then_some(total)
+}
+
+/// Each test's name and result ("passed", "failed" or "skipped") as the runner printed it: cargo test, pytest -v,
+/// go test -v and -json, JUnit XML. Kept as evidence of what the gate ran; empty when the runner prints no names.
+pub fn test_results(output: &str) -> Vec<(String, String)> {
+    let mut r = vec![];
+    let status = |s: &str| match s.to_ascii_lowercase().as_str() { "ok" | "pass" | "passed" => Some("passed"), "failed" | "fail" | "error" => Some("failed"), "ignored" | "skip" | "skipped" | "xfail" => Some("skipped"), _ => None };
+    let json_str = |t: &str, k: &str| t.split(&format!("\"{k}\":\"")).nth(1).and_then(|x| x.split('"').next()).map(String::from);
+    let mut in_case: Option<String> = None;
+    for l in output.lines() {
+        let t = l.trim();
+        if let Some(x) = t.strip_prefix("test ").and_then(|x| x.rsplit_once(" ... ")) {
+            if let Some(s) = status(x.1.split_whitespace().next().unwrap_or("")) { r.push((x.0.to_string(), s.to_string())); }
+        } else if let Some(x) = t.strip_prefix("--- PASS: ").or(t.strip_prefix("--- FAIL: ")).or(t.strip_prefix("--- SKIP: ")) {
+            r.push((x.split_whitespace().next().unwrap_or("").to_string(), status(&t[4..8]).unwrap_or("failed").to_string()));
+        } else if t.starts_with('{') && t.contains("\"Test\":") {
+            if let (Some(a), Some(n)) = (json_str(t, "Action"), json_str(t, "Test")) { if let Some(s) = status(&a) { r.push((n, s.to_string())); } }
+        } else if t.contains("::") && !t.starts_with('=') && t.split_whitespace().count() >= 2 {
+            let mut w = t.split_whitespace();
+            let (n, s) = (w.next().unwrap_or(""), w.next().unwrap_or(""));
+            if let Some(s) = status(s) { r.push((n.to_string(), s.to_string())); }
+        }
+        for el in t.split('<').skip(1) {
+            if let Some(c) = el.strip_prefix("testcase ") {
+                let attr = |k: &str| format!(" {c}").split(&format!(" {k}=\"")).nth(1).and_then(|r| r.split('"').next()).unwrap_or("").to_string();
+                let n = if attr("classname").is_empty() { attr("name") } else { format!("{}.{}", attr("classname"), attr("name")) };
+                if c.trim_end().ends_with("/>") { r.push((n, "passed".into())); } else { in_case = Some(n); }
+            } else if let Some(n) = in_case.as_ref().filter(|_| el.starts_with("failure") || el.starts_with("error") || el.starts_with("skipped")) {
+                r.push((n.clone(), if el.starts_with("skipped") { "skipped" } else { "failed" }.into())); in_case = None;
+            } else if el.starts_with("/testcase") {
+                if let Some(n) = in_case.take() { r.push((n, "passed".into())); }
+            }
+        }
+    }
+    r
+}
+
+/// Whether a test run passed, read from the same summaries as `tests_ran`: Some(true) when tests ran and none
+/// failed, Some(false) when any failed, None when no summary was recognised or nothing ran.
+pub fn tests_passed(output: &str) -> Option<bool> {
+    let n = tests_ran(output)?;
+    let failed = output.lines().map(str::trim).any(|t| {
+        let count = |after: &str| t.find(after).and_then(|i| t[..i].trim_end().rsplit(|c: char| !c.is_ascii_digit()).next()?.parse::<u64>().ok()).unwrap_or(0);
+        t.starts_with("test result: FAILED") || t.starts_with("FAILED (") || t.starts_with("--- FAIL:") || t.starts_with("FAIL\t") || t.starts_with("Failed!")
+            || (t.starts_with('=') && (count(" failed") > 0 || count(" error") > 0))
+            || (t.starts_with("Tests:") && count(" failed") > 0)
+            || (t.ends_with(" failing") && count(" failing") > 0)
+            || (t.contains("Tests run:") && t.contains("Failures:") && (t.contains("Failures: ") && !t.contains("Failures: 0") || t.contains("Errors: ") && !t.contains("Errors: 0")))
+    });
+    if failed { Some(false) } else if n > 0 { Some(true) } else { None }
 }

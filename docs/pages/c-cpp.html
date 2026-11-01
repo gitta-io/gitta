@@ -74,19 +74,6 @@ namespace PROTOBUF_NAMESPACE_OPEN google</term>
 <h2>Merging</h2>
 <p>When two agents edit the same file, Git merges it line by line first. When the lines collide, gitta merges functions, classes and namespaces as units, so two agents who change different functions next to each other both keep their work. This structural merge needs a file that parses cleanly. Other files merge line by line, and a collision there is a conflict.</p>
 
-<h2>Security checks</h2>
-<p>gitta checks the lines that an agent adds to C and C++ files. It reports these risks:</p>
-<table>
-  <tr><th>Risk</th><th>Severity</th></tr>
-  <tr><td>A copy into a buffer with no size limit: <code>strcpy</code>, <code>strcat</code>, <code>sprintf</code>, <code>gets</code>, <code>scanf</code> with <code>%s</code>, or <code>memcpy</code> and <code>memmove</code> with a length nothing bounds. A length is bounded when it is a <code>sizeof</code>, a constant or the smaller of two values, or when the few lines before compare it, set it from a <code>sizeof</code> or allocate the buffer with it.</td><td>Medium</td></tr>
-  <tr><td>A variable used as the format of <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>snprintf</code>, <code>syslog</code> and similar calls</td><td>Medium</td></tr>
-  <tr><td>A command that is not a literal given to <code>system</code>, <code>popen</code> or an <code>exec</code> call</td><td>High</td></tr>
-  <tr><td>Certificate checks turned off: <code>SSL_VERIFY_NONE</code> in OpenSSL or wolfSSL, <code>MBEDTLS_SSL_VERIFY_NONE</code>, curl&rsquo;s <code>CURLOPT_SSL_VERIFYPEER</code> or <code>CURLOPT_SSL_VERIFYHOST</code> set to 0</td><td>High</td></tr>
-  <tr><td>MD5 or SHA-1 on a password</td><td>Medium</td></tr>
-  <tr><td>Secrets in the code, or written to a log or the console</td><td>Medium</td></tr>
-</table>
-<p>Between agents, a function named like a check, for example <code>verify_peer</code>, <code>ossl_verify_peer</code> or <code>check_permission</code>, counts as a security control. When one agent weakens it, every agent whose new code calls it is warned, and the merge reports it as a weakened check. See <a href="warnings.html#security-notes">Warnings</a>.</p>
-
 <h2>Tests</h2>
 <p>gitta recognises C and C++ test files by name, such as <code>db_test.cc</code>, <code>cache_unittest.cpp</code> and <code>test_sds.c</code>, and by content: GoogleTest, Catch2, doctest, Boost.Test, CppUnit, Unity and CMocka test cases. A merge reports a weakened check when an agent</p>
 <ul>

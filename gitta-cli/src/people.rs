@@ -1,4 +1,4 @@
-//! Telling the person when something only a person can do comes up: approvals of weakened tests or security
+//! Telling the person when something only a person can do comes up: approvals of weakened tests or
 //! checks, and problems with the environment. One plain line on the next gitta output they see, and a desktop
 //! notification (macOS and Linux), at most one a minute. `gitta init --notify off` or GITTA_NO_NOTIFY turns the
 //! desktop notification off.

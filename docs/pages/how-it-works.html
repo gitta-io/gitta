@@ -1,4 +1,4 @@
-<!-- title: How gitta works | group: Using gitta | order: 1 | desc: Why worktrees alone miss changes in meaning, and what gitta adds with warnings across worktrees, security checks, sync and the check inside git merge. | seo: How gitta coordinates parallel AI agents -->
+<!-- title: How gitta works | group: Using gitta | order: 1 | desc: Why worktrees alone miss changes in meaning, and what gitta adds with warnings across worktrees, sync and the check inside git merge. | seo: How gitta coordinates parallel AI agents -->
 <h1>How gitta works</h1>
 <p class="lede">gitta sits between your agents and Git. It reads what each agent changes, tells the agents that are affected, and checks combined work before it reaches main.</p>
 
@@ -33,21 +33,11 @@
 <p>gitta parses each changed file with Tree-sitter. gitta Enterprise reads COBOL and JCL with its own reader. It finds the functions, methods, classes, constants and fields that an agent changed. It also finds the symbols that the agent's new code uses. It follows imports and calls up to three steps away.</p>
 <p>When one agent changes a symbol that another agent's new code uses, gitta warns the second agent. The warning reaches the agent inside its own session, at its next step. No person has to run a command. See <a href="warnings.html">Warnings and sync</a>.</p>
 
-<h2>Security checks</h2>
-<p>gitta has three layers of security checks. None of them uses AI, and each one runs at the agent's next step.</p>
-<table>
-  <tr><th>Layer</th><th>What it looks at</th><th>What happens</th></tr>
-  <tr><td>Risky code in an agent's own change</td><td>Only the lines the agent added, for well-known risks such as SQL or shell commands built from variables, or certificate checks turned off</td><td>A security note in the agent's session. High notes count as weakened checks at merge time. See <a href="warnings.html#security-notes">Security notes</a>.</td></tr>
-  <tr><td>Weakened security controls between agents</td><td>Login, permission, CSRF, rate limit, validation, escaping and certificate checks that one agent removes or switches off, while another agent's new code calls the code they protected</td><td>A security warning to both agents. The merge output and the audit trail report it. See <a href="warnings.html#security-controls">Security controls</a>.</td></tr>
-  <tr><td>Mainframe code, with gitta Enterprise</td><td>JCL, REXX, CLIST, COBOL and assembler changes that give code more authority</td><td>Reported at merge time and in the audit trail. See <a href="mainframe-security.html">Security checks on mainframe code</a>.</td></tr>
-</table>
-<p>Besides these, every merge to main reports what looks like credentials in code and tests or CI checks that were weakened. You can mark your own security checks, allow reviewed lines and choose which notes count. All of it goes into the <a href="audit.html">audit trail</a>.</p>
-
 <h2>Sync</h2>
 <p>Sync brings other work into an agent's worktree. It merges file by file. When lines clash, it merges by structure, for example by function, statement, import, JSON key or config entry. You run it with <code>gitta sync</code>. gitta syncs the workspaces it made itself, with <code>gitta run</code> or <code>gitta up</code>, on its own when the work merges cleanly and nothing their new code uses changed meaning. A worktree made by your agent tool keeps exactly what its agent wrote, and git brings main in when the agent merges. That merge uses the same structural merge: <code>gitta init</code> sets gitta as the git merge driver for code files, so two agents who add or change different functions in one file get both changes, not conflict markers. When the same lines really clash, the agent sees git's normal conflict.</p>
 
 <h2>Merging</h2>
-<p>You merge with <code>git merge</code>, <code>git pull</code> or <code>git push</code>, as always. gitta hooks into those commands. It checks for weakened tests, weakened security controls, risky new code and credentials, and runs your gate on the combined code. When the tests fail, the merge stops before main moves. See <a href="landing.html">Merging</a>.</p>
+<p>You merge with <code>git merge</code>, <code>git pull</code> or <code>git push</code>, as always. gitta hooks into those commands. It checks for weakened tests and CI, and runs your gate on the combined code. When the tests fail, the merge stops before main moves. See <a href="landing.html">Merging</a>.</p>
 <p>A merged pull request works too, through the pull request check. To make the checks mandatory, see <a href="routes.html">What gitta watches and what it blocks</a>.</p>
 
 <h2>Many worktrees</h2>

@@ -299,7 +299,7 @@ fn realistic_csharp_and_kotlin_files_parse() {
 fn clean_overlaps_that_cannot_change_meaning_are_quiet() {
     use gitta_core::{quiet_overlap, Warning};
     let w = |path: &str, sym: Option<&str>| Warning { kind: "OVERLAP".into(), path: path.into(), symbol: sym.map(String::from), changed_by: None,
-        referenced_by: None, severity: None, agents: vec!["a".into(), "b".into()], security: None };
+        referenced_by: None, severity: None, agents: vec!["a".into(), "b".into()] };
     for p in ["README.md", "CHANGELOG.md", "docs/v2/intro.mdx", "docs/mint.json", "package.json", "package-lock.json", ".github/workflows/ci.yaml", ".gitignore"] {
         assert!(quiet_overlap(&w(p, None), b"x"), "{p}");
     }

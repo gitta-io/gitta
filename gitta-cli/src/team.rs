@@ -6,18 +6,15 @@
 //!   gitta login        sign in with the company account (single sign-on) and get your own token
 //! The admin token comes from GITTA_ADMIN_TOKEN, or else the token this repository was set up with.
 use serde_json::{json, Value};
-use std::io::Write;
 use std::process::{Command, Stdio};
 
 fn call(url: &str, token: &str, method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
-    let mut c = Command::new("curl");
-    if let Ok(ca) = std::env::var("GITTA_SERVER_CA") { c.args(["--cacert", &ca]); }
-    c.args(["-sS", "--proto", "=http,https", "--connect-timeout", "2", "--max-time", "10", "-X", method, "-H", &format!("Authorization: Bearer {token}"),
-        "-w", "\n%{http_code}", &format!("{url}{path}")]);
-    if body.is_some() { c.args(["-H", "Content-Type: application/json", "--data-binary", "@-"]); }
-    let out = c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
-        .and_then(|mut ch| { if let Some(b) = body { ch.stdin.take().unwrap().write_all(b.to_string().as_bytes())?; } else { drop(ch.stdin.take()); } ch.wait_with_output() })
-        .map_err(|e| e.to_string())?;
+    // server_curl hands curl the bearer token on stdin, not the command line, and refuses plain http to a remote host.
+    let ep = format!("{url}{path}");
+    let mut args: Vec<&str> = vec!["-sS", "--proto", "=http,https", "--connect-timeout", "2", "--max-time", "10", "-X", method, "-w", "\n%{http_code}", &ep];
+    if body.is_some() { args.extend(["-H", "Content-Type: application/json"]); }
+    let body_bytes = body.map(|b| b.to_string().into_bytes());
+    let out = crate::server_curl(url, token, &args, body_bytes.as_deref())?;
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     let (resp, code) = text.rsplit_once('\n').unwrap_or(("", "000"));
     match code { "200" => serde_json::from_str(resp).map_err(|e| e.to_string()), "000" => Err("did not answer".into()), c => Err(format!("{c}: {}", resp.trim())) }
@@ -31,7 +28,9 @@ pub fn cmd(args: &[String], team: Option<(String, String, String)>) {
     let fail = |m: String| -> ! { eprintln!("gitta: {m}"); std::process::exit(1) };
     match (args.first().map(String::as_str), args.get(1).map(String::as_str)) {
         (Some("whoami"), _) => {
-            let v = urls.iter().find_map(|u| call(u, &token, "GET", "/v1/whoami", None).ok()).unwrap_or_else(|| fail("no team server answered".into()));
+            let mut errs = vec![];
+            let v = urls.iter().find_map(|u| match call(u, &token, "GET", "/v1/whoami", None) { Ok(v) => Some(v), Err(e) => { errs.push(format!("{u}: {e}")); None } })
+                .unwrap_or_else(|| fail(format!("no team server answered ({})", errs.join("; "))));
             println!("{} ({}{})", v["name"].as_str().unwrap_or(""), v["kind"].as_str().unwrap_or(""), v["email"].as_str().filter(|e| !e.is_empty()).map(|e| format!(", {e}")).unwrap_or_default());
         }
         (Some("token"), Some("create")) => {

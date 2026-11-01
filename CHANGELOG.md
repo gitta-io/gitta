@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.0 — 2026-11-01
+
+### Tests you can trust
+
+- gitta now counts the tests that ran in Go JSON output and JUnit XML reports too, so a quiet drop in tests is caught on more projects.
+- Each merge now keeps the result of every test the full suite ran, so you can see later exactly what was tested.
+- gitta catches more ways to make tests pass without testing: a test run that ends itself early, a changed test runner, an equality that is always true and weaker assertions.
+- When an agent's task and its tests disagree, the agent runs `gitta conflict` or the `gitta_conflict` tool. gitta holds the work for a person, and the tests stay as they are.
+- With `verify_done = true`, an agent that is about to finish without running the tests on its final code is sent back once to run them.
+- The pull request check now says when a change touches code and no test, and when a new test will fail at random.
+- gitta can read the coverage report your tests write and name changed lines no test ran. It can also check that new tests fail without the change, and make small changes to an agent's lines to find the ones your tests miss.
+
+### Merges and teamwork
+
+- A failed merge names the last version of the work that passed, and tells you when the work fails only together with other work. With `flaky_rerun = true`, a test that fails at random gets one more run, and the agent is not blamed.
+- `gitta main-check` finds the change that broke main and the agent that merged it, and can undo it. `gitta tests-for` lists the tests to run first for an agent's work.
+- `gitta run --schedule` runs tasks on different files in parallel and holds tasks that touch the same files.
+- gitta tells an agent when another agent is doing the same task, or changes shared state its new code uses.
+- With `independent_approval`, the person who started an agent cannot approve its change.
+- gitta reads the SARIF reports of your static analysis tools and shows each warning on a line the agent changed.
+- gitta catches more ways CI can be weakened, such as a job switched off or removed, and names commits that skipped your pre-commit hooks.
+
+### Your code stays with you
+
+- Your source code now stays on your machines. gitta sends the team server a short summary of each agent step, with the names of changed symbols and the paths of touched files, and the server finds the same warnings from that.
+- The merge checks are now harder to switch off by accident. Environment variables, a deleted local config file or a hand set marker can no longer weaken the checks your team committed, and `GITTA_SKIP` stays the one recorded way to skip.
+- The team server token stays off the command line, and gitta sends it over plain http only to this machine unless you allow more.
+
+### Fixes
+
+- A refused merge prints each finding once, with clearer notes and paths relative to the repository.
+- gitta exits quietly when the program that reads its output stops early, as in `gitta init | head -1`.
+- The limit on how many tests run at once now holds exactly.
+
+### Changes
+
+- The code security checks, credential checks and `gitta scan` moved to gitta Enterprise.
+
 ## 0.1.3 — 2026-10-25
 
 ### Security

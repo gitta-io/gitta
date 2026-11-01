@@ -13,7 +13,7 @@ After every step an agent takes, gitta looks at what it changed. When one agent 
 Merging works as always, with git merge, git pull or git push. gitta hooks into those commands and runs `python3 -m unittest discover -s bench/aidev-replay -q` on the combined code first. If the tests fail, it stops the merge and says which test failed and why.
 Claude Code hooks added to ~/.claude/settings.json (backup next to it). They stay silent outside gitta repositories.
 When gitta tells an agent about a clash, the agent fixes its code itself and mentions it to you in one sentence in its chat.
-gitta never asks you anything. When a merge removes tests or weakens a security check, it says so in the merge output and in the log. The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block.
+gitta never asks you anything. When a merge removes tests or weakens a check, it says so in the merge output and in the log. The merge goes ahead unless the committed .gitta.toml sets weakened_checks to block.
 To share the test command and rules with your team and the CI check, run `gitta init --team` and commit .gitta.toml.
 
 Start your agents the way you always do. `gitta watch` shows what gitta does as it happens, and `tail -f .gitta/gitta.log` follows the same story as plain lines.</term>
@@ -83,7 +83,7 @@ Today gitta checked 3 changes, caught 1 clash before main, and merged 2 pieces o
 <h2>Next steps</h2>
 <ul>
   <li><a href="how-it-works.html">How gitta works</a> explains the parts.</li>
-  <li><a href="warnings.html">Warnings and sync</a> lists every warning, including the security checks.</li>
+  <li><a href="warnings.html">Warnings and sync</a> lists every warning.</li>
   <li><a href="landing.html">Merging</a> lists every check gitta runs when you merge.</li>
   <li><a href="pull-requests.html">Pull requests and CI</a> covers cloud agents that open pull requests.</li>
   <li>For COBOL and JCL with gitta Enterprise, read the <a href="https://gitta.io/docs/mainframe.html">Mainframe guide</a>.</li>

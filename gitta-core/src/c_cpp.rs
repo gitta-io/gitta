@@ -40,6 +40,7 @@ use std::path::Path;
 use std::sync::RwLock;
 use tree_sitter::{Node, Tree};
 
+
 /// Module of every C and C++ symbol with external linkage.
 pub const MODULE: &str = "c";
 /// Module prefix of a global variable used as a receiver (`server.port`), resolved by `receivers`.

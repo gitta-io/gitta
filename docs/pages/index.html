@@ -1,6 +1,6 @@
 <!-- title: Overview | group: Get started | order: 1 | desc: Install gitta, set it up in a repository and run AI coding agents in parallel. Where to start for each role and platform, and gitta Enterprise for mainframes. | seo: gitta documentation for AI coding agents -->
 <h1>gitta documentation</h1>
-<p class="lede">gitta coordinates AI coding agents that work in the same repository at the same time. It tells an agent when another agent changes code that its new work uses. It runs inside your normal git merge, tests the combined code before main moves and stops the merge when your tests fail. Removed tests and weakened security checks are reported in the merge output and the audit trail.</p>
+<p class="lede">gitta coordinates AI coding agents that work in the same repository at the same time. It tells an agent when another agent changes code that its new work uses. It runs inside your normal git merge, tests the combined code before main moves and stops the merge when your tests fail. Removed tests and weakened checks are reported in the merge output and the audit trail.</p>
 
 <p>gitta runs on top of Git. It uses the normal <code>git</code> command, and your repository format, branches and pull requests stay as they are. It has no AI inside. It reads code with parsers, applies fixed rules and runs your own tests.</p>
 
@@ -9,9 +9,8 @@
   <tr><th>Area</th><th>What you get</th><th>Read</th></tr>
   <tr><td>Agents</td><td>Claude Code through hooks, Cursor and Codex through MCP, any tool that makes Git worktrees, and cloud agents that open pull requests</td><td><a href="agents.html">Agents</a></td></tr>
   <tr><td>Warnings and sync</td><td>A warning at the agent's next step when another agent changes something its new code uses, and sync on request</td><td><a href="warnings.html">Warnings and sync</a></td></tr>
-  <tr><td>Merging</td><td>Checks inside <code>git merge</code>, <code>git pull</code> and <code>git push</code>: weakened tests, credentials, security and your tests on the combined code</td><td><a href="landing.html">Merging</a></td></tr>
+  <tr><td>Merging</td><td>Checks inside <code>git merge</code>, <code>git pull</code> and <code>git push</code>: weakened tests and your tests on the combined code</td><td><a href="landing.html">Merging</a></td></tr>
   <tr><td>Watching</td><td><code>gitta watch</code> in the terminal and <code>.gitta/gitta.log</code></td><td><a href="commands.html#watching-gitta-work">Watching gitta work</a></td></tr>
-  <tr><td>Security checks</td><td>Risky code in an agent's own lines, security controls one agent weakens while another relies on them, and, with gitta Enterprise, risky mainframe changes. Each finding is reported and recorded.</td><td><a href="how-it-works.html#security-checks">Security checks</a></td></tr>
   <tr><td>Languages</td><td>Meaning analysis for the languages in the table below. Mainframe languages come with gitta Enterprise. All other files merge line by line and run through your tests.</td><td><a href="supported.html#languages">Languages</a></td></tr>
   <tr><td>Pull requests and CI</td><td>A check that compares each pull request with the other open ones, on GitHub and any CI, with GitLab and Azure Repos coming next</td><td><a href="pull-requests.html">Pull requests</a>, <a href="ci-cd.html">CI/CD</a></td></tr>
   <tr><td>Audit</td><td>A hash-chained trail of every agent, warning, check and merge</td><td><a href="audit.html">Audit trail</a></td></tr>
@@ -23,14 +22,13 @@
 <div class="cards-doc">
   <a href="https://gitta.io/docs/mainframe.html"><b>Mainframe guide</b><span>Set up from zero, with where gitta runs, Git with EBCDIC, copybooks, CI and DBB.</span></a>
   <a href="https://gitta.io/docs/mainframe-cobol.html"><b>COBOL, copybooks and JCL</b><span>What gitta follows, field by field.</span></a>
-  <a href="https://gitta.io/docs/mainframe-security.html"><b>Mainframe security checks</b><span>What gitta reports, and how to list your own libraries.</span></a>
 </div>
 
 <h2>Where to start</h2>
 <div class="cards-doc">
   <a href="install.html"><b>Install</b><span>Get the <code>gitta</code> command for your platform.</span></a>
   <a href="quickstart.html"><b>Quick start</b><span>Set up a repository and see the first warning.</span></a>
-  <a href="how-it-works.html"><b>How gitta works</b><span>Workspaces, warnings, security checks, sync and the check inside git merge.</span></a>
+  <a href="how-it-works.html"><b>How gitta works</b><span>Workspaces, warnings, sync and the check inside git merge.</span></a>
   <a href="commands.html"><b>Command reference</b><span>Every command, option, file and setting.</span></a>
 </div>
 
@@ -49,9 +47,9 @@
   <tr><th>You are</th><th>Read</th></tr>
   <tr><td>A developer who runs agents</td><td><a href="quickstart.html">Quick start</a>, <a href="agents.html">Agents</a>, <a href="warnings.html">Warnings and sync</a>, <a href="landing.html">Merging</a></td></tr>
   <tr><td>A team lead</td><td><a href="routes.html">What gitta watches and blocks</a>, <a href="pull-requests.html">Pull requests and CI</a>, <a href="landing.html#weakened">Weakened checks</a>, <a href="audit.html">Audit trail</a></td></tr>
-  <tr><td>A mainframe team</td><td><a href="https://gitta.io/docs/mainframe.html">Mainframe guide</a>, <a href="https://gitta.io/docs/mainframe-cobol.html">COBOL, copybooks and JCL</a>, <a href="https://gitta.io/docs/mainframe-security.html">Security checks on mainframe code</a></td></tr>
+  <tr><td>A mainframe team</td><td><a href="https://gitta.io/docs/mainframe.html">Mainframe guide</a>, <a href="https://gitta.io/docs/mainframe-cobol.html">COBOL, copybooks and JCL</a></td></tr>
   <tr><td>A platform or DevOps engineer</td><td><a href="ci-cd.html">CI/CD integration</a>, <a href="https://gitta.io/docs/team-server.html">Team server</a>, <a href="https://gitta.io/docs/deploy-kubernetes.html">Kubernetes</a>, <a href="https://gitta.io/docs/deploy-cloud.html">Google Cloud, AWS and Azure</a>, <a href="https://gitta.io/docs/tls.html">TLS</a></td></tr>
-  <tr><td>Security or compliance</td><td><a href="https://gitta.io/docs/security.html">Security and data</a>, <a href="how-it-works.html#security-checks">Security checks</a>, <a href="audit.html">Audit trail</a>, <a href="https://gitta.io/docs/compliance.html">Compliance</a>, <a href="https://gitta.io/docs/sbom.html">SBOM and CBOM</a>, <a href="https://gitta.io/docs/access.html">Tokens and sign-in</a></td></tr>
+  <tr><td>Audit or compliance</td><td><a href="audit.html">Audit trail</a>, <a href="https://gitta.io/docs/compliance.html">Compliance</a>, <a href="https://gitta.io/docs/sbom.html">SBOM and CBOM</a>, <a href="https://gitta.io/docs/access.html">Tokens and sign-in</a></td></tr>
 </table>
 
 <h2>By platform</h2>
@@ -65,7 +63,7 @@
 </table>
 
 <h2>Free and Enterprise</h2>
-<p>The <code>gitta</code> command is free and open source. It covers everything on one machine, including workspaces, warnings, sync, the merge check, the security checks, the pull request check and the local audit trail.</p>
+<p>The <code>gitta</code> command is free and open source. It covers everything on one machine, including workspaces, warnings, sync, the merge check, the pull request check and the local audit trail.</p>
 <p>gitta Enterprise adds a team server. Agents on different laptops, CI runners and cloud agents then warn each other too. Enterprise also adds mainframe support for COBOL, copybooks, JCL and code pages, personal tokens, SSO, a team-wide audit trail and deployments for Kubernetes, Google Cloud, AWS and Azure. The server runs in your own account.</p>
 
 <h2>Supported platforms</h2>

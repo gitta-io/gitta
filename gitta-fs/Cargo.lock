@@ -73,7 +73,7 @@ dependencies = [
 
 [[package]]
 name = "gitta-fs"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "fuser",
  "globset",

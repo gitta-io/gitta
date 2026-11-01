@@ -281,7 +281,7 @@ fn mcp_server_answers_and_survives_errors() {
     let o = gitta_in(&e, &e.home, &["mcp"], &input);
     let lines: Vec<serde_json::Value> = String::from_utf8_lossy(&o.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), 5, "one answer per request with an id: {lines:?}");
-    assert_eq!(lines[1]["result"]["tools"].as_array().unwrap().len(), 6);
+    assert_eq!(lines[1]["result"]["tools"].as_array().unwrap().len(), 7);
     assert_eq!(lines[2]["result"]["isError"], true, "an unknown agent is an error result, not a dead server");
     assert!(lines[2]["result"]["content"][0]["text"].as_str().unwrap().contains("no agent named nobody"));
     assert!(lines[3]["result"]["content"][0]["text"].as_str().unwrap().contains("feat"), "status after an error: {}", lines[3]);
@@ -350,10 +350,10 @@ fn audit_trail_records_who_what_and_checks_and_shows_tampering() {
     git(&e.repo, &["config", "user.name", "Anna Berg"]);
     git(&e.repo, &["config", "user.email", "anna@example.com"]);
     assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", "python3 -c 'import shop.text'"]).status.success());
-    // A refused landing: the agent put a credential in the code.
-    let bad = worktree(&e, "leaky");
-    write(&bad.join("shop/text.py"), "API_KEY = \"sk-live-4f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c\"\n\ndef shout(s):\n    return s.upper()\n");
-    assert!(!gitta(&e, &e.repo, &["land", "leaky"]).status.success());
+    // A refused landing: the agent's code fails the tests.
+    let bad = worktree(&e, "broken");
+    write(&bad.join("shop/text.py"), "def shout(s:\n    return s.upper()\n");
+    assert!(!gitta(&e, &e.repo, &["land", "broken"]).status.success());
     // A good landing, with an agent commit carrying a Co-Authored-By trailer.
     let a = worktree(&e, "feat");
     write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\n\ndef whisper(s):\n    return s.lower()\n");
@@ -378,8 +378,8 @@ fn audit_trail_records_who_what_and_checks_and_shows_tampering() {
     assert!(reached["data"]["commits"].to_string().contains("Merge pull request #7"));
     for k in ["agent_started", "land_refused", "checks", "landed"] { assert!(kinds.contains(&k), "missing {k}: {kinds:?}"); }
     let refused = events.iter().find(|e| e["event"] == "land_refused").unwrap();
-    assert_eq!(refused["agent"], "leaky");
-    assert_eq!(refused["data"]["check"], "credentials");
+    assert_eq!(refused["agent"], "broken");
+    assert_eq!(refused["data"]["check"], "tests");
     let landed = events.iter().find(|e| e["event"] == "landed").unwrap();
     assert_eq!(landed["actor"]["name"], "Anna Berg", "who landed it");
     assert_eq!(landed["agent"], "feat");
@@ -397,7 +397,7 @@ fn audit_trail_records_who_what_and_checks_and_shows_tampering() {
     let ok = gitta(&e, &e.repo, &["audit", "verify"]);
     assert!(ok.status.success() && text(&ok).contains("intact"), "{}", text(&ok));
     let f = e.repo.join(".gitta/audit.jsonl");
-    let t = std::fs::read_to_string(&f).unwrap().replace("\"check\":\"credentials\"", "\"check\":\"merge\"");
+    let t = std::fs::read_to_string(&f).unwrap().replace("\"agent\":\"broken\"", "\"agent\":\"fixed\"");
     std::fs::write(&f, t).unwrap();
     let broken = gitta(&e, &e.repo, &["audit", "verify"]);
     assert!(!broken.status.success() && text(&broken).contains("changed after it was written"), "{}", text(&broken));
@@ -478,49 +478,43 @@ fn approve(e: &Env, agent: &str, reason: &str) -> Output {
     o
 }
 
+/// `gitta approve` as another person: the same pseudo-terminal, with USER set to `user`.
+fn approve_as(e: &Env, agent: &str, reason: &str, user: &str) -> Output {
+    let bin = env!("CARGO_BIN_EXE_gitta");
+    let mut c = if cfg!(target_os = "macos") { let mut c = Command::new("script"); c.args(["-q", "/dev/null", bin, "approve", agent, reason]); c }
+                else { let mut c = Command::new("script"); c.args(["-qec", &format!("{bin} approve {agent} '{reason}'"), "/dev/null"]); c };
+    for v in AGENT_ENV { c.env_remove(v); }
+    let mut ch = c.current_dir(&e.repo).env("HOME", &e.home).env("USER", user).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut stdin = ch.stdin.take().unwrap();
+    let answer = format!("{agent}\n");
+    let t = std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(700)); let _ = stdin.write_all(answer.as_bytes()); std::thread::sleep(std::time::Duration::from_millis(1500)); });
+    let o = ch.wait_with_output().unwrap();
+    t.join().ok();
+    o
+}
+
 #[test]
-fn a_removed_login_check_is_a_security_hazard_and_needs_a_person() {
-    let e = env("security");
-    const VIEWS: &str = "from django.contrib.auth.decorators import login_required\n\n\n@login_required\ndef export_orders(request):\n    return list_orders(request)\n\n\ndef list_orders(request):\n    return []\n";
+fn with_independent_approval_the_person_who_started_the_agent_cannot_approve_it() {
+    let e = env("independent");
     write(&e.repo.join("shop/__init__.py"), "");
-    write(&e.repo.join("shop/views.py"), VIEWS);
+    write(&e.repo.join("shop/views.py"), "def export_orders():\n    return []\n");
+    write(&e.repo.join("tests/test_views.py"), "from shop.views import export_orders\n\n\ndef test_export():\n    assert export_orders() == []\n");
+    write(&e.repo.join(".gitta.toml"), "independent_approval = true\nweakened_checks = \"block\"\n");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "-qm", "base"]);
     gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let (a, b) = (worktree(&e, "open-export"), worktree(&e, "reports"));
-    write(&a.join("shop/views.py"), &VIEWS.replace("@login_required\ndef export", "def export"));
-    write(&b.join("shop/reports.py"), "from shop.views import export_orders\n\n\ndef nightly_report(request):\n    return export_orders(request)\n");
-    for (w, m) in [(&a, "open the export"), (&b, "nightly report")] { git(w, &["add", "-A"]); git(w, &["commit", "-qm", m]); }
-    // In session: the agent whose new code calls the endpoint is told at its next step.
-    let o = gitta_in(&e, &b, &["hook", "claude"], &format!("{{\"cwd\": {:?}}}", b.to_str().unwrap()));
-    let out = text(&o);
-    assert!(out.contains("SECURITY (high severity)") && out.contains("removed the login check (`@login_required`) from `shop.views.export_orders`")
-        && out.contains("without a logged-in user"), "hook output: {out}");
-    let st = text(&gitta(&e, &e.repo, &["status"]));
-    assert!(st.contains("SECURITY potentially affected: open-export removed the login check") && st.contains("SECURITY: shop/views.py by open-export"), "{st}");
-    // Pull request check: a Security line.
-    let pr = text(&gitta(&e, &e.repo, &["pr-check", "--pr", "reports", "--other", "open-export"]));
-    assert!(pr.contains("- **Security** with open-export:"), "{pr}");
-    let js = text(&gitta(&e, &e.repo, &["pr-check", "--pr", "reports", "--other", "open-export", "--json"]));
-    assert!(js.contains("\"security\": [") && js.contains("removed the login check"), "{js}");
-    // Removing the decorator from an existing endpoint needs a person's approval; an agent cannot give it.
+    let a = worktree(&e, "open-export");
+    std::fs::remove_file(a.join("tests/test_views.py")).unwrap();
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "drop the export test"]);
+    assert!(!gitta(&e, &e.repo, &["land", "open-export"]).status.success());
+    let me = std::env::var("USER").unwrap_or_default();
+    let o = approve_as(&e, "open-export", "test replaced elsewhere", &me);
+    assert!(!o.status.success() && text(&o).contains("asks that someone else approves"), "{}", text(&o));
+    assert!(!gitta(&e, &e.repo, &["land", "open-export"]).status.success(), "the author's approval does not count");
+    let o = approve_as(&e, "open-export", "test replaced elsewhere", "colleague-reviewer");
+    assert!(o.status.success(), "{}", text(&o));
     let o = gitta(&e, &e.repo, &["land", "open-export"]);
-    assert!(!o.status.success() && text(&o).contains("land refused") && text(&o).contains("shop/views.py"), "{}", text(&o));
-    let o = Command::new(env!("CARGO_BIN_EXE_gitta")).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_WEAKENED_CHECKS", "block").args(["approve", "open-export", "ok"]).current_dir(&e.repo).env("HOME", &e.home).env("CLAUDECODE", "1").output().unwrap();
-    assert!(!o.status.success() && text(&o).contains("not inside an agent session"), "{}", text(&o));
-    let o = approve(&e, "open-export", "the export is public by design");
     assert!(o.status.success(), "{}", text(&o));
-    assert!(gitta(&e, &e.repo, &["land", "open-export"]).status.success());
-    // The other agent's call now runs without the login check: refused until its code changes or a person approves.
-    let o = gitta(&e, &e.repo, &["land", "reports"]);
-    assert!(!o.status.success() && text(&o).contains("land refused") && text(&o).contains("shop/reports.py"), "{}", text(&o));
-    let s = text(&gitta(&e, &e.repo, &["sync", "reports"]));
-    assert!(s.contains("export_orders"), "{s}");
-    assert!(approve(&e, "reports", "reports run as a logged-in job").status.success());
-    let o = gitta(&e, &e.repo, &["land", "reports"]);
-    assert!(o.status.success(), "{}", text(&o));
-    let audit = text(&gitta(&e, &e.repo, &["audit", "--json"]));
-    for want in ["\"check\":\"security\"", "SECURITY_HAZARD", "SECURITY_WEAKENED", "\"kind\":\"SECURITY\""] { assert!(audit.replace(": ", ":").contains(want), "{want} missing in audit"); }
 }
 
 /// Set an agent's recorded base in .gitta/config.json (as if its start commit had been recorded long ago).
@@ -596,7 +590,7 @@ fn a_deleted_or_locked_worktree_never_stops_the_others() {
 fn every_command_answers_help_and_refuses_unknown_options_without_side_effects() {
     let e = env("help");
     shop(&e);
-    for cmd in ["init", "run", "up", "status", "sync", "check", "claim", "release", "approve", "land", "adopt", "pr-check", "hook", "scan", "mcp", "watch", "install", "login", "team", "audit", "report", "down", "uninstall"] {
+    for cmd in ["init", "run", "up", "status", "sync", "check", "claim", "release", "approve", "land", "adopt", "pr-check", "hook", "mcp", "watch", "install", "login", "team", "audit", "report", "down", "uninstall"] {
         for h in ["--help", "-h"] {
             let o = gitta(&e, &e.repo, &[cmd, h]);
             assert!(o.status.success() && String::from_utf8_lossy(&o.stdout).contains(&format!("gitta {cmd}")), "{cmd} {h}: {}", text(&o));
@@ -677,79 +671,6 @@ fn the_hook_does_not_rescan_unchanged_worktrees() {
     // nothing more per unchanged worktree.
     assert!(calls.len() <= wts.len() + 22, "status ran {} git processes: {calls:#?}", calls.len());
     assert!(hook < std::time::Duration::from_secs(5) && first < std::time::Duration::from_secs(60), "hook {hook:?}, status {first:?}");
-}
-
-#[test]
-fn security_notes_on_added_lines_warn_live_and_high_ones_need_a_person() {
-    let e = env("sec1");
-    // An old risky call that was already there before any agent: never reported.
-    const DB: &str = "import requests\n\n\ndef ping(url):\n    return requests.get(url, verify=False)\n";
-    write(&e.repo.join("app/__init__.py"), "");
-    write(&e.repo.join("app/db.py"), DB);
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "base"]);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let (a, b, c) = (worktree(&e, "search"), worktree(&e, "devices"), worktree(&e, "lookup"));
-    write(&a.join("app/db.py"), &format!("{DB}\n\ndef find(cur, name):\n    cur.execute(f\"SELECT * FROM users WHERE name = '{{name}}'\")\n    return cur.fetchall()\n"));
-    write(&b.join("app/devices.py"), "import requests\n\n\ndef status(url):\n    return requests.get(url, verify=False).json()\n");
-    write(&c.join("app/lookup.py"), "def by_id(cur, i):\n    cur.execute(f\"SELECT * FROM t WHERE id = {i}\")  # gitta: allow sql-text i is an int from the router\n");
-    for (w, m) in [(&a, "search"), (&b, "devices"), (&c, "lookup")] { git(w, &["add", "-A"]); git(w, &["commit", "-qm", m]); }
-    // Live, in the agent's session: once per finding.
-    let hook = |w: &PathBuf| text(&gitta_in(&e, w, &["hook", "claude"], &format!("{{\"cwd\": {:?}}}", w.to_str().unwrap())));
-    let out = hook(&a);
-    println!("HOOK:\n{out}");
-    assert!(out.contains("gitta: security note (medium): app/db.py:9 builds SQL from text and variables. Use a parameterised query."), "{out}");
-    assert!(!out.contains("db.py:5"), "the old call was there before: {out}");
-    assert!(!hook(&a).contains("security note"), "the same finding is not repeated");
-    let out = hook(&b);
-    assert!(out.contains("security note (high): app/devices.py:5 turns off certificate checks.") && out.contains("decides whether it stops the merge"), "{out}");
-    assert!(!hook(&c).contains("security note"), "an allowed line is quiet");
-    // Status, status --json and the pull request check say the same.
-    let st = text(&gitta(&e, &e.repo, &["status"]));
-    assert!(st.contains("security note (medium): app/db.py:9") && st.contains("[sql-text, by search]"), "{st}");
-    let js = text(&gitta(&e, &e.repo, &["status", "--json"]));
-    assert!(js.contains("\"security_notes\"") && js.contains("\"rule\":\"tls-off\""), "{js}");
-    let pr = text(&gitta(&e, &e.repo, &["pr-check", "--pr", "devices", "--other", "search"]));
-    println!("PR-CHECK:\n{pr}");
-    assert!(pr.contains("- **Security**: app/devices.py:5 turns off certificate checks."), "{pr}");
-    let pj = text(&gitta(&e, &e.repo, &["pr-check", "--pr", "devices", "--other", "search", "--json"]));
-    assert!(pj.contains("\"security_notes\"") && pj.contains("tls-off"), "{pj}");
-    // Medium lands with the note in the output; the allowed line lands and the allow is in the audit trail.
-    let o = gitta(&e, &e.repo, &["land", "search"]);
-    println!("LAND search:\n{}", text(&o));
-    assert!(o.status.success() && text(&o).contains("gitta: security note (medium): app/db.py:9"), "{}", text(&o));
-    let o = gitta(&e, &e.repo, &["land", "lookup"]);
-    assert!(o.status.success() && text(&o).contains("allowed sql-text at app/lookup.py:2"), "{}", text(&o));
-    // High needs a person; an agent cannot approve it.
-    let o = gitta(&e, &e.repo, &["land", "devices"]);
-    println!("LAND devices:\n{}", text(&o));
-    assert!(!o.status.success() && text(&o).contains("turns off certificate checks") && text(&o).contains("app/devices.py"), "{}", text(&o));
-    let o = Command::new(env!("CARGO_BIN_EXE_gitta")).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_WEAKENED_CHECKS", "block").args(["approve", "devices", "ok"]).current_dir(&e.repo).env("HOME", &e.home).env("CLAUDECODE", "1").output().unwrap();
-    assert!(!o.status.success() && text(&o).contains("not inside an agent session"), "{}", text(&o));
-    assert!(approve(&e, "devices", "the devices use self-signed certificates on the plant network").status.success());
-    let o = gitta(&e, &e.repo, &["land", "devices"]);
-    assert!(o.status.success(), "{}", text(&o));
-    let audit = text(&gitta(&e, &e.repo, &["audit", "--json"])).replace(": ", ":");
-    for want in ["\"check\":\"security rules\"", "SECURITY_RULE", "\"kind\":\"SECURITY_NOTE\"", "\"event\":\"security_allowed\"", "i is an int from the router"] { assert!(audit.contains(want), "{want} missing in audit"); }
-}
-
-#[test]
-fn the_security_threshold_is_a_setting() {
-    let e = env("sec1-block");
-    write(&e.repo.join("app/__init__.py"), "");
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "base"]);
-    gitta(&e, &e.repo, &["init", "--no-claude", "--security-block", "medium"]);
-    let (a, b) = (worktree(&e, "q"), worktree(&e, "tls"));
-    write(&a.join("app/q.py"), "def f(cur, i):\n    cur.execute(f\"SELECT * FROM t WHERE id = {i}\")\n");
-    write(&b.join("app/t.py"), "import requests\n\n\ndef f(u):\n    return requests.get(u, verify=False)\n");
-    for (w, m) in [(&a, "q"), (&b, "tls")] { git(w, &["add", "-A"]); git(w, &["commit", "-qm", m]); }
-    let o = gitta(&e, &e.repo, &["land", "q"]);
-    assert!(!o.status.success() && text(&o).contains("app/q.py"), "medium blocks at block = medium: {}", text(&o));
-    assert!(!gitta(&e, &e.repo, &["init", "--no-claude", "--security-block", "low"]).status.success());
-    gitta(&e, &e.repo, &["init", "--no-claude", "--security-block", "none"]);
-    let o = gitta(&e, &e.repo, &["land", "tls"]);
-    assert!(o.status.success() && text(&o).contains("security note (high): app/t.py:5"), "nothing blocks at none, and the note is still shown: {}", text(&o));
 }
 
 #[test]
@@ -1023,48 +944,6 @@ fn a_failed_gate_names_the_test_and_its_first_error_lines() {
     assert!(t.contains("First failing test: tests/test_text.py::test_whisper") && t.contains("E       AssertionError: assert 1 == 2") && t.contains("tests/test_text.py:7"), "{t}");
 }
 
-#[test]
-fn a_credential_name_already_in_a_file_does_not_stop_an_unrelated_edit() {
-    let e = env("flynt");
-    shop(&e);
-    // flynt's test/test_edits.py: a format string that names a password field (no secret), already on main.
-    let t = "def test_110():\n    s_in = \"'{conn.login}:{conn.password}@'.format(conn=x)\"\n    assert s_in\n";
-    write(&e.repo.join("tests/test_edits.py"), t);
-    write(&e.repo.join("shop/old.py"), "PASSWORD = \"Zx9q-Lm2w-Pp7r-old\"\n");
-    git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "-qm", "tests"]);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let a = worktree(&e, "edit");
-    write(&a.join("tests/test_edits.py"), &format!("{t}\n\ndef test_more():\n    assert True\n"));
-    write(&a.join("shop/old.py"), "PASSWORD = \"Zx9q-Lm2w-Pp7r-old\"\nX = 1\n");
-    let o = gitta(&e, &e.repo, &["land", "edit"]);
-    assert!(o.status.success(), "{}", text(&o));
-    // A credential the agent adds is still refused, with its line.
-    let b = worktree(&e, "leak");
-    write(&b.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\nDB_PASSWORD = 'Tr0ub4dor-3xyz-9'\n");
-    let o = gitta(&e, &e.repo, &["land", "leak"]);
-    assert!(!o.status.success() && text(&o).contains("shop/text.py:4 looks like it contains a credential"), "{}", text(&o));
-}
-
-#[test]
-fn a_credential_is_refused_by_git_merge_and_the_pull_request_check() {
-    let e = env("credmerge");
-    shop(&e);
-    gitta(&e, &e.repo, &["init", "--no-claude"]);
-    let a = worktree(&e, "token");
-    write(&a.join("shop/text.py"), "TOKEN = \"ghp_0123456789abcdefghijABCDEFGHIJ012345\"\n\n\ndef shout(s):\n    return s.upper()\n");
-    git(&a, &["commit", "-qam", "token"]);
-    let before = git(&e.repo, &["rev-parse", "main"]);
-    let o = git_run(&e, &e.repo, &["merge", "--no-edit", "token"]);
-    assert!(!o.status.success() && text(&o).contains("shop/text.py:1 looks like it contains a credential (GitHub token)"), "{}", text(&o));
-    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before);
-    // The pull request check fails too, whatever weakened_checks says.
-    let o = Command::new(env!("CARGO_BIN_EXE_gitta")).env("GITTA_NO_NOTIFY", "1").env("GITTA_WEAKENED_CHECKS", "warn").args(["pr-check", "--pr", "token", "--base", "main"])
-        .current_dir(&e.repo).env("HOME", &e.home).output().unwrap();
-    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
-    assert!(text(&o).contains("shop/text.py:1 looks like it contains a credential (GitHub token)"), "{}", text(&o));
-}
-
 /// A plain `git` command, with the environment a person's terminal would have (no prompt in tests).
 fn git_run(e: &Env, dir: &Path, args: &[&str]) -> Output {
     let mut c = Command::new("git");
@@ -1315,6 +1194,30 @@ fn every_other_way_main_moves_is_checked_and_refused_when_the_tests_fail() {
     assert!(text(&gitta(&e, &e.repo, &["audit", "--json"])).contains("GITTA_SKIP"));
 }
 
+#[test]
+fn a_hand_set_gitta_landing_does_not_bypass_the_gate() {
+    // GITTA_LANDING marks the git commands gitta runs itself. A value set by hand (or left in the environment)
+    // must not turn the checks off: only gitta's own live marker makes the hook stand aside. GITTA_SKIP is the
+    // recorded way to skip on purpose.
+    let e = env("landingmarker");
+    shop(&e);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", FAILING_GATE]).status.success());
+    let bad = worktree(&e, "bad");
+    write(&bad.join("shop/cart.py"), &format!("{CART}\n\n# BROKEN\n"));
+    git(&bad, &["add", "-A"]); git(&bad, &["commit", "-qm", "bad"]);
+    // main gets a commit of its own, so merging bad is a real merge the pre-merge-commit hook checks.
+    write(&e.repo.join("shop/text.py"), "def shout(s):\n    return s.upper()\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-q", "--allow-empty", "-m", "text"]);
+    let before = git(&e.repo, &["rev-parse", "main"]);
+    let mut c = Command::new("git");
+    for v in AGENT_ENV { c.env_remove(v); }
+    let o = c.arg("-C").arg(&e.repo).args(["-c", "user.name=t", "-c", "user.email=t@t", "merge", "--no-edit", "bad"])
+        .env("HOME", &e.home).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_LANDING", "1").output().unwrap();
+    assert!(!o.status.success(), "GITTA_LANDING=1 must not bypass the gate: {}", text(&o));
+    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before, "main must not move");
+    let _ = git_run(&e, &e.repo, &["merge", "--abort"]);
+}
+
 const LABEL: &str = "from shop.pricing import net_to_gross\n\n\ndef label(x):\n    return f\"{net_to_gross(x)} kr\"\n";
 const INT_GROSS: &str = "return int(net * (1 + VAT_RATE) * 100)";
 
@@ -1339,6 +1242,28 @@ fn the_stop_hook_never_tests_unfinished_work_and_tells_a_failed_merge_once() {
     assert!(t.contains("\"block\"") && t.contains("tests.test_cart.CartTest.test_total") && t.contains("Fix it and merge again."), "{t}");
     assert!(!t.contains("gitta sync") && !t.contains("gitta land"), "{t}");
     assert_eq!(stop(&bad), "", "told once per failed merge");
+}
+
+#[test]
+fn a_missing_config_json_does_not_turn_the_checks_off() {
+    // Deleting .gitta/config.json must not silently disable gitta: it falls back to protecting the default branch
+    // with the committed .gitta.toml policy.
+    let e = env("noconfig");
+    shop(&e);
+    write(&e.repo.join(".gitta.toml"), "gate = \"! grep -rq BROKEN shop\"\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "team gate"]);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude"]).status.success());
+    let bad = worktree(&e, "bad");
+    write(&bad.join("shop/cart.py"), &format!("{CART}\n\n# BROKEN\n"));
+    git(&bad, &["add", "-A"]); git(&bad, &["commit", "-qm", "bad"]);
+    // An agent (or anyone with write access) removes the local config.
+    std::fs::remove_file(e.repo.join(".gitta/config.json")).unwrap();
+    git(&e.repo, &["commit", "-q", "--allow-empty", "-m", "own"]); // so merging bad is a real merge
+    let before = git(&e.repo, &["rev-parse", "main"]);
+    let o = git_run(&e, &e.repo, &["merge", "--no-edit", "bad"]);
+    assert!(!o.status.success(), "a missing config.json must not turn gitta's checks off: {}", text(&o));
+    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before, "main must not move");
+    let _ = git_run(&e, &e.repo, &["merge", "--abort"]);
 }
 
 #[test]
@@ -1426,6 +1351,29 @@ fn a_stopped_merge_cancels_itself_so_the_next_agent_can_merge() {
     assert!(std::fs::read_to_string(bad.join("shop/cart.py")).unwrap().contains("BROKEN"), "the refused agent's work is kept");
     let o = git_run(&e, &e.repo, &["merge", "--no-edit", "next"]);
     assert!(o.status.success(), "the next agent merges: {}", text(&o));
+}
+
+#[test]
+fn a_committed_weakened_checks_block_is_not_downgraded_by_the_environment() {
+    // An agent must not slip a weakened check past a committed weakened_checks = block by setting
+    // GITTA_WEAKENED_CHECKS=warn in its environment: the committed team policy wins.
+    let e = env("weakenedenv");
+    shop(&e);
+    write(&e.repo.join("tests/test_cart.py"), "from shop.cart import total\n\n\ndef test_total():\n    assert total(10) == 12.5\n\n\ndef test_zero():\n    assert total(0) == 0\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "tests"]);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--weakened-checks", "block"]).status.success());
+    git(&e.repo, &["add", ".gitta.toml"]); git(&e.repo, &["commit", "-qm", "gitta policy block"]);
+    let a = worktree(&e, "trim");
+    write(&a.join("tests/test_cart.py"), "from shop.cart import total\n\n\ndef test_total():\n    assert total(10) == 12.5\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "trim"]);
+    let before = git(&e.repo, &["rev-parse", "main"]);
+    let mut c = Command::new("git");
+    for v in AGENT_ENV { c.env_remove(v); }
+    let o = c.arg("-C").arg(&e.repo).args(["-c", "user.name=t", "-c", "user.email=t@t", "merge", "--no-edit", "trim"])
+        .env("HOME", &e.home).env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("GITTA_WEAKENED_CHECKS", "warn").output().unwrap();
+    assert!(!o.status.success(), "a committed block must not be downgraded by GITTA_WEAKENED_CHECKS=warn: {}", text(&o));
+    assert_eq!(git(&e.repo, &["rev-parse", "main"]), before, "main must not move");
+    let _ = git_run(&e, &e.repo, &["merge", "--abort"]);
 }
 
 #[test]
@@ -1611,4 +1559,295 @@ fn report_counts_agents_changes_and_stopped_merges_in_three_formats() {
     let c = text(&gitta(&e, &e.repo, &["report", "--csv", "--by", "person"]));
     assert!(c.starts_with("period,repo,person,agents_run,changes,clashes_found,merges_stopped,broken_mains_prevented"), "{c}");
     assert!(!gitta(&e, &e.repo, &["report", "--period", "year"]).status.success());
+}
+
+/// A small Python project whose gate runs unittest: `fee` and one test file.
+fn fees(e: &Env, toml: &str) {
+    write(&e.repo.join("app/__init__.py"), "");
+    write(&e.repo.join("app/fee.py"), "def fee(n):\n    return 0\n");
+    write(&e.repo.join("tests/__init__.py"), "");
+    write(&e.repo.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_zero(self):\n        self.assertEqual(fee(0), 0)\n");
+    write(&e.repo.join(".gitta.toml"), toml);
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "-qm", "base"]);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", "python3 -m unittest -q"]).status.success());
+}
+
+const FEE: &str = "def fee(n):\n    if n > 10:\n        return n - 10\n    return 0\n";
+
+#[test]
+fn mutation_budget_names_behaviour_no_test_checks() {
+    let e = env("mutation");
+    fees(&e, "mutation_budget = 4\n");
+    let a = worktree(&e, "fees");
+    write(&a.join("app/fee.py"), FEE);
+    // A test that passes whatever the comparison and the subtraction do.
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_small(self):\n        self.assertEqual(fee(3), 0)\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "fee above 10"]);
+    let o = gitta(&e, &e.repo, &["land", "fees"]);
+    let out = text(&o);
+    assert!(!o.status.success() && out.contains("land refused") && out.contains("`return n - 10` becomes `return n + 10`"), "{out}");
+    // Tests that pin the behaviour down kill every mutant, and the work lands.
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_fee(self):\n        self.assertEqual(fee(3), 0)\n        self.assertEqual(fee(10), 0)\n        self.assertEqual(fee(11), 1)\n        self.assertEqual(fee(25), 15)\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "test the fee"]);
+    let o = gitta(&e, &e.repo, &["land", "fees"]);
+    assert!(o.status.success(), "{}", text(&o));
+    let audit = text(&gitta(&e, &e.repo, &["audit", "--json"]));
+    assert!(audit.contains("\"mutation_check\""), "{audit}");
+}
+
+#[test]
+fn revert_check_finds_new_tests_that_pass_without_the_change() {
+    let e = env("revert");
+    fees(&e, "revert_check = true\n");
+    let a = worktree(&e, "fees");
+    write(&a.join("app/fee.py"), FEE);
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_small(self):\n        self.assertEqual(fee(3), 0)\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "fee above 10"]);
+    let o = gitta(&e, &e.repo, &["land", "fees"]);
+    assert!(!o.status.success() && text(&o).contains("pass with or without its code change"), "{}", text(&o));
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_big(self):\n        self.assertEqual(fee(25), 15)\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "test above 10"]);
+    let o = gitta(&e, &e.repo, &["land", "fees"]);
+    assert!(o.status.success(), "{}", text(&o));
+}
+
+/// Runs unittest under sys.settrace and writes lcov.info for app/*.py: a real line coverage report from the
+/// standard library alone, so the test needs no coverage package.
+const COV_PY: &str = r#"import ast, os, sys, unittest
+hit = {}
+def tracer(frame, event, arg):
+    f = os.path.relpath(frame.f_code.co_filename)
+    if f.startswith("app" + os.sep):
+        hit.setdefault(f, set()).add(frame.f_lineno)
+    return tracer
+sys.settrace(tracer)
+r = unittest.TextTestRunner().run(unittest.defaultTestLoader.discover("tests", top_level_dir="."))
+sys.settrace(None)
+with open("lcov.info", "w") as out:
+    for root, _, files in os.walk("app"):
+        for n in files:
+            if not n.endswith(".py"): continue
+            p = os.path.join(root, n)
+            lines = sorted({s.lineno for s in ast.walk(ast.parse(open(p).read())) if isinstance(s, ast.stmt) and not isinstance(s, (ast.FunctionDef, ast.ClassDef))})
+            out.write("SF:" + p + "\n")
+            for l in lines: out.write("DA:%d,%d\n" % (l, 1 if l in hit.get(p, ()) else 0))
+            out.write("end_of_record\n")
+sys.exit(0 if r.wasSuccessful() else 1)
+"#;
+
+#[test]
+fn changed_line_coverage_stops_untested_lines() {
+    let e = env("coverage");
+    write(&e.repo.join("cov.py"), COV_PY);
+    write(&e.repo.join("app/__init__.py"), "");
+    write(&e.repo.join("app/fee.py"), "def fee(n):\n    return 0\n");
+    write(&e.repo.join("tests/__init__.py"), "");
+    write(&e.repo.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_zero(self):\n        self.assertEqual(fee(0), 0)\n");
+    write(&e.repo.join(".gitta.toml"), "coverage_report = \"lcov.info\"\nchanged_line_coverage = 100\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "base"]);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude", "--gate", "python3 cov.py"]).status.success());
+    let a = worktree(&e, "fees");
+    write(&a.join("app/fee.py"), FEE);
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "fee above 10"]);
+    let o = gitta(&e, &e.repo, &["land", "fees"]);
+    assert!(!o.status.success() && text(&o).contains("below the team's 100%") && text(&o).contains("app/fee.py:3"), "{}", text(&o));
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_fee(self):\n        self.assertEqual(fee(3), 0)\n        self.assertEqual(fee(25), 15)\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "test above 10"]);
+    let o = gitta(&e, &e.repo, &["land", "fees"]);
+    assert!(o.status.success(), "{}", text(&o));
+}
+
+#[test]
+fn flaky_rerun_does_not_blame_the_agent_for_an_unrelated_test() {
+    let e = env("flaky");
+    fees(&e, "flaky_rerun = true\n");
+    // A test of something else that fails on its first run in a checkout and passes on the next.
+    write(&e.repo.join("tests/test_clock.py"), "import os, unittest\n\n\nclass Clock(unittest.TestCase):\n    def test_clock_sync(self):\n        first = not os.path.exists('.clock-ran')\n        open('.clock-ran', 'w').close()\n        self.assertFalse(first)\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "clock test"]);
+    let a = worktree(&e, "fees");
+    write(&a.join("app/fee.py"), FEE);
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_fee(self):\n        self.assertEqual(fee(25), 15)\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "fee above 10"]);
+    let o = gitta(&e, &e.repo, &["land", "fees"]);
+    assert!(o.status.success() && text(&o).contains("both results recorded as an intermittent failure"), "{}", text(&o));
+    let a = text(&gitta(&e, &e.repo, &["audit", "--json"]));
+    assert!(a.contains("\"intermittent\"") && a.contains("\"second_run\"") && a.contains("\"first_run\""), "{a}");
+}
+
+#[test]
+fn a_failure_only_in_combination_is_named_as_such() {
+    let e = env("alone");
+    fees(&e, "");
+    let (a, b) = (worktree(&e, "rename"), worktree(&e, "caller"));
+    // a renames fee to charge; b, started from the old base, adds code and a test that use fee.
+    write(&a.join("app/fee.py"), "def charge(n):\n    return 0\n");
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import charge\n\n\nclass T(unittest.TestCase):\n    def test_zero(self):\n        self.assertEqual(charge(0), 0)\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "rename fee to charge"]);
+    write(&b.join("app/bill.py"), "from app.fee import fee\n\n\ndef bill(n):\n    return n + fee(n)\n");
+    write(&b.join("tests/test_bill.py"), "import unittest\nfrom app.bill import bill\n\n\nclass B(unittest.TestCase):\n    def test_bill(self):\n        self.assertEqual(bill(2), 2)\n");
+    git(&b, &["add", "-A"]); git(&b, &["commit", "-qm", "bill"]);
+    assert!(gitta(&e, &e.repo, &["land", "rename"]).status.success());
+    let o = gitta(&e, &e.repo, &["land", "caller"]);
+    assert!(!o.status.success() && text(&o).contains("passes its tests on its own") && text(&o).contains("fails only combined"), "{}", text(&o));
+}
+
+#[test]
+fn a_broken_finish_points_at_the_last_version_that_passed() {
+    let e = env("green");
+    fees(&e, "");
+    let a = worktree(&e, "fees");
+    write(&a.join("app/fee.py"), FEE);
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_fee(self):\n        self.assertEqual(fee(25), 15)\n");
+    // The agent runs the tests in its session and they pass: gitta records that version as green.
+    let ev = serde_json::json!({"cwd": a.to_str().unwrap(), "hook_event_name": "PostToolUse", "tool_name": "Bash",
+        "tool_input": {"command": "python3 -m unittest -q"}, "tool_response": {"stdout": "", "stderr": "----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n"}});
+    gitta_in(&e, &a, &["hook", "claude"], &ev.to_string());
+    assert!(e.repo.join(".gitta/fees.green").exists(), "green checkpoint recorded");
+    // Then it breaks the work again before finishing.
+    write(&a.join("app/fee.py"), &FEE.replace("n - 10", "n + 10"));
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "fee"]);
+    let o = gitta(&e, &e.repo, &["land", "fees"]);
+    assert!(!o.status.success() && text(&o).contains("The tests passed on an earlier version of"), "{}", text(&o));
+}
+
+#[test]
+fn main_check_finds_the_change_that_broke_main_and_reverts_it() {
+    let e = env("maincheck");
+    fees(&e, "");
+    let ok = gitta(&e, &e.repo, &["main-check"]);
+    assert!(ok.status.success() && text(&ok).contains("passes its tests"), "{}", text(&ok));
+    // Three changes reach main without gitta: the middle one breaks the tests.
+    write(&e.repo.join("app/other.py"), "def other():\n    return 1\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "add other"]);
+    write(&e.repo.join("app/fee.py"), "def fee(n):\n    return 1\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "fee returns one"]);
+    let broken = git(&e.repo, &["rev-parse", "HEAD"]);
+    write(&e.repo.join("app/third.py"), "def third():\n    return 3\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "add third"]);
+    let o = gitta(&e, &e.repo, &["main-check"]);
+    assert!(!o.status.success() && text(&o).contains(&broken[..10]) && text(&o).contains("fee returns one"), "{}", text(&o));
+    let o = gitta(&e, &e.repo, &["main-check", "--revert"]);
+    assert!(o.status.success() && text(&o).contains("reverted"), "{}", text(&o));
+    assert_eq!(std::fs::read_to_string(e.repo.join("app/fee.py")).unwrap(), "def fee(n):\n    return 0\n");
+    assert!(e.repo.join("app/third.py").exists(), "later work stays");
+    assert!(gitta(&e, &e.repo, &["main-check"]).status.success());
+    assert!(text(&gitta(&e, &e.repo, &["audit", "--json"])).contains("\"reverted\""));
+}
+
+#[test]
+fn tests_for_lists_the_test_files_that_use_the_change() {
+    let e = env("testsfor");
+    fees(&e, "");
+    write(&e.repo.join("app/other.py"), "def other():\n    return 1\n");
+    write(&e.repo.join("tests/test_other.py"), "import unittest\nfrom app.other import other\n\n\nclass O(unittest.TestCase):\n    def test_other(self):\n        self.assertEqual(other(), 1)\n");
+    write(&e.repo.join("tests/test_alias.py"), "import unittest\nimport app.fee as f\n\n\nclass A(unittest.TestCase):\n    def test_alias(self):\n        self.assertEqual(f.fee(0), 0)\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "more tests"]);
+    let a = worktree(&e, "fees");
+    write(&a.join("app/fee.py"), FEE);
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "fee"]);
+    let out = text(&gitta(&e, &e.repo, &["tests-for", "fees"]));
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines, ["tests/test_alias.py", "tests/test_fee.py"], "{out}");
+}
+
+#[test]
+fn run_schedule_holds_a_task_that_touches_the_same_files_until_the_first_finishes() {
+    let e = env("schedule");
+    write(&e.repo.join("app/__init__.py"), "");
+    write(&e.repo.join("app/fee.py"), "def fee(n):\n    return 0\n");
+    write(&e.repo.join("README.md"), "# Shop\n");
+    git(&e.repo, &["add", "-A"]); git(&e.repo, &["commit", "-qm", "base"]);
+    let log = e.dir.join("order.log");
+    let cmd = format!("echo S $(basename \"$PWD\") >> {0}; sleep 1; echo E $(basename \"$PWD\") >> {0}", log.display());
+    let o = gitta(&e, &e.repo, &["run", "--task", "Raise the fee in app/fee.py above 10", "--task", "Add tests for fee.py", "--task", "Rewrite README.md", "--agent", "cmd", "--cmd", &cmd, "--schedule"]);
+    let out = text(&o);
+    assert!(o.status.success(), "{out}");
+    // Which workspace got which task.
+    let name = |task: &str| out.lines().find(|l| l.ends_with(task) && l.contains(" -> ")).and_then(|l| l.trim_start_matches("gitta: ").split(" -> ").next()).unwrap().to_string();
+    let (fee, tests, readme) = (name("Raise the fee in app/fee.py above 10"), name("Add tests for fee.py"), name("Rewrite README.md"));
+    assert!(out.contains(&format!("{tests} waits for {fee}: both tasks touch app/fee.py")), "{out}");
+    let order: Vec<String> = std::fs::read_to_string(&log).unwrap().lines().map(|l| l.to_string()).collect();
+    // Order by the workspace directory names the stand-in agent wrote.
+    let idx = |kind: &str, n: &str| order.iter().position(|l| l.starts_with(kind) && l.split_whitespace().nth(1).map_or(false, |w| w.contains(n))).unwrap_or_else(|| panic!("{kind} {n}: {order:?}"));
+    assert!(idx("S", &tests) > idx("E", &fee), "tests task started before the fee task ended: {order:?}");
+    assert!(idx("S", &readme) < idx("E", &fee), "the unrelated task should run alongside: {order:?}");
+}
+
+#[test]
+fn git_merge_runs_the_optional_checks_too() {
+    // Mutation testing on a plain git merge.
+    let e = env("hookchecks");
+    fees(&e, "mutation_budget = 3\n");
+    let a = worktree(&e, "fees");
+    write(&a.join("app/fee.py"), FEE);
+    write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_small(self):\n        self.assertEqual(fee(3), 0)\n");
+    git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "fee above 10"]);
+    let o = git_run(&e, &e.repo, &["merge", "--no-edit", "fees"]);
+    let out = text(&o);
+    // weakened_checks defaults to warn outside CI: reported and recorded, and the merge goes ahead.
+    assert!(o.status.success() && out.contains("still pass when line") && out.contains("merged anyway, because weakened_checks is warn"), "{out}");
+}
+
+#[test]
+fn gitta_team_refuses_to_send_the_token_over_plain_http_to_a_remote_host() {
+    // A bearer token over plain http to a remote host would travel in clear. gitta refuses it, unless the operator
+    // opts in for an http server behind a trusted TLS-terminating proxy.
+    let e = env("httprefuse");
+    shop(&e);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude"]).status.success());
+    let whoami = |extra: &[(&str, &str)]| {
+        let mut c = gitta_cmd();
+        c.env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("HOME", &e.home)
+            .env("GITTA_SERVER", "http://gitta.example.com").env("GITTA_SERVER_TOKEN", "SECRET-TOKEN");
+        for (k, v) in extra { c.env(k, v); }
+        c.args(["team", "whoami"]).current_dir(&e.repo).output().unwrap()
+    };
+    let o = whoami(&[]);
+    assert!(!o.status.success(), "plain http to a remote host must be refused: {}", text(&o));
+    assert!(text(&o).contains("in clear"), "the message should explain why: {}", text(&o));
+    // With the opt-in, gitta no longer refuses (it then only fails to reach the host, with no network here).
+    let o2 = whoami(&[("GITTA_SERVER_ALLOW_HTTP", "1")]);
+    assert!(!text(&o2).contains("in clear"), "the opt-in should lift the refusal: {}", text(&o2));
+}
+
+#[test]
+fn the_team_server_token_goes_on_the_wire_but_never_on_the_command_line() {
+    use std::io::Read;
+    use std::sync::{Arc, Mutex};
+    // A loopback mock server. Skips when the sandbox has no loopback networking (e.g. the offline container).
+    let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+        Ok(l) => l,
+        Err(_) => { eprintln!("skipping: no loopback networking in this sandbox"); return; }
+    };
+    let port = listener.local_addr().unwrap().port();
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+    let seen2 = seen.clone();
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut sock) = conn else { break };
+            let mut buf = [0u8; 8192];
+            let n = sock.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]);
+            if let Some(a) = req.lines().find(|l| l.to_ascii_lowercase().starts_with("authorization:")) {
+                seen2.lock().unwrap().push(a.trim().to_string());
+            }
+            let body = br#"{"name":"Anna Berg","kind":"person","email":"anna@example.com"}"#;
+            let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            use std::io::Write as _;
+            let _ = sock.write_all(resp.as_bytes());
+            let _ = sock.write_all(body);
+        }
+    });
+    let e = env("servertoken");
+    shop(&e);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude"]).status.success());
+    let url = format!("http://127.0.0.1:{port}");
+    let o = gitta_cmd().env("GITTA_NO_NOTIFY", "1").env("GITTA_NO_PROMPT", "1").env("HOME", &e.home)
+        .env("GITTA_SERVER", &url).env("GITTA_SERVER_TOKEN", "SECRET-TOKEN-XYZ")
+        .args(["team", "whoami"]).current_dir(&e.repo).output().unwrap();
+    assert!(text(&o).contains("Anna Berg"), "whoami should print the server's answer: {}", text(&o));
+    // Loopback http is allowed, and the token reached the server as a bearer header (curl got it on stdin).
+    let seen = seen.lock().unwrap();
+    assert!(seen.iter().any(|a| a == "Authorization: Bearer SECRET-TOKEN-XYZ"), "token should be delivered as a bearer header: {seen:?}");
 }
