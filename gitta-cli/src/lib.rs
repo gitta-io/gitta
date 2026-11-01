@@ -134,7 +134,7 @@ fn audit_main(c: &Config, by: &Path) {
         (f.len() >= 4).then(|| serde_json::json!({"commit": f[0], "author": f[1], "committer": f[2], "subject": f[3], "trailers": f.get(4).copied().unwrap_or("")}))
     }).collect();
     let ai = commits.iter().filter(|x| { let t = x["trailers"].as_str().unwrap_or("").to_lowercase(); t.contains("co-authored-by") && ["claude", "codex", "copilot", "cursor", "gpt", "openai", "anthropic", "gemini", "devin"].iter().any(|k| t.contains(k)) }).count();
-    let landed_by_gitta = commits.iter().all(|x| x["subject"].as_str().unwrap_or("").starts_with("gitta: land "));
+    let landed_by_gitta = commits.iter().all(|x| landed_by_gitta(x["subject"].as_str().unwrap_or(""), x["trailers"].as_str().unwrap_or("")));
     if landed_by_gitta { return; }   // `gitta land` already recorded it in full
     audit::record(root, "reached_main", "", &audit::actor(by), serde_json::json!({"onto": c.main, "from": last, "to": now, "commits": commits, "ai_co_authored": ai}));
 }
@@ -2084,7 +2084,7 @@ fn cmd_land(args: &[String]) {
         return;
     }
     let mut c = load(&root);
-    let name = args.first().cloned().unwrap_or_else(|| die("usage: gitta land <agent>|--all [--pr [--remote origin]]"));
+    let name = args.first().cloned().unwrap_or_else(|| die("usage: gitta land <agent>|--all [-m MESSAGE] [--pr [--remote origin]]"));
     let as_pr = args.iter().any(|a| a == "--pr");
     let remote = args.iter().position(|a| a == "--remote").and_then(|i| args.get(i + 1)).cloned().unwrap_or("origin".into());
     let a = agent(&c, &name).clone();
@@ -2232,8 +2232,8 @@ fn cmd_land(args: &[String]) {
     // Commit exactly the agent's paths: never gate output, caches or linked folders.
     let mut add = vec!["--literal-pathspecs", "add", "-A", "--"]; add.extend(mine.iter().map(String::as_str));
     git_ok(&tmp, &add);
-    git_ok(&tmp, &["-c", "user.name=gitta", "-c", "user.email=gitta@localhost", "commit", "-q", "-m", &format!("gitta: land {name}")]);
-    let new = git_ok(&tmp, &["rev-parse", "HEAD"]);
+    let tested = git_ok(&tmp, &["write-tree"]);
+    let new = land_commits(&tmp, &a, &name, &main, &tested, &mine, get_flag(args, "-m").as_deref());
     cleanup(&root, &tmp);
     if as_pr {
         // Hand off to the normal review flow: a branch with the gated, merged result and a pull request.
@@ -2831,6 +2831,70 @@ fn setup_submodules(root: &Path, wt: &Path) {
         if dst.exists() && std::fs::remove_dir(&dst).is_err() { continue; }
         link_dir(&src, &dst);
     }
+}
+
+/// The trailer that marks a commit `gitta land` made.
+fn landed_trailer(agent: &str) -> String { format!("Landed-by: gitta ({agent})") }
+
+/// Whether `gitta land` made this commit: the `Landed-by: gitta` trailer, or the subject prefix of older landings.
+fn landed_by_gitta(subject: &str, trailers: &str) -> bool {
+    subject.starts_with("gitta: land ") || trailers.split(';').any(|t| t.trim().starts_with("Landed-by: gitta"))
+}
+
+/// Build the landing on `main` in the checkout `tmp`, ending exactly at `tested`, the tree the gate passed.
+/// The agent's own commits are replayed one by one with their author and message; the person running gitta is the
+/// committer. What is left (uncommitted work, or how the merge combined it with main) becomes one commit by the
+/// person, with `msg` or a short summary of the files. Every commit carries the `Landed-by` trailer.
+fn land_commits(tmp: &Path, a: &Agent, name: &str, main: &str, tested: &str, mine: &BTreeSet<String>, msg: Option<&str>) -> String {
+    let who = |k: &str| String::from_utf8_lossy(&git(tmp, &["config", k]).stdout).trim().to_string();
+    let (pn, pe) = (who("user.name"), who("user.email"));
+    let (pn, pe) = if pn.is_empty() || pe.is_empty() { ("gitta".to_string(), "gitta@localhost".to_string()) } else { (pn, pe) };
+    let ident = |cmd: &mut Command| { cmd.env("GIT_COMMITTER_NAME", &pn).env("GIT_COMMITTER_EMAIL", &pe); };
+    let trailer = landed_trailer(name);
+    let with_trailer = |m: &str| {
+        let o = Command::new("git").arg("-C").arg(tmp).args(["interpret-trailers", "--trailer", &trailer]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()
+            .and_then(|mut ch| { ch.stdin.take().unwrap().write_all(m.as_bytes())?; ch.wait_with_output() });
+        o.ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_else(|| format!("{}\n\n{trailer}\n", m.trim_end()))
+    };
+    // commit-tree: a commit of exactly `tree` on `parent`, never touching hooks or the index.
+    let commit = |tree: &str, parent: &str, m: &str, author: Option<(&str, &str, &str)>| -> Option<String> {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(tmp).args(["commit-tree", tree, "-p", parent, "-F", "-"]);
+        ident(&mut cmd);
+        let (an, ae, ad) = author.unwrap_or((&pn, &pe, ""));
+        cmd.env("GIT_AUTHOR_NAME", an).env("GIT_AUTHOR_EMAIL", ae);
+        if !ad.is_empty() { cmd.env("GIT_AUTHOR_DATE", ad); }
+        let o = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+            .and_then(|mut ch| { ch.stdin.take().unwrap().write_all(with_trailer(m).as_bytes())?; ch.wait_with_output() }).ok()?;
+        o.status.success().then(|| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let mut head = main.to_string();
+    // The agent's own commits, oldest first. Each is replayed with a three-way merge of its own change onto the
+    // landing so far; when one does not apply cleanly, the rest goes into the final commit.
+    let tip = String::from_utf8_lossy(&git(Path::new(&a.path), &["rev-parse", "HEAD"]).stdout).trim().to_string();
+    let list = if tip.is_empty() { String::new() } else { String::from_utf8_lossy(&git(tmp, &["rev-list", "--reverse", "--no-merges", &format!("{}..{tip}", a.base)]).stdout).to_string() };
+    for c in list.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let parent = format!("{c}^");
+        let mt = git(tmp, &["merge-tree", "--write-tree", "--merge-base", &parent, &head, c]);
+        if !mt.status.success() { break; }
+        let tree = String::from_utf8_lossy(&mt.stdout).lines().next().unwrap_or("").trim().to_string();
+        let f = String::from_utf8_lossy(&git(tmp, &["log", "-1", "--format=%an%x00%ae%x00%ad%x00%B", "--date=raw", c]).stdout).to_string();
+        let p: Vec<&str> = f.splitn(4, '\0').collect();
+        if p.len() < 4 || tree.is_empty() { break; }
+        match commit(&tree, &head, p[3], Some((p[0], p[1], p[2]))) { Some(n) => head = n, None => break }
+    }
+    // The landing ends at exactly the tree the gate tested.
+    let now = git_ok(tmp, &["rev-parse", &format!("{head}^{{tree}}")]);
+    if now != tested || head == main {
+        let m = msg.map(str::to_string).unwrap_or_else(|| {
+            let files: Vec<&str> = mine.iter().map(String::as_str).collect();
+            let shown = files.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+            let more = if files.len() > 3 { format!(" and {} more", files.len() - 3) } else { String::new() };
+            format!("{name}: update {shown}{more}")
+        });
+        head = commit(tested, &head, &m, None).unwrap_or_else(|| die("land stopped: git could not write the landing commit"));
+    }
+    head
 }
 
 /// Take the checkout lock `lock`, first removing one whose holder has ended. The pid goes into a file of this claim
@@ -4527,7 +4591,7 @@ const SPECS: &[Spec] = &[
     Spec { name: "release", usage: "gitta release <agent> <module.symbol|path>\n  Drop a claim.", values: &[], flags: &[], text_after: Some(2) },
     Spec { name: "watch", usage: "gitta watch [--once]\n  What gitta does, as it happens, in plain words. Ctrl-C quits.", values: &[], flags: &["--once"], text_after: None },
     Spec { name: "approve", usage: "gitta approve <agent> <reason>\n  A person approves what Gitta holds back (weakened checks).", values: &[], flags: &[], text_after: Some(1) },
-    Spec { name: "land", usage: "gitta land <agent>|--all [--pr [--remote origin]]\n  Merge an agent's work onto the main branch after the gate passes.", values: &["--remote"], flags: &["--all", "--pr", "--fits"], text_after: None },
+    Spec { name: "land", usage: "gitta land <agent>|--all [-m MESSAGE] [--pr [--remote origin]]\n  Merge an agent's work onto the main branch after the gate passes. The agent's commits keep their author and message; -m names the commit for work it did not commit.", values: &["--remote", "-m"], flags: &["--all", "--pr", "--fits"], text_after: None },
     Spec { name: "adopt", usage: "gitta adopt [--onto BRANCH] [--gate CMD] [--all | PATH...]\ngitta adopt --reset <agent>\n  Coordinate worktrees another tool made; --reset restarts an agent whose start commit is gone.",
         values: &["--onto", "--gate", "--reset"], flags: &["--all"], text_after: None },
     Spec { name: "tests-for", usage: "gitta tests-for <agent>\n  The test files that use what an agent changed, so it can run those first.", values: &[], flags: &[], text_after: Some(1) },
@@ -4807,6 +4871,18 @@ mod zero_test_gate_tests {
         assert!(zero_tests("Tests: 5 passed, 5 total\n").is_none());
         assert!(zero_tests("  42 passing (1s)\n").is_none());
         assert!(zero_tests("running 3 tests\ntest result: ok. 3 passed; 0 failed\n").is_none());
+    }
+}
+
+#[cfg(test)]
+mod landed_trailer_tests {
+    use super::*;
+    #[test]
+    fn landings_are_known_by_trailer_or_old_prefix() {
+        assert!(landed_by_gitta("Add whisper", "Landed-by: gitta (docs)"));
+        assert!(landed_by_gitta("gitta: land docs", ""));
+        assert!(landed_by_gitta("Fix", "Signed-off-by: a <a@a>; Landed-by: gitta (x)"));
+        assert!(!landed_by_gitta("Fix", "Signed-off-by: a <a@a>"));
     }
 }
 

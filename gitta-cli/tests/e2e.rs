@@ -131,6 +131,26 @@ fn the_gate_checkout_has_submodule_contents() {
 }
 
 #[test]
+fn a_landing_keeps_the_agents_commits_and_names_the_person() {
+    let e = env("landauthor");
+    shop(&e);
+    git(&e.repo, &["config", "user.name", "Ada Person"]); git(&e.repo, &["config", "user.email", "ada@example.com"]);
+    assert!(gitta(&e, &e.repo, &["init", "--no-claude"]).status.success());
+    let a = worktree(&e, "docs");
+    write(&a.join("README.md"), "# shop\n");
+    git(&a, &["add", "-A"]);
+    git(&a, &["-c", "user.name=Agent Bot", "-c", "user.email=bot@example.com", "commit", "-qm", "Write the README"]);
+    write(&a.join("shop/text.py"), "def shout(s):\n    return s.upper()\n\n\ndef whisper(s):\n    return s.lower()\n");
+    let o = gitta(&e, &e.repo, &["land", "docs", "-m", "Add whisper"]);
+    assert!(o.status.success(), "{}", text(&o));
+    let log = git(&e.repo, &["log", "-2", "--format=%an <%ae>|%cn|%s|%(trailers:key=Landed-by,valueonly)"]);
+    let lines: Vec<&str> = log.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(lines[0].starts_with("Ada Person <ada@example.com>|Ada Person|Add whisper|gitta (docs)"), "{log}");
+    assert!(lines[1].starts_with("Agent Bot <bot@example.com>|Ada Person|Write the README|gitta (docs)"), "{log}");
+    assert!(!log.contains("gitta: land"), "{log}");
+}
+
+#[test]
 fn each_gate_run_starts_without_earlier_build_output() {
     // gitta reuses its gate checkouts. Ignored build output from one candidate must not be there for the next.
     let e = env("cleangate");

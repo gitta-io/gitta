@@ -47,7 +47,8 @@
 <p>You merge with <code>git merge</code>, <code>git pull</code> or <code>git push</code>. The hooks that <code>gitta init</code> adds run the checks. See <a href="landing.html">Merging</a>. The commands below are optional.</p>
 <table>
   <tr><th>Command</th><th>What it does</th></tr>
-  <tr><td><code>gitta land &lt;agent&gt;</code></td><td>Optional. Check, merge, run the gate, and move main forward by one commit, in one command.</td></tr>
+  <tr><td><code>gitta land &lt;agent&gt;</code></td><td>Optional. Check, merge, run the gate, and move main forward, in one command. The agent's own commits land with their author and message.</td></tr>
+  <tr><td><code>-m "MESSAGE"</code></td><td>The message for the commit that holds the agent's uncommitted work. Without it, gitta names the changed files.</td></tr>
   <tr><td><code>gitta land --all</code></td><td>Optional. Land every agent, in dependency order.</td></tr>
   <tr><td><code>gitta land &lt;agent&gt; --pr [--remote origin]</code></td><td>Push the checked result to <code>gitta/pr/&lt;agent&gt;</code> and open a pull request.</td></tr>
   <tr><td><code>gitta approve &lt;agent&gt; &lt;reason&gt;</code></td><td>Optional. A recorded override for a repository that sets <code>weakened_checks</code> to <code>block</code>. A person accepts this agent's current weakened checks, and the reason goes into the audit trail. It runs only at a person's terminal, outside agent sessions and workspaces, and covers only these exact findings.</td></tr>

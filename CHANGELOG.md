@@ -14,6 +14,7 @@
 
 ### Merges and teamwork
 
+- `gitta land` keeps your history readable. The agent's own commits land with their author and message, and its uncommitted work lands in your name with the message you give with `-m`. A `Landed-by: gitta` trailer marks each landed commit.
 - An agent's claims end when `gitta land` merges its work or its worktree is removed, so others can take that code at once. When a landing touches code another agent claimed, gitta says so.
 - A failed merge names the last version of the work that passed, and tells you when the work fails only together with other work. With `flaky_rerun = true`, a test that fails at random gets one more run, and the agent is not blamed.
 - `gitta main-check` finds the change that broke main and the agent that merged it, and can undo it. `gitta tests-for` lists the tests to run first for an agent's work.
