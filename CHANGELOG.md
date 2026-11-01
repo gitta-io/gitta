@@ -30,6 +30,7 @@
 
 ### Fixes
 
+- Projects with submodules now pass the gate when they pass in your own checkout. gitta gives its test checkout the submodules from your main checkout, with no clone and no network.
 - A refused merge prints each finding once, with clearer notes and paths relative to the repository.
 - gitta exits quietly when the program that reads its output stops early, as in `gitta init | head -1`.
 - The limit on how many tests run at once now holds exactly.

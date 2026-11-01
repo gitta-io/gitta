@@ -2738,6 +2738,7 @@ impl Wt {
             let tmp = tempdir(&slot);
             git_ok(root, &["worktree", "add", "-q", "--detach", tmp.to_str().unwrap(), rev]);
             for l in gate_links(link) { let src = root.join(l); if src.exists() && !tmp.join(l).exists() { link_dir(&src, &tmp.join(l)); } }
+            setup_submodules(root, &tmp);
             return Wt { path: tmp, root: root.to_path_buf(), lock: None };
         }
         let ok = path.join(".git").exists()
@@ -2750,6 +2751,7 @@ impl Wt {
             git_ok(root, &["worktree", "add", "-q", "--detach", path.to_str().unwrap(), rev]);
         }
         for l in gate_links(link) { let src = root.join(l); if src.exists() && !path.join(l).exists() { link_dir(&src, &path.join(l)); } }
+        setup_submodules(root, &path);
         Wt { path, root: root.to_path_buf(), lock: Some(lock) }
     }
     fn release(&self) {
@@ -2757,6 +2759,46 @@ impl Wt {
             Some(l) => { std::fs::remove_file(l).ok(); }
             None => { git(&self.root, &["worktree", "remove", "--force", self.path.to_str().unwrap()]); }
         }
+    }
+}
+
+/// Give a gate checkout the contents of its submodules, from the main checkout: no clone and no network.
+/// `git worktree add` and `git checkout` leave submodule folders empty, so a gate that builds with a submodule
+/// failed in gitta's checkout though it passed in the main one. A submodule is linked in only when it is safe and
+/// right: its path from `.gitmodules` (agent work can change that file) stays inside both checkouts and passes no
+/// link, the main checkout's submodule is a plain folder at exactly the commit the checked out code records, and
+/// it has no uncommitted edits. Otherwise the folder stays empty, as before.
+fn setup_submodules(root: &Path, wt: &Path) {
+    if !wt.join(".gitmodules").is_file() { return; }
+    let out = git(wt, &["config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"]);
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let Some((_, rel)) = line.split_once(' ') else { continue };
+        let rel = Path::new(rel.trim());
+        if rel.as_os_str().is_empty() || !rel.components().all(|c| matches!(c, std::path::Component::Normal(_))) { continue; }
+        // No link on the way, in either checkout: a linked parent folder could point anywhere.
+        let plain = |base: &Path, last_dir: bool| {
+            let mut p = base.to_path_buf();
+            let n = rel.components().count();
+            rel.components().enumerate().all(|(i, c)| {
+                p.push(c);
+                match std::fs::symlink_metadata(&p) { Ok(m) => m.is_dir() && !m.file_type().is_symlink(), Err(_) => i + 1 == n && !last_dir }
+            })
+        };
+        let (src, dst) = (root.join(rel), wt.join(rel));
+        if !plain(root, true) || !plain(wt, false) { continue; }
+        if std::fs::read_dir(&dst).map(|mut d| d.next().is_some()).unwrap_or(false) { continue; }
+        let Some(rs) = rel.to_str() else { continue };
+        // The commit the checked out code records for the submodule, and the one the main checkout has.
+        let want = String::from_utf8_lossy(&git(wt, &["rev-parse", "-q", "--verify", &format!("HEAD:{rs}")]).stdout).trim().to_string();
+        let have = git(&src, &["rev-parse", "HEAD"]);
+        if want.is_empty() || !have.status.success() || String::from_utf8_lossy(&have.stdout).trim() != want { continue; }
+        // Its own repository (not the superproject's), with nothing uncommitted.
+        let top = String::from_utf8_lossy(&git(&src, &["rev-parse", "--show-toplevel"]).stdout).trim().to_string();
+        if std::fs::canonicalize(&top).ok() != std::fs::canonicalize(&src).ok() { continue; }
+        let dirty = git(&src, &["status", "--porcelain", "--untracked-files=no"]);
+        if !dirty.status.success() || !dirty.stdout.is_empty() { continue; }
+        if dst.exists() && std::fs::remove_dir(&dst).is_err() { continue; }
+        link_dir(&src, &dst);
     }
 }
 
