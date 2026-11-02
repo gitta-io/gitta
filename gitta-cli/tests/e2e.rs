@@ -2066,14 +2066,14 @@ fn run_schedule_holds_a_task_that_touches_the_same_files_until_the_first_finishe
 fn git_merge_runs_the_optional_checks_too() {
     // Mutation testing on a plain git merge.
     let e = env("hookchecks");
-    fees(&e, "mutation_budget = 3\n");
+    fees(&e, "mutation_budget = 3\nweakened_checks = \"warn\"\n");
     let a = worktree(&e, "fees");
     write(&a.join("app/fee.py"), FEE);
     write(&a.join("tests/test_fee.py"), "import unittest\nfrom app.fee import fee\n\n\nclass T(unittest.TestCase):\n    def test_small(self):\n        self.assertEqual(fee(3), 0)\n");
     git(&a, &["add", "-A"]); git(&a, &["commit", "-qm", "fee above 10"]);
     let o = git_run(&e, &e.repo, &["merge", "--no-edit", "fees"]);
     let out = text(&o);
-    // weakened_checks defaults to warn outside CI: reported and recorded, and the merge goes ahead.
+    // With weakened_checks = warn (set here, since CI defaults to block): reported and recorded, and the merge goes ahead.
     assert!(o.status.success() && out.contains("still pass when line") && out.contains("merged anyway, because weakened_checks is warn"), "{out}");
 }
 
