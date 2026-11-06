@@ -102,8 +102,11 @@ fn plain_log(root: &Path, t: f64, text: &str) {
 }
 fn refuse(root: &Path, agent: &str, msg: &str) -> ! { log(root, "refused", agent, msg); die(msg) }
 /// A refused landing, also recorded in the audit trail with the check that stopped it.
-fn refuse_land(root: &Path, agent: &str, check: &str, msg: &str) -> ! {
-    audit::record(root, "land_refused", agent, &audit::actor(root), serde_json::json!({"check": check, "reason": msg.lines().next().unwrap_or("").trim_start_matches("land refused: ")}));
+fn refuse_land(root: &Path, agent: &str, check: &str, msg: &str) -> ! { refuse_land_with(root, agent, serde_json::json!({"check": check}), msg) }
+/// `refuse_land` with more fields for the audit event.
+fn refuse_land_with(root: &Path, agent: &str, mut data: serde_json::Value, msg: &str) -> ! {
+    data["reason"] = serde_json::json!(msg.lines().next().unwrap_or("").trim_start_matches("land refused: "));
+    audit::record(root, "land_refused", agent, &audit::actor(root), data);
     refuse(root, agent, msg)
 }
 /// The coding tool behind a workspace, from where it lives.
@@ -1332,6 +1335,11 @@ fn cmd_status(args: &[String]) {
     }
     let target = c.main.trim_start_matches("refs/heads/");
     println!("{target} is the branch gitta merges finished work into.{}", c.gate.as_ref().map(|g| format!(" Before each merge it runs `{g}` on {target} combined with the agent's changes.")).unwrap_or_default());
+    let red = c.gate.as_deref().and_then(|g| githooks::main_failed(Path::new(&c.root), g, &c.main));
+    if let Some(f) = &red {
+        println!("The tests failed on {target} alone when gitta last ran them{}. Merges stop on that failure until {target} is fixed.", f.first().map(|t| format!(" ({t})")).unwrap_or_default());
+    }
+    let once = format!("ready to merge once {target} passes its tests");
     let _ = std::io::stdout().flush();
     prof("status: first line");
     // Scans and pairs first; each agent's own checks then run a few at a time, and its line is printed as soon as
@@ -1354,7 +1362,7 @@ fn cmd_status(args: &[String]) {
         let merged = merged_at(root, &a.name).map(|t| format!("merged into {target} at {}, no new changes since", clock(t)));
         let state = if mine.is_empty() { merged.as_deref().unwrap_or("no changes yet") } else if has("tests") { "its last merge failed the tests on the combined code" }
             else if has("approval") { "removes tests or weakens a check; reported when merged, and .gitta.toml decides whether that stops the merge" }
-            else { "ready to merge" };
+            else if red.is_some() { &once } else { "ready to merge" };
         let count = if mine.is_empty() && merged.is_some() { String::new() } else { format!("{} {} changed, ", mine.len(), if mine.len() == 1 { "file" } else { "files" }) };
         let shown_n = if n > BEHIND_CAP { format!("{BEHIND_CAP}+") } else { n.to_string() };
         let mut lines = vec![format!("  {:4} {count}{state}{}", a.name,
@@ -2144,11 +2152,11 @@ fn cmd_land(args: &[String]) {
         println!("gitta: gate `{gate}` on the merged candidate...");
         let t0 = std::time::Instant::now();
         let _slot = acquire_gate_slot(&root, gate_cap(&c));
-        let (mut ok, mut out, code, _timed) = run_gate(gate, &tmp, _slot.path(), gate_timeout(&c));
+        let (mut ok, mut out, code, timed) = run_gate(gate, &tmp, _slot.path(), gate_timeout(&c));
         // A failing test that has nothing to do with this agent's change may be flaky. With flaky_rerun = true in
         // .gitta.toml it runs once more; a pass then is recorded with both results as an intermittent failure, not blamed on the agent. A failing
         // test whose name mentions a file the agent changed is never rerun.
-        if !ok && !_timed && team_setting(&root, "flaky_rerun").as_deref() == Some("true") {
+        if !ok && !timed && team_setting(&root, "flaky_rerun").as_deref() == Some("true") {
             let failing = failing_tests(&out);
             let stems: Vec<String> = mine.iter().filter(|p| !gitta_core::guard::is_test(p))
                 .filter_map(|p| Path::new(p).file_stem().map(|s| s.to_string_lossy().to_lowercase())).filter(|s| s.len() > 2).collect();
@@ -2190,23 +2198,37 @@ fn cmd_land(args: &[String]) {
                 std::process::exit(3);
             }
             let failing = failing_tests(&out);
-            let defs = landed_definitions(&root, &a.base, &main, &mh);
-            save_test_hold(&root, &a, &mine, &main, &failing, &out, &defs);
             // Record the failure package for the exact candidate that was tested, so it can be reproduced and
             // handed off. The tested tree is committed (dangling) so a rerun can check it out. The merged files are only
             // on disk: stage exactly the agent's paths, as a landing does, or write-tree records main's tree.
             let mut add = vec!["--literal-pathspecs", "add", "-A", "--"]; add.extend(mine.iter().map(String::as_str));
             git_ok(&tmp, &add);
             let ctree = git_ok(&tmp, &["write-tree"]);
+            let ccommit = if ctree.is_empty() { String::new() } else { String::from_utf8_lossy(&git(&tmp, &["-c", "user.name=gitta", "-c", "user.email=gitta@localhost", "commit-tree", &ctree, "-p", &main, "-m", "gitta candidate"]).stdout).trim().to_string() };
+            let target = c.main.trim_start_matches("refs/heads/");
+            drop(_slot);   // the run on main alone below takes its own
+            // Tests that already fail on main alone are not this agent's to fix.
+            let (base_fails, base_only) = if timed { (None, false) } else {
+                println!("gitta: checking whether the tests also fail on {target} alone...");
+                GATE_QUIET.store(true, std::sync::atomic::Ordering::Relaxed);
+                let r = githooks::test_base(&root, &c, gate, &main, &failing);
+                GATE_QUIET.store(false, std::sync::atomic::Ordering::Relaxed);
+                r
+            };
+            let defs = landed_definitions(&root, &a.base, &main, &mh);
+            if base_only { let _ = std::fs::remove_file(root.join(".gitta").join(format!("{name}.held"))); } else { save_test_hold(&root, &a, &mine, &main, &failing, &out, &defs); }
             if !ctree.is_empty() {
-                let ccommit = String::from_utf8_lossy(&git(&tmp, &["-c", "user.name=gitta", "-c", "user.email=gitta@localhost", "commit-tree", &ctree, "-p", &main, "-m", "gitta candidate"]).stdout).trim().to_string();
                 let tip = git_ok(Path::new(&a.path), &["rev-parse", "HEAD"]);
-                githooks::write_failure_package(&root, &c, &main, &tip, &ccommit, &ctree, &failing, &out);
+                githooks::write_failure_package(&root, &c, &main, &tip, &ccommit, &ctree, &failing, &out, base_fails);
             }
             let first = failing.first().map(|t| format!(" First failing test: {t}.")).unwrap_or_default();
             let errs = first_errors(&out, 6);
             let errs = if errs.is_empty() { String::new() } else { format!("\n{}", errs.iter().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")) };
-            let defs = defs.iter().map(|d| format!("\nNow on {}: {d}", c.main.trim_start_matches("refs/heads/"))).collect::<String>();
+            let data = serde_json::json!({"check": "tests", "base_fails": base_fails});
+            if base_only {
+                refuse_land_with(&root, &name, data, &format!("land refused: the tests already fail on {target} without {name_p} work, so nothing was merged. The fault is on {target}, not in {name_p} work.{first}{errs}\nFix {target} first, then run the same command again."))
+            }
+            let defs = defs.iter().map(|d| format!("\nNow on {target}: {d}")).collect::<String>();
             let green = std::fs::read_to_string(root.join(".gitta").join(format!("{name}.green"))).ok()
                 .filter(|t| worktree_tree(Path::new(&a.path)).as_deref() != Some(t.as_str()))
                 .map(|t| format!("\nThe tests passed on an earlier version of {name_p} work. `git diff {} -- .` in its workspace shows what changed since.", &t[..t.len().min(12)]))
@@ -2216,13 +2238,14 @@ fn cmd_land(args: &[String]) {
             let alone = if a.base != main {
                 let w2 = Wt::open(&root, "alone", &a.base, &c.link);
                 for p in &mine { match theirs.get(p) { Some(b) => { let f = w2.path.join(p); if let Some(d) = f.parent() { std::fs::create_dir_all(d).ok(); } std::fs::write(f, b).ok(); } None => { let _ = std::fs::remove_file(w2.path.join(p)); } } }
-                let (ok_alone, _, _, _) = run_gate(gate, &w2.path, _slot.path(), gate_timeout(&c));
+                let slot = acquire_gate_slot(&root, gate_cap(&c));
+                let (ok_alone, _, _, _) = run_gate(gate, &w2.path, slot.path(), gate_timeout(&c));
                 w2.release();
                 audit::record(&root, "alone_vs_combined", &name, &audit::actor(&root), serde_json::json!({"alone": ok_alone, "combined": false}));
                 if ok_alone { format!("\n{name_p} work passes its tests on its own. It fails only combined with work that reached {} since it started, so the two changes do not fit together.", c.main.trim_start_matches("refs/heads/")) } else { String::new() }
             } else { String::new() };
             let defs = format!("{defs}{green}{alone}");
-            refuse_land(&root, &name, "tests", &format!("land refused: the tests failed on {name_p} work combined with what is already merged, so nothing was merged.{first}{errs}{defs}\nFix the code, then run the same command again."))
+            refuse_land_with(&root, &name, data, &format!("land refused: the tests failed on {name_p} work combined with what is already merged, so nothing was merged.{first}{errs}{defs}\nFix the code, then run the same command again."))
         }
         match after_gate(&root, &c, &name, &a.base, &mine, &tmp, gate, _slot.path(), &main, &out) {
             Ok(n) => { if n.is_some() { tests_ran_now = n; } }
@@ -3893,7 +3916,7 @@ fn mcp_tools() -> serde_json::Value {
         {"name": "gitta_claim", "description": "Claim a symbol (module.name) or path you will change.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "target": {"type": "string"}, "note": {"type": "string"}}, "required": ["target"]}},
         {"name": "gitta_release", "description": "Release a claim.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "target": {"type": "string"}}, "required": ["target"]}},
         {"name": "gitta_conflict", "description": "Use this when the tests and your task contradict each other, or a test cannot pass without changing what it checks. Do NOT edit, skip or weaken the tests to make them pass. gitta records the conflict, holds your work for a person and tells you what to say to the user.", "inputSchema": {"type": "object", "properties": {"path": path, "agent": agent, "reason": {"type": "string", "description": "which test and which part of the task contradict each other"}}, "required": ["reason"]}},
-        {"name": "gitta_failures", "description": "Recorded integration failures you can repair. With no id, lists them; with an id, shows that reproducible package: base/incoming/candidate revisions, the gate command, an environment fingerprint, the failing output and a rerun command. 'reproduced' is true only after a rerun confirmed the failure.", "inputSchema": {"type": "object", "properties": {"path": path, "id": {"type": "string"}}}}
+        {"name": "gitta_failures", "description": "Recorded integration failures you can repair. With no id, lists them; with an id, shows that reproducible package: base/incoming/candidate revisions, the gate command, an environment fingerprint, the failing output and a rerun command. 'reproduced' is true only after a rerun confirmed the failure; 'base_fails' is true when the gate failed on the base alone too.", "inputSchema": {"type": "object", "properties": {"path": path, "id": {"type": "string"}}}}
     ])
 }
 
@@ -4062,6 +4085,7 @@ fn status_json(c: &Config) -> serde_json::Value {
         "main": git_ok(root, &["rev-parse", "--short", &c.main]),
         "repo": root.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
         "target": c.main.trim_start_matches("refs/heads/"), "gate": c.gate, "landings": landings, "root": c.root,
+        "main_fails": c.gate.as_deref().and_then(|g| githooks::main_failed(root, g, &c.main)),
         "agents": c.agents.iter().filter(|a| !v.skipped.iter().any(|s| s.0 == a.name)).map(|a| {
             let mine = &v.changes[&a.name];
             let wt = Path::new(&a.path);
