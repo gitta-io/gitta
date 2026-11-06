@@ -2852,6 +2852,8 @@ fn land_commits(tmp: &Path, a: &Agent, name: &str, main: &str, tested: &str, min
     let ident = |cmd: &mut Command| { cmd.env("GIT_COMMITTER_NAME", &pn).env("GIT_COMMITTER_EMAIL", &pe); };
     let trailer = landed_trailer(name);
     let with_trailer = |m: &str| {
+        // A final newline: without one, git 2.43 puts the trailer on the next line with no blank line, so it joins the subject.
+        let m = format!("{}\n", m.trim_end());
         let o = Command::new("git").arg("-C").arg(tmp).args(["interpret-trailers", "--trailer", &trailer]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()
             .and_then(|mut ch| { ch.stdin.take().unwrap().write_all(m.as_bytes())?; ch.wait_with_output() });
         o.ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_else(|| format!("{}\n\n{trailer}\n", m.trim_end()))
